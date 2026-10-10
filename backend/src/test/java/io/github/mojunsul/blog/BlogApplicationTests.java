@@ -1,10 +1,9 @@
 package io.github.mojunsul.blog;
 
+import io.github.mojunsul.blog.support.IntegrationTestSupport;
 import org.junit.jupiter.api.Test;
-import org.springframework.boot.test.context.SpringBootTest;
 
-@SpringBootTest
-class BlogApplicationTests {
+class BlogApplicationTests extends IntegrationTestSupport {
 
 	@Test
 	void contextLoads() {

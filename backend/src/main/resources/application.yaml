@@ -1,3 +1,22 @@
 spring:
   application:
     name: blog
+  profiles:
+    default: local   # 운영은 SPRING_PROFILES_ACTIVE=prod
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: validate
+    properties:
+      hibernate:
+        jdbc:
+          time_zone: UTC
+
+server:
+  forward-headers-strategy: framework
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health

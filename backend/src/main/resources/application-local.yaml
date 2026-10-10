@@ -1,0 +1,11 @@
+spring:
+  datasource:
+    url: jdbc:postgresql://localhost:5432/blog
+    username: blog
+    password: blog
+
+springdoc:
+  api-docs:
+    enabled: true
+  swagger-ui:
+    enabled: true
