@@ -12,7 +12,7 @@
 cd backend && ./gradlew bootRun
 cd backend && ./gradlew test
 
-# frontend (Node >= 20.9 필수, frontend/.nvmrc 참고 — `nvm use`)
+# frontend (Node >= 20.9 필수)
 cd frontend && npm run dev
 cd frontend && npm run lint && npx tsc --noEmit
 cd frontend && npm run build
