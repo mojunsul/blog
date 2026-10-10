@@ -34,5 +34,7 @@ cd frontend && npm run build
 - `frontend/src/types/api.d.ts`는 생성 파일이지만 커밋한다. 직접 수정 금지 (`npm run gen:api`).
 
 ## Git
-- `main` 직접 push 금지. 브랜치: `feat/#이슈번호-설명`. 커밋: Conventional Commits.
+- `main` 직접 push 금지. 브랜치: `feat/#이슈번호-설명`.
+- 커밋: Conventional Commits. 접두사(`feat:`, `fix:` 등)는 영어, **제목과 본문은 한국어**.
+  - 제목은 한 줄로 간결하게(`feat: 공통 예외 처리 추가`), 본문은 필요할 때만 `-` 목록으로.
 - 이슈 하나 = PR 하나. 마일스톤(M0~M6)은 문서 13장.
