@@ -1,12 +1,12 @@
 package io.github.mojunsul.blog;
 
-import io.github.mojunsul.blog.support.IntegrationTestSupport;
 import org.junit.jupiter.api.Test;
+
+import io.github.mojunsul.blog.support.IntegrationTestSupport;
 
 class BlogApplicationTests extends IntegrationTestSupport {
 
 	@Test
-	void contextLoads() {
-	}
+	void contextLoads() {}
 
 }

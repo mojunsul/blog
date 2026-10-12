@@ -1,7 +1,7 @@
 package io.github.mojunsul.blog.global.exception;
 
-import jakarta.servlet.http.HttpServletRequest;
 import java.util.List;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpHeaders;
@@ -15,6 +15,8 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.context.request.WebRequest;
 import org.springframework.web.method.annotation.HandlerMethodValidationException;
 import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExceptionHandler;
+
+import jakarta.servlet.http.HttpServletRequest;
 
 /** 모든 에러를 ProblemDetail(RFC 9457) + 확장 필드 {@code code}, {@code errors}로 변환한다. */
 @RestControllerAdvice
@@ -38,28 +40,28 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
 
 	@Override
 	protected ResponseEntity<Object> handleMethodArgumentNotValid(MethodArgumentNotValidException e,
-			HttpHeaders headers, HttpStatusCode status, WebRequest request) {
+		HttpHeaders headers, HttpStatusCode status, WebRequest request) {
 		List<FieldError> errors = e.getBindingResult().getFieldErrors().stream()
-				.map(f -> new FieldError(f.getField(), f.getDefaultMessage()))
-				.toList();
+			.map(f -> new FieldError(f.getField(), f.getDefaultMessage()))
+			.toList();
 		return handleExceptionInternal(e, invalidInput(errors), headers, HttpStatus.BAD_REQUEST, request);
 	}
 
 	@Override
 	protected ResponseEntity<Object> handleHandlerMethodValidationException(HandlerMethodValidationException e,
-			HttpHeaders headers, HttpStatusCode status, WebRequest request) {
+		HttpHeaders headers, HttpStatusCode status, WebRequest request) {
 		List<FieldError> errors = e.getParameterValidationResults().stream()
-				.flatMap(r -> r.getResolvableErrors().stream()
-						.map(err -> new FieldError(r.getMethodParameter().getParameterName(),
-								err.getDefaultMessage())))
-				.toList();
+			.flatMap(r -> r.getResolvableErrors().stream()
+				.map(err -> new FieldError(r.getMethodParameter().getParameterName(),
+					err.getDefaultMessage())))
+			.toList();
 		return handleExceptionInternal(e, invalidInput(errors), headers, HttpStatus.BAD_REQUEST, request);
 	}
 
 	/** 프레임워크가 만든 ProblemDetail(JSON 파싱 실패, 405 등)에도 {@code errors}와 400의 {@code code}를 채운다. */
 	@Override
 	protected ResponseEntity<Object> createResponseEntity(Object body, HttpHeaders headers,
-			HttpStatusCode statusCode, WebRequest request) {
+		HttpStatusCode statusCode, WebRequest request) {
 		if (body instanceof ProblemDetail pd) {
 			if (pd.getProperties() == null || !pd.getProperties().containsKey("errors")) {
 				pd.setProperty("errors", List.of());

@@ -11,6 +11,7 @@
 # backend (Java 21)
 cd backend && ./gradlew bootRun
 cd backend && ./gradlew test
+cd backend && ./gradlew spotlessApply   # 포맷 적용 (CI는 build에 포함된 spotlessCheck로 검사)
 
 # frontend (Node >= 20.9 필수)
 cd frontend && npm run dev
@@ -32,6 +33,10 @@ cd frontend && npm run build
 - Markdown 렌더링에 `rehype-raw` 금지.
 - 저장소는 Public: `.env`, 비밀번호, 시크릿, 해시를 커밋하지 않는다. 환경변수 목록은 `infra/.env.example`(값 비움).
 - `frontend/src/types/api.d.ts`는 생성 파일이지만 커밋한다. 직접 수정 금지 (`npm run gen:api`).
+
+## 포맷
+- 백엔드는 네이버 핵데이 Java 컨벤션(탭, 120자). 커밋 전 `./gradlew spotlessApply`. 설정은 `backend/config/naver/`(직접 수정 금지).
+- 프론트엔드 포맷 도구는 아직 없다 (ESLint만).
 
 ## 주석
 - 기본은 주석 없이 이름으로 의도를 드러낸다. 주석을 달기 전에 이름부터 고친다.
