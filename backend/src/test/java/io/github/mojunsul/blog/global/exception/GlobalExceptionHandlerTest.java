@@ -1,5 +1,7 @@
 package io.github.mojunsul.blog.global.exception;
 
+import static org.hamcrest.Matchers.containsString;
+import static org.hamcrest.Matchers.not;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
@@ -53,7 +55,8 @@ class GlobalExceptionHandlerTest {
 	}
 
 	@Test
-	void businessException() throws Exception {
+	void 비즈니스_예외는_ErrorCode의_상태와_코드로_응답한다() throws Exception {
+		// when & then
 		mockMvc.perform(get("/test/business"))
 			.andExpect(status().isNotFound())
 			.andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
@@ -64,7 +67,8 @@ class GlobalExceptionHandlerTest {
 	}
 
 	@Test
-	void validationFailure() throws Exception {
+	void 검증에_실패하면_400과_필드별_오류를_응답한다() throws Exception {
+		// when & then
 		mockMvc.perform(post("/test/validate").contentType(MediaType.APPLICATION_JSON).content("{\"title\":\"\"}"))
 			.andExpect(status().isBadRequest())
 			.andExpect(jsonPath("$.code").value("INVALID_INPUT"))
@@ -73,7 +77,8 @@ class GlobalExceptionHandlerTest {
 	}
 
 	@Test
-	void malformedJson() throws Exception {
+	void JSON_형식이_잘못되면_400으로_응답한다() throws Exception {
+		// when & then
 		mockMvc.perform(post("/test/validate").contentType(MediaType.APPLICATION_JSON).content("{"))
 			.andExpect(status().isBadRequest())
 			.andExpect(jsonPath("$.code").value("INVALID_INPUT"))
@@ -81,10 +86,11 @@ class GlobalExceptionHandlerTest {
 	}
 
 	@Test
-	void unexpectedExceptionHidesInternals() throws Exception {
+	void 예상하지_못한_예외는_500으로_응답하고_내부_정보를_숨긴다() throws Exception {
+		// when & then
 		mockMvc.perform(get("/test/unexpected"))
 			.andExpect(status().isInternalServerError())
 			.andExpect(jsonPath("$.code").value("INTERNAL_ERROR"))
-			.andExpect(content().string(org.hamcrest.Matchers.not(org.hamcrest.Matchers.containsString("secret"))));
+			.andExpect(content().string(not(containsString("secret"))));
 	}
 }
