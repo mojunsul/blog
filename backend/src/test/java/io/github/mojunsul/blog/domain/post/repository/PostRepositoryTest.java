@@ -27,10 +27,28 @@ class PostRepositoryTest extends RepositoryTestSupport {
 		postRepository.save(PostFixture.draft("draft"));
 
 		// when
-		var page = postRepository.findAllByStatus(PostStatus.PUBLISHED, PageRequest.of(0, 10));
+		var page = postRepository.findAllByStatusOrderByPublishedAtDescIdDesc(PostStatus.PUBLISHED,
+			PageRequest.of(0, 10));
 
 		// then
 		assertThat(page.getContent()).extracting(Post::getSlug).containsExactly("published");
+	}
+
+	@Test
+	void 발행_시각_내림차순으로_조회하고_같으면_id_내림차순이다() {
+		// given
+		Instant same = Instant.parse("2026-10-13T01:00:00Z");
+		postRepository.save(PostFixture.published("same-first", same));
+		postRepository.save(PostFixture.published("newest", same.plusSeconds(60)));
+		postRepository.save(PostFixture.published("same-second", same));
+
+		// when
+		var page = postRepository.findAllByStatusOrderByPublishedAtDescIdDesc(PostStatus.PUBLISHED,
+			PageRequest.of(0, 10));
+
+		// then
+		assertThat(page.getContent()).extracting(Post::getSlug)
+			.containsExactly("newest", "same-second", "same-first");
 	}
 
 	@Test
