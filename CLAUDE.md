@@ -47,8 +47,20 @@ cd frontend && npm run build
 - 할 일 주석은 `// TODO(#이슈번호): 내용` 형식으로, 이슈 번호를 반드시 단다.
 - Javadoc은 위 "왜" 기준에 해당할 때만 단다. 모든 public 요소에 달지 않는다.
 - 주석 처리한 코드는 남기지 않는다.
-- 테스트는 메서드 이름(한국어)으로 설명하고 주석을 달지 않는다.
 - 주석은 한국어로 쓴다.
+
+## 테스트
+- 이름은 한국어 메서드명으로 쓴다 (`void 다시_발행해도_최초_발행_시각은_바뀌지_않는다()`). `@DisplayName`은 쓰지 않는다.
+- `// given`, `// when`, `// then` 주석으로 구간을 나눈다. 실행과 검증이 붙으면 `// when & then`. 그 외 주석은 달지 않는다.
+- 계층별 방식
+  - 엔티티·도메인: 스프링 없는 단위 테스트
+  - Repository: `RepositoryTestSupport`(`@DataJpaTest` + Testcontainers). 직접 정의한 쿼리만 테스트한다 (`save`, `findById` 등 기본 메서드 제외).
+  - Service: `@ExtendWith(MockitoExtension.class)` 단위 테스트. 분기·예외가 있는 메서드만 테스트한다.
+  - Controller: `@WebMvcTest` + `@MockitoBean` Service. 요청 검증, 응답 형식, 상태 코드를 확인한다.
+  - 인증·권한 흐름: `IntegrationTestSupport`(`@SpringBootTest`) 통합 테스트.
+- 쿼리는 Service 테스트에서 mock되므로 반드시 Repository 테스트에서 검증한다.
+- 테스트 데이터는 `fixture/`의 엔티티별 Fixture 클래스로 만든다. 테스트에는 그 테스트에 중요한 값만 넘긴다.
+- AssertJ(`assertThat`)와 BDDMockito(`given`)를 쓴다.
 
 ## Git
 - `main` 직접 push 금지. 브랜치: `feat/#이슈번호-설명`.
