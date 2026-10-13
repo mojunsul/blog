@@ -203,7 +203,7 @@ backend/src/main/java/io/github/mojunsul/blog/
    │  ├ service/      # PostService
    │  ├ repository/   # PostRepository, PostQueryRepository(QueryDSL)
    │  ├ entity/       # Post, PostStatus
-   │  └ dto/          # PostCreateRequest, PostUpdateRequest, PostSummaryResponse, PostDetailResponse ...
+   │  └ dto/          # PostSearchRequest, PostCreateRequest, PostUpdateRequest, PostSummaryResponse, PostDetailResponse ...
    ├ category/
    ├ tag/             # Tag, PostTag
    └ auth/            # AuthController, AuthService, Admin, RefreshToken
@@ -235,6 +235,8 @@ backend/src/test/java/io/github/mojunsul/blog/
 - 검증은 프론트(Zod)와 무관하게 **서버에서 반드시 다시 한다** (`@Valid` + Bean Validation).
 - Actuator는 `health`만 노출한다. Swagger는 `local` 프로필에서만 활성화한다.
 - Spring Data `Page`를 그대로 직렬화하지 않고 `PageResponse`로 변환해서 반환한다.
+- 목록·검색 API의 쿼리 파라미터는 검증 어노테이션을 붙인 요청 record(`@Valid @ModelAttribute`, 예: `PostSearchRequest`)로 받는다. 컨트롤러에서 `Pageable`을 직접 받지 않는다 (임의 `sort` 노출 방지, M4 검색 조건 확장).
+- 목록 정렬은 Repository 쿼리에 고정해 Repository 테스트로 검증한다.
 
 **관리자 계정 생성**
 - 회원가입 API는 만들지 않는다.
@@ -309,7 +311,9 @@ refresh_token
 - **형식**: JSON (`Content-Type: application/json`), 에러는 `application/problem+json`
 - **필드 이름**: camelCase
 - **시간**: ISO-8601 UTC (`"2026-10-11T01:00:00Z"`)
-- **페이지네이션**: `page`(0부터), `size`(기본 10, 최대 50)
+- **페이지네이션**: `page`(0 이상, 기본 0), `size`(1~50, 기본 10)
+  - 범위를 벗어나면 자동 보정하지 않고 `400` (`INVALID_INPUT`).
+  - `sort` 파라미터는 받지 않는다. 정렬은 API마다 고정한다.
 - **식별자**: 공개 API는 `slug`, 관리자 API는 `id`
 - **수정**: `PUT`은 전체 교체 (작성과 같은 본문을 보냄)
 
@@ -368,7 +372,9 @@ GET /api/v1/posts?page=0&size=10&tag=spring
 }
 ```
 - 목록에는 본문(`content` Markdown)을 포함하지 않는다.
-- 정렬: `publishedAt` 내림차순.
+- 정렬: `publishedAt` 내림차순, 같으면 `id` 내림차순 (발행 시각이 같은 글이 페이지 사이에서 중복·누락되지 않도록).
+- 카테고리가 없는 글은 `"category": null`.
+- `category`, `tag`, `q` 필터와 `tags` 값은 M4에서 구현한다. 그 전까지 `tags`는 항상 `[]`.
 
 #### GET `/api/v1/posts/{slug}`
 `200 OK`
@@ -784,3 +790,7 @@ main 머지 (deploy.yml)
   - slug·태그 정규화 및 검증 규칙 추가
   - M3에 DB 백업, rate limiting, 보안 헤더, 로그 용량 제한, 롤백 추가
   - 인덱스, FK 삭제 정책, 상태 코드·ErrorCode 목록, API 요청·응답 예시 추가
+- **v2.1**
+  - 페이지네이션 범위 초과 시 `400`, `sort` 파라미터 미지원 (7장)
+  - 목록·검색 쿼리 파라미터를 요청 record로 받는 규칙, 목록 정렬은 Repository에 고정 (5장)
+  - 글 목록 보조 정렬(`id`), 카테고리 없는 글의 응답, M4 전 `tags` 처리 명시 (8-1)
