@@ -28,6 +28,7 @@ cd frontend && npm run build
 ## 규칙
 - 스키마 변경은 Flyway 마이그레이션 파일로만 (`ddl-auto: validate`). 적용된 마이그레이션은 수정하지 않는다.
 - 엔티티를 API 응답으로 직접 반환하지 않는다. DTO는 `record`.
+- 엔티티 생성은 `private` 생성자에 `@Builder` (클래스에 붙이지 않는다). 기본 생성자는 `@NoArgsConstructor(access = PROTECTED)`.
 - 검증은 서버에서 반드시 다시 한다 (프론트 Zod와 별개).
 - 토큰은 HttpOnly 쿠키만 사용, localStorage 금지. CSRF 보호를 끄지 않는다.
 - Markdown 렌더링에 `rehype-raw` 금지.
