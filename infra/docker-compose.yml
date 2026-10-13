@@ -1,7 +1,7 @@
 # 로컬 개발용: PostgreSQL만 실행. 값은 infra/.env (infra/.env.example 참고), 없으면 기본값 사용.
 services:
   postgres:
-    image: postgres:16
+    image: postgres:18
     container_name: blog-postgres
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-blog}
@@ -11,7 +11,7 @@ services:
     ports:
       - "127.0.0.1:5432:5432"
     volumes:
-      - postgres-data:/var/lib/postgresql/data
+      - postgres-data:/var/lib/postgresql
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
       interval: 5s
