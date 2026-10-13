@@ -196,6 +196,7 @@ backend/src/main/java/io/github/mojunsul/blog/
 │  ├ security/        # SecurityConfig, JwtProvider, JwtAuthenticationFilter, CookieUtil
 │  ├ exception/       # ErrorCode, BusinessException, GlobalExceptionHandler
 │  ├ init/            # AdminInitializer (ApplicationRunner)
+│  ├ logging/         # RequestIdFilter
 │  └ common/          # BaseTimeEntity, PageResponse
 └ domain/
    ├ post/
@@ -237,6 +238,20 @@ backend/src/test/java/io/github/mojunsul/blog/
 - Spring Data `Page`를 그대로 직렬화하지 않고 `PageResponse`로 변환해서 반환한다.
 - 목록·검색 API의 쿼리 파라미터는 검증 어노테이션을 붙인 요청 record(`@Valid @ModelAttribute`, 예: `PostSearchRequest`)로 받는다. 컨트롤러에서 `Pageable`을 직접 받지 않는다 (임의 `sort` 노출 방지, M4 검색 조건 확장).
 - 목록 정렬은 Repository 쿼리에 고정해 Repository 테스트로 검증한다.
+
+**로깅**
+- 예외 로그는 `GlobalExceptionHandler` 한 곳에서만 남긴다. 요청 종류(GET·POST)와 무관하다.
+  - 5xx(처리되지 않은 예외): `ERROR` + 스택 트레이스
+  - 4xx(`BusinessException`): `WARN` 한 줄 (`code`, 요청 경로), 스택 트레이스 없음
+  - 서비스에서 예외를 잡아 로그를 남긴 뒤 다시 던지지 않는다 (같은 에러가 두 번 기록된다).
+- 정상 흐름에서는 조회 로그를 남기지 않는다 (요청 기록은 Nginx 접근 로그가 담당). 서비스에서는 관리자 행위(로그인 성공·실패, 글·카테고리 생성·수정·삭제)와 보안 이벤트(Refresh 토큰 재사용 감지)만 `INFO`/`WARN`으로 남긴다 (M2).
+- **요청 추적 ID**: `RequestIdFilter`가 모든 요청에 ID를 정해 MDC(`requestId`)에 넣고, 응답 헤더 `X-Request-Id`로 돌려준다. 로그 패턴에 `requestId`를 출력해 한 요청의 로그를 묶어 본다.
+  - 요청에 `X-Request-Id`가 있고 형식(`^[A-Za-z0-9-]{1,64}$`)에 맞으면 그 값을 쓰고, 없거나 형식이 다르면 UUID를 만든다 (로그 위조 방지).
+  - 필터는 Security 필터보다 먼저 실행해 인증 실패 로그에도 ID가 찍히게 하고, 요청이 끝나면 MDC를 비운다.
+  - M3부터는 Nginx가 `$request_id`를 `X-Request-Id`로 넘겨 Nginx 접근 로그와 앱 로그를 같은 ID로 연결한다 (12-4).
+- 출력은 표준 출력만 쓴다 (운영은 Docker `json-file` 드라이버가 수집, 12-2 용량 제한). 파일 appender, JSON 구조화 로그는 쓰지 않는다.
+- SQL 로그(`org.hibernate.SQL: debug`)는 `local` 프로필에서만 켠다.
+- 비밀번호, 토큰, 쿠키, `Authorization` 헤더, 요청 본문 전체는 로그에 남기지 않는다.
 
 **관리자 계정 생성**
 - 회원가입 API는 만들지 않는다.
@@ -729,7 +744,8 @@ CI에서 프론트 이미지를 빌드할 때는 백엔드가 없다. `next buil
 - `conf.d/blog.conf`
   - `/api/` → `proxy_pass http://backend:8080;`
   - `/` → `proxy_pass http://frontend:3000;`
-  - 프록시 헤더: `Host`, `X-Real-IP`, `X-Forwarded-For`, `X-Forwarded-Proto`
+  - 프록시 헤더: `Host`, `X-Real-IP`, `X-Forwarded-For`, `X-Forwarded-Proto`, `X-Request-Id`(`$request_id`, 클라이언트가 보낸 값을 덮어씀)
+  - 접근 로그 형식에 `$request_id`를 포함해 앱 로그와 연결한다.
 - `nginx.conf`
   - gzip 압축
   - rate limit: 로그인 `/api/v1/auth/login` (예: IP당 분당 5회), 조회수 API, 그 외 `/api/` 일반 제한
@@ -796,3 +812,7 @@ main 머지 (deploy.yml)
   - 목록·검색 쿼리 파라미터를 요청 record로 받는 규칙, 목록 정렬은 Repository에 고정 (5장)
   - 글 목록 보조 정렬(`id`), 카테고리 없는 글의 응답, M4 전 `tags` 처리 명시 (8-1)
   - 성공 응답에 공통 래퍼를 쓰지 않는다는 결정 명시 (7장)
+
+- **v2.2**
+  - 로깅 규칙 추가: 예외 로그는 `GlobalExceptionHandler` 한 곳, 4xx `WARN`·5xx `ERROR`, 요청 추적 ID(`RequestIdFilter`, `X-Request-Id`), 출력·SQL 로그·민감정보 기준 (5장)
+  - Nginx가 `X-Request-Id`를 넘기고 접근 로그에 포함 (12-4)
