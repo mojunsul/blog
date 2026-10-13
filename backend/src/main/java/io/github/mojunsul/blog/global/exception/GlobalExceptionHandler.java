@@ -29,6 +29,7 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
 
 	@ExceptionHandler(BusinessException.class)
 	ProblemDetail handleBusiness(BusinessException e, HttpServletRequest request) {
+		log.warn("Business exception: code={}, path={}", e.errorCode().name(), request.getRequestURI());
 		return problem(e.errorCode(), request.getRequestURI(), List.of());
 	}
 
