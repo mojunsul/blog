@@ -41,7 +41,7 @@
 | JUnit5 + Testcontainers | 실제 PostgreSQL로 통합 테스트 |
 
 ### 데이터베이스
-- PostgreSQL 16+ (검색은 초기에 내장 기능 사용, Redis는 고도화 단계에서 도입)
+- PostgreSQL 18 (로컬·테스트·운영 동일 버전, 검색은 초기에 내장 기능 사용, Redis는 고도화 단계에서 도입)
 
 ### 인프라
 | 기술 | 용도 |
