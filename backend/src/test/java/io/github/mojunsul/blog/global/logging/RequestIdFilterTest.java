@@ -3,8 +3,11 @@ package io.github.mojunsul.blog.global.logging;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.stream.Stream;
 
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.MethodSource;
 import org.slf4j.MDC;
 import org.springframework.mock.web.MockFilterChain;
 import org.springframework.mock.web.MockHttpServletRequest;
@@ -53,20 +56,23 @@ class RequestIdFilterTest {
 		assertThat(response.getHeader("X-Request-Id")).matches(UUID_FORMAT);
 	}
 
-	@Test
-	void 형식이_다른_요청_ID는_버리고_UUID를_만든다() throws Exception {
+	@ParameterizedTest
+	@MethodSource("invalidRequestIds")
+	void 형식이_다른_요청_ID는_버리고_UUID를_만든다(String invalid) throws Exception {
 		// given
-		for (String invalid : new String[] {"a".repeat(65), "abc\ninjected", "한글", ""}) {
-			MockHttpServletRequest request = new MockHttpServletRequest();
-			request.addHeader("X-Request-Id", invalid);
-			MockHttpServletResponse response = new MockHttpServletResponse();
+		MockHttpServletRequest request = new MockHttpServletRequest();
+		request.addHeader("X-Request-Id", invalid);
+		MockHttpServletResponse response = new MockHttpServletResponse();
 
-			// when
-			filter.doFilter(request, response, new MockFilterChain());
+		// when
+		filter.doFilter(request, response, new MockFilterChain());
 
-			// then
-			assertThat(response.getHeader("X-Request-Id")).matches(UUID_FORMAT);
-		}
+		// then
+		assertThat(response.getHeader("X-Request-Id")).matches(UUID_FORMAT);
+	}
+
+	static Stream<String> invalidRequestIds() {
+		return Stream.of("a".repeat(65), "abc\ninjected", "한글", "");
 	}
 
 	@Test
