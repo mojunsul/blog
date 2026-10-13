@@ -15,6 +15,10 @@ spring:
 server:
   forward-headers-strategy: framework
 
+logging:
+  pattern:
+    level: "%5p [%X{requestId:-}]"
+
 management:
   endpoints:
     web:

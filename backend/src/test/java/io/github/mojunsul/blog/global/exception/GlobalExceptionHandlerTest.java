@@ -1,5 +1,6 @@
 package io.github.mojunsul.blog.global.exception;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.not;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -9,7 +10,10 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.system.CapturedOutput;
+import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
 import org.springframework.context.annotation.Import;
@@ -23,6 +27,7 @@ import org.springframework.web.bind.annotation.RestController;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 
+@ExtendWith(OutputCaptureExtension.class)
 @WebMvcTest(GlobalExceptionHandlerTest.TestController.class)
 @AutoConfigureMockMvc(addFilters = false)
 @Import({GlobalExceptionHandler.class, GlobalExceptionHandlerTest.TestController.class})
@@ -92,5 +97,24 @@ class GlobalExceptionHandlerTest {
 			.andExpect(status().isInternalServerError())
 			.andExpect(jsonPath("$.code").value("INTERNAL_ERROR"))
 			.andExpect(content().string(not(containsString("secret"))));
+	}
+
+	@Test
+	void 비즈니스_예외는_코드와_경로를_WARN_한_줄로_남기고_스택_트레이스는_남기지_않는다(CapturedOutput output) throws Exception {
+		// when
+		mockMvc.perform(get("/test/business"));
+
+		// then
+		assertThat(output.getAll()).contains("WARN").contains("code=POST_NOT_FOUND, path=/test/business")
+			.doesNotContain("BusinessException:").doesNotContain("\tat ");
+	}
+
+	@Test
+	void 검증에_실패하면_로그를_남기지_않는다(CapturedOutput output) throws Exception {
+		// when
+		mockMvc.perform(post("/test/validate").contentType(MediaType.APPLICATION_JSON).content("{\"title\":\"\"}"));
+
+		// then
+		assertThat(output.getAll()).doesNotContain("/test/validate").doesNotContain("INVALID_INPUT");
 	}
 }
