@@ -243,6 +243,7 @@ backend/src/test/java/io/github/mojunsul/blog/
 - 예외 로그는 `GlobalExceptionHandler` 한 곳에서만 남긴다. 요청 종류(GET·POST)와 무관하다.
   - 5xx(처리되지 않은 예외): `ERROR` + 스택 트레이스
   - 4xx(`BusinessException`): `WARN` 한 줄 (`code`, 요청 경로), 스택 트레이스 없음
+  - 프레임워크가 만드는 4xx(입력 검증 실패, JSON 파싱 실패, 405 등)는 남기지 않는다. 클라이언트 입력 문제라 서버에서 조치할 것이 없고, 공개 API라 봇 요청으로 로그가 쉽게 늘어난다.
   - 서비스에서 예외를 잡아 로그를 남긴 뒤 다시 던지지 않는다 (같은 에러가 두 번 기록된다).
 - 정상 흐름에서는 조회 로그를 남기지 않는다 (요청 기록은 Nginx 접근 로그가 담당). 서비스에서는 관리자 행위(로그인 성공·실패, 글·카테고리 생성·수정·삭제)와 보안 이벤트(Refresh 토큰 재사용 감지)만 `INFO`/`WARN`으로 남긴다 (M2).
 - **요청 추적 ID**: `RequestIdFilter`가 모든 요청에 ID를 정해 MDC(`requestId`)에 넣고, 응답 헤더 `X-Request-Id`로 돌려준다. 로그 패턴에 `requestId`를 출력해 한 요청의 로그를 묶어 본다.
