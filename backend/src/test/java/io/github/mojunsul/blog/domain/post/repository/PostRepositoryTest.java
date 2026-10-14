@@ -10,15 +10,24 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.PageRequest;
 
+import io.github.mojunsul.blog.domain.category.repository.CategoryRepository;
 import io.github.mojunsul.blog.domain.post.entity.Post;
 import io.github.mojunsul.blog.domain.post.entity.PostStatus;
+import io.github.mojunsul.blog.fixture.CategoryFixture;
 import io.github.mojunsul.blog.fixture.PostFixture;
 import io.github.mojunsul.blog.support.RepositoryTestSupport;
+import jakarta.persistence.EntityManager;
 
 class PostRepositoryTest extends RepositoryTestSupport {
 
 	@Autowired
 	PostRepository postRepository;
+
+	@Autowired
+	CategoryRepository categoryRepository;
+
+	@Autowired
+	EntityManager em;
 
 	@Test
 	void 상태로_조회하면_PUBLISHED_글만_나온다() {
@@ -61,6 +70,21 @@ class PostRepositoryTest extends RepositoryTestSupport {
 
 		// then
 		assertThat(found).get().extracting(Post::getSlug).isEqualTo("published");
+	}
+
+	@Test
+	void slug와_PUBLISHED_상태로_조회하면_카테고리가_함께_로딩된다() {
+		// given
+		var category = categoryRepository.save(CategoryFixture.category("backend"));
+		postRepository.save(PostFixture.published("published", Instant.parse("2026-10-13T01:00:00Z"), category));
+		em.flush();
+		em.clear();
+
+		// when
+		var found = postRepository.findBySlugAndStatus("published", PostStatus.PUBLISHED).orElseThrow();
+
+		// then
+		assertThat(em.getEntityManagerFactory().getPersistenceUnitUtil().isLoaded(found.getCategory())).isTrue();
 	}
 
 	@Test
