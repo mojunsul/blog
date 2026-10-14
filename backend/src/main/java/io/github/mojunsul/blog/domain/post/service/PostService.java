@@ -3,11 +3,14 @@ package io.github.mojunsul.blog.domain.post.service;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import io.github.mojunsul.blog.domain.post.dto.PostDetailResponse;
 import io.github.mojunsul.blog.domain.post.dto.PostSearchRequest;
 import io.github.mojunsul.blog.domain.post.dto.PostSummaryResponse;
 import io.github.mojunsul.blog.domain.post.entity.PostStatus;
 import io.github.mojunsul.blog.domain.post.repository.PostRepository;
 import io.github.mojunsul.blog.global.common.PageResponse;
+import io.github.mojunsul.blog.global.exception.BusinessException;
+import io.github.mojunsul.blog.global.exception.ErrorCode;
 import lombok.RequiredArgsConstructor;
 
 @Service
@@ -21,5 +24,12 @@ public class PostService {
 		return PageResponse.from(
 			postRepository.findAllByStatusOrderByPublishedAtDescIdDesc(PostStatus.PUBLISHED, request.toPageable())
 				.map(PostSummaryResponse::from));
+	}
+
+	@Transactional(readOnly = true)
+	public PostDetailResponse getPublishedPost(String slug) {
+		return postRepository.findBySlugAndStatus(slug, PostStatus.PUBLISHED)
+			.map(PostDetailResponse::from)
+			.orElseThrow(() -> new BusinessException(ErrorCode.POST_NOT_FOUND));
 	}
 }

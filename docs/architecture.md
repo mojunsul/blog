@@ -411,6 +411,7 @@ GET /api/v1/posts?page=0&size=10&tag=spring
 ```
 - 없거나 DRAFT인 글: `404` (`POST_NOT_FOUND`)
 - 조회수는 이 API에서 증가시키지 않는다 (ISR 캐시 때문에 실제 방문 수와 맞지 않고, GET이 상태를 바꾸면 안 되기 때문).
+- 경로의 `slug`는 형식을 검사하지 않고 그대로 조회한다. 규칙에 맞지 않거나 대소문자가 다른 값(`Spring-Jwt`)도 `404`다 (식별자라서 "그런 글이 없다"가 맞는 응답이다).
 
 #### GET `/api/v1/categories`
 ```json
@@ -437,6 +438,7 @@ GET /api/v1/posts?page=0&size=10&tag=spring
 - 브라우저(클라이언트 컴포넌트)에서 상세 페이지 진입 시 호출한다.
 - 같은 방문자의 반복 증가 방지는 M6에서 설계한다 (예: 쿠키·Redis 기반 중복 제거).
 - 인증이 필요 없는 상태 변경 요청이므로 CSRF 검사 대상에서 제외하고 rate limit을 적용한다.
+- 증가는 직접 UPDATE 쿼리(`view_count = view_count + 1`, `@Modifying`)로 한다. 엔티티 변경 감지를 쓰면 `@LastModifiedDate`가 `updatedAt`을 조회 시각으로 바꾸고, 동시 요청에서 증가분이 유실된다.
 
 ### 8-3. 인증 API
 
@@ -817,3 +819,7 @@ main 머지 (deploy.yml)
 - **v2.2**
   - 로깅 규칙 추가: 예외 로그는 `GlobalExceptionHandler` 한 곳, 4xx `WARN`·5xx `ERROR`, 요청 추적 ID(`RequestIdFilter`, `X-Request-Id`), 출력·SQL 로그·민감정보 기준 (5장)
   - Nginx가 `X-Request-Id`를 넘기고 접근 로그에 포함 (12-4)
+
+- **v2.3**
+  - 글 상세 경로 `slug`는 형식 검사 없이 조회하고 맞지 않으면 `404` (8-1)
+  - 조회수 증가는 직접 UPDATE 쿼리로 해 `updatedAt`을 바꾸지 않음 (8-2)
