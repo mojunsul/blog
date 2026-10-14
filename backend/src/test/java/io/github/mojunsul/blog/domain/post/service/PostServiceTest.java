@@ -40,7 +40,7 @@ class PostServiceTest {
 
 		// then
 		assertThat(response.slug()).isEqualTo("my-post");
-		assertThat(response.content()).isEqualTo("본문");
+		assertThat(response.content()).isEqualTo(post.getContent());
 		assertThat(response.category()).isNull();
 		assertThat(response.tags()).isEmpty();
 		assertThat(response.publishedAt()).isEqualTo(Instant.parse("2026-10-11T01:00:00Z"));
