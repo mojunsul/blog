@@ -20,9 +20,12 @@ import org.springframework.context.annotation.Import;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
+import io.github.mojunsul.blog.domain.post.dto.PostDetailResponse;
 import io.github.mojunsul.blog.domain.post.dto.PostSummaryResponse;
 import io.github.mojunsul.blog.domain.post.service.PostService;
 import io.github.mojunsul.blog.global.common.PageResponse;
+import io.github.mojunsul.blog.global.exception.BusinessException;
+import io.github.mojunsul.blog.global.exception.ErrorCode;
 import io.github.mojunsul.blog.global.exception.GlobalExceptionHandler;
 
 @WebMvcTest(PostController.class)
@@ -63,5 +66,34 @@ class PostControllerTest {
 			.andExpect(status().isBadRequest())
 			.andExpect(jsonPath("$.code").value("INVALID_INPUT"))
 			.andExpect(jsonPath("$.errors[0].field").value(field));
+	}
+
+	@Test
+	void 글_상세를_본문과_수정_시각을_포함해_응답한다() throws Exception {
+		// given
+		var post = new PostDetailResponse(1L, "제목", "my-post", null, "# 본문", null, null, List.of(),
+			Instant.parse("2026-10-11T01:00:00Z"), Instant.parse("2026-10-11T03:30:00Z"));
+		given(postService.getPublishedPost("my-post")).willReturn(post);
+
+		// when & then
+		mockMvc.perform(get("/api/v1/posts/my-post"))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.slug").value("my-post"))
+			.andExpect(jsonPath("$.content").value("# 본문"))
+			.andExpect(jsonPath("$.category").value(nullValue()))
+			.andExpect(jsonPath("$.tags").isEmpty())
+			.andExpect(jsonPath("$.publishedAt").value("2026-10-11T01:00:00Z"))
+			.andExpect(jsonPath("$.updatedAt").value("2026-10-11T03:30:00Z"));
+	}
+
+	@Test
+	void 없는_글은_404_ProblemDetail로_응답한다() throws Exception {
+		// given
+		given(postService.getPublishedPost("missing")).willThrow(new BusinessException(ErrorCode.POST_NOT_FOUND));
+
+		// when & then
+		mockMvc.perform(get("/api/v1/posts/missing"))
+			.andExpect(status().isNotFound())
+			.andExpect(jsonPath("$.code").value("POST_NOT_FOUND"));
 	}
 }

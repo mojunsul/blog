@@ -52,6 +52,18 @@ class PostRepositoryTest extends RepositoryTestSupport {
 	}
 
 	@Test
+	void slug와_PUBLISHED_상태로_조회하면_PUBLISHED_글이_나온다() {
+		// given
+		postRepository.save(PostFixture.published("published", Instant.parse("2026-10-13T01:00:00Z")));
+
+		// when
+		var found = postRepository.findBySlugAndStatus("published", PostStatus.PUBLISHED);
+
+		// then
+		assertThat(found).get().extracting(Post::getSlug).isEqualTo("published");
+	}
+
+	@Test
 	void slug와_PUBLISHED_상태로_조회하면_DRAFT_글은_나오지_않는다() {
 		// given
 		postRepository.save(PostFixture.draft("draft"));
