@@ -26,7 +26,7 @@ cd backend && ./gradlew bootRun
 cd backend && ./gradlew test
 cd backend && ./gradlew spotlessApply   # 포맷 적용 (CI는 build에 포함된 spotlessCheck로 검사)
 
-# frontend (Node >= 20.9 필수)
+# frontend (Node 24, 버전은 frontend/.nvmrc 기준)
 cd frontend && npm run dev
 cd frontend && npm run lint && npx next typegen && npx tsc --noEmit
 cd frontend && npm run build
