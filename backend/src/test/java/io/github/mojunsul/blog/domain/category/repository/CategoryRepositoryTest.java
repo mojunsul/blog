@@ -4,11 +4,13 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.tuple;
 
 import java.time.Instant;
+import java.util.List;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 
 import io.github.mojunsul.blog.domain.category.dto.CategoryResponse;
+import io.github.mojunsul.blog.domain.category.entity.Category;
 import io.github.mojunsul.blog.domain.post.repository.PostRepository;
 import io.github.mojunsul.blog.fixture.CategoryFixture;
 import io.github.mojunsul.blog.fixture.PostFixture;
@@ -27,13 +29,13 @@ class CategoryRepositoryTest extends RepositoryTestSupport {
 	@Test
 	void 글_개수는_PUBLISHED_글만_센다() {
 		// given
-		var category = categoryRepository.save(CategoryFixture.category("backend"));
+		Category category = categoryRepository.save(CategoryFixture.category("backend"));
 		postRepository.save(PostFixture.published("published-1", PUBLISHED_AT, category));
 		postRepository.save(PostFixture.published("published-2", PUBLISHED_AT, category));
 		postRepository.save(PostFixture.draft("draft", category));
 
 		// when
-		var result = categoryRepository.findAllWithPublishedPostCount();
+		List<CategoryResponse> result = categoryRepository.findAllWithPublishedPostCount();
 
 		// then
 		assertThat(result).extracting(CategoryResponse::slug, CategoryResponse::postCount)
@@ -43,12 +45,12 @@ class CategoryRepositoryTest extends RepositoryTestSupport {
 	@Test
 	void DRAFT만_있거나_글이_없는_카테고리도_0으로_포함된다() {
 		// given
-		var onlyDraft = categoryRepository.save(CategoryFixture.category("only-draft"));
+		Category onlyDraft = categoryRepository.save(CategoryFixture.category("only-draft"));
 		categoryRepository.save(CategoryFixture.category("empty"));
 		postRepository.save(PostFixture.draft("draft", onlyDraft));
 
 		// when
-		var result = categoryRepository.findAllWithPublishedPostCount();
+		List<CategoryResponse> result = categoryRepository.findAllWithPublishedPostCount();
 
 		// then
 		assertThat(result).extracting(CategoryResponse::slug, CategoryResponse::postCount)
@@ -64,7 +66,7 @@ class CategoryRepositoryTest extends RepositoryTestSupport {
 		categoryRepository.save(CategoryFixture.category("beta", "beta-second"));
 
 		// when
-		var result = categoryRepository.findAllWithPublishedPostCount();
+		List<CategoryResponse> result = categoryRepository.findAllWithPublishedPostCount();
 
 		// then
 		assertThat(result).extracting(CategoryResponse::slug)
