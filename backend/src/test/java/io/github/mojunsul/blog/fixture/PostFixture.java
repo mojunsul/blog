@@ -10,7 +10,11 @@ public final class PostFixture {
 	private PostFixture() {}
 
 	public static Post draft(String slug) {
-		return Post.builder().title("제목").slug(slug).content("본문").build();
+		return draft(slug, null);
+	}
+
+	public static Post draft(String slug, Category category) {
+		return Post.builder().title("제목").slug(slug).content("본문").category(category).build();
 	}
 
 	public static Post published(String slug, Instant publishedAt) {
@@ -18,7 +22,7 @@ public final class PostFixture {
 	}
 
 	public static Post published(String slug, Instant publishedAt, Category category) {
-		Post post = Post.builder().title("제목").slug(slug).content("본문").category(category).build();
+		Post post = draft(slug, category);
 		post.publish(publishedAt);
 		return post;
 	}
