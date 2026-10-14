@@ -50,6 +50,7 @@ cd frontend && npm run build
 
 ## 포맷
 - 백엔드는 네이버 핵데이 Java 컨벤션(탭, 120자). 커밋 전 `./gradlew spotlessApply`. 설정은 `backend/config/naver/`(직접 수정 금지).
+  - 지역 변수에 `var`를 쓰지 않고 타입을 명시한다 (운영·테스트 공통). 네이버 컨벤션에 규정이 없어 보충한 규칙이다.
 - 프론트엔드 포맷 도구는 아직 없다 (ESLint만).
 
 ## 주석
