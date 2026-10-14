@@ -420,6 +420,9 @@ GET /api/v1/posts?page=0&size=10&tag=spring
   { "id": 2, "name": "Infra", "slug": "infra", "postCount": 3 }
 ]
 ```
+- 글이 없는 카테고리도 `postCount: 0`으로 포함한다. 관리자 카테고리 화면(M2)도 이 API로 목록을 조회한다 (관리자용 목록 API는 따로 두지 않는다).
+- `postCount`는 PUBLISHED 글 기준.
+- 정렬: `name` 오름차순, 같으면 `id` 오름차순. 페이지네이션 없이 배열로 응답한다.
 
 #### GET `/api/v1/tags`
 ```json
@@ -823,3 +826,6 @@ main 머지 (deploy.yml)
 - **v2.3**
   - 글 상세 경로 `slug`는 형식 검사 없이 조회하고 맞지 않으면 `404` (8-1)
   - 조회수 증가는 직접 UPDATE 쿼리로 해 `updatedAt`을 바꾸지 않음 (8-2)
+
+- **v2.4**
+  - 카테고리 목록에 글 0개 카테고리 포함(관리자 화면 공용), `postCount`는 PUBLISHED 기준, `name` 오름차순 정렬, 배열 응답 (8-1)
