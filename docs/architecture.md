@@ -195,7 +195,7 @@ backend/src/main/java/io/github/mojunsul/blog/
 │  ├ config/          # QuerydslConfig, JpaAuditingConfig, OpenApiConfig, ClockConfig
 │  ├ security/        # SecurityConfig, JwtProvider, JwtAuthenticationFilter, CookieUtil
 │  ├ exception/       # ErrorCode, BusinessException, GlobalExceptionHandler
-│  ├ init/            # AdminInitializer (ApplicationRunner)
+│  ├ init/            # AdminInitializer, LocalDataInitializer (ApplicationRunner)
 │  ├ logging/         # RequestIdFilter
 │  └ common/          # BaseTimeEntity, PageResponse
 └ domain/
@@ -219,8 +219,8 @@ backend/src/main/resources/
 backend/src/test/java/io/github/mojunsul/blog/
 ├ support/
 │  ├ TestContainers.java               # PostgreSQL 컨테이너 하나를 모든 테스트가 공유
-│  ├ RepositoryTestSupport.java        # @DataJpaTest + Testcontainers
-│  └ IntegrationTestSupport.java       # @SpringBootTest + Testcontainers
+│  ├ RepositoryTestSupport.java        # @DataJpaTest + Testcontainers + @ActiveProfiles("test")
+│  └ IntegrationTestSupport.java       # @SpringBootTest + Testcontainers + @ActiveProfiles("test")
 ├ fixture/                              # 엔티티별 테스트 데이터 (PostFixture ...)
 └ domain/...                            # 도메인별 Repository / Service / Controller 테스트
 ```
@@ -238,6 +238,11 @@ backend/src/test/java/io/github/mojunsul/blog/
 - Spring Data `Page`를 그대로 직렬화하지 않고 `PageResponse`로 변환해서 반환한다.
 - 목록·검색 API의 쿼리 파라미터는 검증 어노테이션을 붙인 요청 record(`@Valid @ModelAttribute`, 예: `PostSearchRequest`)로 받는다. 컨트롤러에서 `Pageable`을 직접 받지 않는다 (임의 `sort` 노출 방지, M4 검색 조건 확장).
 - 목록 정렬은 Repository 쿼리에 고정해 Repository 테스트로 검증한다.
+- **로컬 시드 데이터**: `LocalDataInitializer`(`@Profile("local")`, `ApplicationRunner`)가 엔티티와 Repository로 저장한다. 글이 하나라도 있으면 아무것도 하지 않는다. Flyway 마이그레이션에는 스키마만 둔다 (시드를 SQL로 두면 엔티티·스키마 변경을 따라가지 못하고, 버전 번호가 실제 마이그레이션과 충돌한다).
+- **테스트 프로필**: DB를 쓰는 테스트는 Support 클래스의 `@ActiveProfiles("test")`로 `test` 프로필에서 실행한다 (`spring.profiles.default: local` 때문에 프로필을 지정하지 않으면 local 설정과 시드가 테스트에 섞인다).
+  - 테스트 프로필은 `test` 하나로 둔다. 특정 테스트만 설정이 달라야 하면 프로필을 바꾸지 않고 `@SpringBootTest(properties = ...)`로 그 값만 바꾼다.
+  - `build.gradle`에서 프로필을 지정하지 않는다 (`@ActiveProfiles`와 섞이면 시스템 프로퍼티가 덮어써진다).
+  - M2에서 프로필에 따라 동작이 달라지는 Controller 테스트가 생기면 `ControllerTestSupport`를 두고 같은 어노테이션을 붙인다.
 
 **로깅**
 - 예외 로그는 `GlobalExceptionHandler` 한 곳에서만 남긴다. 요청 종류(GET·POST)와 무관하다.
@@ -720,6 +725,7 @@ CI에서 프론트 이미지를 빌드할 때는 백엔드가 없다. `next buil
 
 ### 12-1. 로컬 개발
 - `infra/docker-compose.yml`로 PostgreSQL만 실행
+- 시드 데이터는 `local` 프로필로 처음 기동할 때 들어간다. 다시 넣으려면 `docker compose down -v`로 DB 볼륨을 지운 뒤 재기동한다.
 - Spring Boot(IDE, `local` 프로필), Next.js(`npm run dev`)는 직접 실행
 
 ### 12-2. 서버 (OCI)
@@ -829,3 +835,7 @@ main 머지 (deploy.yml)
 
 - **v2.4**
   - 카테고리 목록에 글 0개 카테고리 포함(관리자 화면 공용), `postCount`는 PUBLISHED 기준, `name` 오름차순 정렬, 배열 응답 (8-1)
+
+- **v2.5**
+  - 로컬 시드는 Flyway가 아니라 `LocalDataInitializer`(`@Profile("local")`)로 엔티티를 통해 저장 (5장, 12-1)
+  - DB 테스트는 Support 클래스의 `@ActiveProfiles("test")`로 실행, 테스트 프로필은 `test` 하나 (5장)
