@@ -16,7 +16,7 @@ import io.github.mojunsul.blog.domain.post.entity.Post;
 import io.github.mojunsul.blog.domain.post.repository.PostRepository;
 import lombok.RequiredArgsConstructor;
 
-// 관리자 API(M2) 전에도 M1 API와 화면을 확인하려는 로컬 전용 시드다. 글이 하나라도 있으면 다시 넣지 않는다.
+// 관리자 API(M2) 전에도 M1 API와 화면을 확인하려는 로컬 전용 시드다. 재기동 때 중복되거나 로컬에서 직접 만든 데이터에 섞이지 않게 한다.
 @Component
 @Profile("local")
 @RequiredArgsConstructor
