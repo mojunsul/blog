@@ -23,5 +23,6 @@ jobs:
       # LayoutProps 등 라우트 타입은 .next/types에 생성된다 (깨끗한 체크아웃에는 없음).
       - run: npx next typegen
       - run: npx tsc --noEmit
+      - run: npm test
       # CI에는 백엔드가 없으므로, 데이터 fetch 페이지가 있어도 빌드가 성공해야 한다.
       - run: npm run build
