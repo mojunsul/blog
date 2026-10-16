@@ -24,6 +24,9 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
 
 	private static final Logger log = LoggerFactory.getLogger(GlobalExceptionHandler.class);
 
+	// 바인딩 실패의 기본 메시지는 클래스명이 담긴 프레임워크 내부 메시지라 노출하지 않는다
+	private static final String BINDING_FAILURE_REASON = "형식이 올바르지 않습니다";
+
 	public record FieldError(String field, String reason) {
 	}
 
@@ -43,7 +46,8 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
 	protected ResponseEntity<Object> handleMethodArgumentNotValid(MethodArgumentNotValidException e,
 		HttpHeaders headers, HttpStatusCode status, WebRequest request) {
 		List<FieldError> errors = e.getBindingResult().getFieldErrors().stream()
-			.map(f -> new FieldError(f.getField(), f.getDefaultMessage()))
+			.map(f -> new FieldError(f.getField(),
+				f.isBindingFailure() ? BINDING_FAILURE_REASON : f.getDefaultMessage()))
 			.toList();
 		return handleExceptionInternal(e, invalidInput(errors), headers, HttpStatus.BAD_REQUEST, request);
 	}

@@ -39,6 +39,9 @@ class GlobalExceptionHandlerTest {
 	@RestController
 	static class TestController {
 
+		record Query(Integer page) {
+		}
+
 		record Body(@NotBlank(message = "제목을 입력하세요") String title) {
 		}
 
@@ -51,6 +54,11 @@ class GlobalExceptionHandlerTest {
 		void unexpected() {
 			throw new IllegalStateException("secret internal detail");
 		}
+
+		@GetMapping("/test/query")
+		void query(
+			@Valid
+			Query query) {}
 
 		@PostMapping("/test/validate")
 		void validate(
@@ -79,6 +87,17 @@ class GlobalExceptionHandlerTest {
 			.andExpect(jsonPath("$.code").value("INVALID_INPUT"))
 			.andExpect(jsonPath("$.errors[0].field").value("title"))
 			.andExpect(jsonPath("$.errors[0].reason").value("제목을 입력하세요"));
+	}
+
+	@Test
+	void 쿼리_파라미터_타입_변환에_실패하면_내부_메시지_대신_일반_메시지를_응답한다() throws Exception {
+		// when & then
+		mockMvc.perform(get("/test/query").param("page", "abc"))
+			.andExpect(status().isBadRequest())
+			.andExpect(jsonPath("$.code").value("INVALID_INPUT"))
+			.andExpect(jsonPath("$.errors[0].field").value("page"))
+			.andExpect(jsonPath("$.errors[0].reason").value("형식이 올바르지 않습니다"))
+			.andExpect(content().string(not(containsString("java.lang"))));
 	}
 
 	@Test
