@@ -27,6 +27,7 @@
 | react-markdown + remark-gfm + rehype-slug + Shiki(`@shikijs/rehype`) | Markdown 렌더링, 코드 하이라이팅 |
 | react-hook-form + Zod (`@hookform/resolvers`) | 관리자 폼 처리·검증 |
 | openapi-typescript | 백엔드 OpenAPI 명세에서 TS 타입 자동 생성 |
+| Vitest | `lib/`의 순수 함수 단위 테스트 |
 
 ### 백엔드
 | 기술 | 용도 |
@@ -680,12 +681,13 @@ frontend/src/
 │  └ admin/         # PostForm, MarkdownPreview
 ├ lib/
 │  ├ api/
-│  │  ├ server.ts   # 서버 컴포넌트용 fetch (API_INTERNAL_URL)
-│  │  ├ client.ts   # 브라우저용 fetch (/api/v1, CSRF 헤더, 401 시 refresh 후 재시도)
+│  │  ├ server.ts   # 서버 컴포넌트용 fetch (API_INTERNAL_URL, server-only)
+│  │  ├ client.ts   # (M2) 브라우저용 fetch (/api/v1, CSRF 헤더, 401 시 refresh 후 재시도)
 │  │  ├ errors.ts   # ProblemDetail 파싱, ApiError
+│  │  ├ types.ts    # (M1 임시) 응답 타입 수작업 정의, M2에서 api.d.ts로 교체 후 삭제
 │  │  ├ posts.ts
 │  │  └ auth.ts
-│  ├ date.ts        # UTC → KST 표시 변환
+│  ├ date.ts        # UTC → KST 표시 변환 (formatDate, YYYY.MM.DD)
 │  └ utils.ts
 ├ schemas/
 │  └ post.ts        # Zod 스키마 (postSchema, categorySchema, loginSchema) - 서버 검증 규칙과 동일
@@ -697,6 +699,8 @@ frontend/src/
 ### 렌더링 전략
 - **공개 페이지**: 서버 컴포넌트 + ISR (`revalidate: 60`).
   - `next.config.ts`에 `cacheComponents: true`가 켜져 있다 (create-next-app 기본값). 이 모드에서는 `export const revalidate`와 `fetch`의 `next.revalidate`로 ISR을 지정하지 않고, 데이터 함수에 `'use cache'` + `cacheLife({ revalidate: 60 })`를 쓴다. 구현 전 `node_modules/next/dist/docs/`의 caching 문서를 확인한다.
+  - `'use cache'`와 `cacheLife`는 `lib/api/posts.ts` 같은 데이터 함수에 둔다. `server.ts`에는 캐시를 넣지 않는다.
+  - `'use cache'` 함수를 요청 시점 API(`params`, `searchParams`, `connection()`) 없이 호출하면 빌드 때 실행되어 정적 셸에 들어간다(= 빌드 중 백엔드 호출). 데이터 함수는 반드시 요청 시점 API를 거친 뒤 호출한다.
 - **관리자 페이지**: 클라이언트 컴포넌트, 브라우저에서 `/api/v1` 직접 호출.
 - `proxy.ts`의 쿠키 체크는 화면 이동 편의용이다. **실제 권한 검증은 Spring Security가 담당한다.**
 - 관리자가 글을 저장·수정·삭제해도 공개 페이지는 최대 60초 후 반영된다. 즉시 반영(on-demand revalidate)은 M5 이후 검토한다.
@@ -709,8 +713,29 @@ CI에서 프론트 이미지를 빌드할 때는 백엔드가 없다. `next buil
 
 ### API 주소 처리
 - 서버 컴포넌트: 환경변수 `API_INTERNAL_URL` (로컬 `http://localhost:8080`, 서버 `http://backend:8080`)
-- 브라우저: 항상 상대 경로 `/api/v1`
-  - 로컬에서는 `next.config`의 `rewrites`로 `/api/*` → `http://localhost:8080/api/*`
+  - `NEXT_PUBLIC_`이 아니므로 빌드 때 박히지 않고 실행 시점에 읽힌다. 이미지 하나를 환경변수만 바꿔 쓴다.
+  - 값이 없으면 기본값으로 대신하지 않고, 호출 시점에 명확한 오류를 낸다 (운영 설정 누락이 엉뚱한 주소 연결로 숨지 않게).
+  - 로컬: `frontend/.env.example`(커밋, 값 `http://localhost:8080`)을 `.env.local`로 복사해 쓴다. 운영: `docker-compose.prod.yml`의 `environment`에 직접 적는다 (비밀값 아님).
+  - `server.ts`는 `import 'server-only'`로 클라이언트 번들에 들어가지 않게 한다.
+- 브라우저: 항상 상대 경로 `/api/v1` (M2부터. M1 공개 페이지는 서버 컴포넌트만 호출한다)
+  - 로컬에서는 `next.config`의 `rewrites`로 `/api/*` → `http://localhost:8080/api/*` (M2, `client.ts`와 함께 추가)
+
+### 에러 처리
+- 2xx가 아닌 응답은 `ApiError`(`status`, `code`, `detail`, `errors`)로 바꾼다. 본문이 ProblemDetail이면 파싱하고, 아니면(Nginx 502 HTML 등) `code: null`과 일반 메시지를 넣는다.
+- 네트워크 오류(백엔드 다운 등)는 감싸지 않고 그대로 던져 Next 오류 화면으로 보낸다.
+- 페이지에서 `ApiError`의 `status === 404`면 `notFound()`를 호출한다.
+
+### 날짜 표시
+- KST `YYYY.MM.DD` (`2026.10.11`). 내장 `Intl.DateTimeFormat('ko-KR', { timeZone: 'Asia/Seoul', year: 'numeric', month: '2-digit', day: '2-digit' })`의 `formatToParts`로 조립한다 (`timeZone`을 명시해 서버 시간대와 무관하게 동작).
+- 날짜 라이브러리(dayjs, date-fns)는 쓰지 않는다. 상대 시간("3일 전"), 기간 계산, 문자열 파싱이 필요해지면 다시 검토한다.
+- 잘못된 입력은 `RangeError`를 그대로 던진다 (API의 `publishedAt`은 PUBLISHED 글에서 항상 있음).
+
+### 프론트엔드 테스트
+- Vitest로 `lib/`의 로직이 있는 순수 함수만 단위 테스트한다 (`date.ts`, `errors.ts`의 파싱 함수).
+  - `async` 서버 컴포넌트는 Vitest·Jest 모두 단위 테스트를 지원하지 않으므로 단위 테스트하지 않는다.
+  - `server.ts`는 `server-only`가 테스트 환경에서 import 시 오류를 던지므로 단위 테스트하지 않는다 (실제 호출은 화면에서 확인).
+- 최소 구성: `vitest`, `vite-tsconfig-paths`(`@/` 별칭), `vitest.config.mts`, `"test": "vitest run"`. React Testing Library·jsdom은 컴포넌트 테스트가 필요해질 때 추가한다.
+- `vitest`와 `vite-tsconfig-paths`는 정확한 버전으로 고정한다(`^` 없음). Vitest는 메이저가 7~9개월마다 나와 깨지는 변경이 있으므로, 메이저 업그레이드는 별도 이슈로 한다.
 
 ### 스크립트
 ```json
@@ -774,7 +799,7 @@ CI에서 프론트 이미지를 빌드할 때는 백엔드가 없다. `next buil
 ```
 PR
  ├ backend-ci : ./gradlew test (Testcontainers), build
- └ frontend-ci: lint, typecheck, build (백엔드 없이 성공해야 함)
+ └ frontend-ci: lint, typecheck, test(Vitest), build (백엔드 없이 성공해야 함)
 
 main 머지 (deploy.yml)
  → docker buildx로 linux/arm64 이미지 빌드 (backend, frontend)
@@ -839,3 +864,8 @@ main 머지 (deploy.yml)
 - **v2.5**
   - 로컬 시드는 Flyway가 아니라 `LocalDataInitializer`(`@Profile("local")`)로 엔티티를 통해 저장 (5장, 12-1)
   - DB 테스트는 Support 클래스의 `@ActiveProfiles("test")`로 실행, 테스트 프로필은 `test` 하나 (5장)
+
+- **v2.6**
+  - 프론트 API 기반: `API_INTERNAL_URL` 필수(누락 시 오류)·`.env.example` 복사, `server-only`, `rewrites`는 M2로, 캐시는 데이터 함수에 두고 요청 시점 API 뒤에서 호출 (11장)
+  - 프론트 에러 처리(`ApiError`), 날짜 표시(KST `YYYY.MM.DD`, `Intl`, 라이브러리 없음) (11장)
+  - 프론트 테스트: Vitest로 `lib/` 순수 함수만, 정확한 버전 고정, CI에 test 단계 (1장, 11장, 12-6)

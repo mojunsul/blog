@@ -29,6 +29,7 @@ cd backend && ./gradlew spotlessApply   # 포맷 적용 (CI는 build에 포함�
 # frontend (Node 24, 버전은 frontend/.nvmrc 기준)
 cd frontend && npm run dev
 cd frontend && npm run lint && npx next typegen && npx tsc --noEmit
+cd frontend && npm test               # Vitest (lib/ 순수 함수)
 cd frontend && npm run build
 ```
 
@@ -80,6 +81,7 @@ cd frontend && npm run build
 - 테스트 데이터는 `fixture/`의 엔티티별 Fixture 클래스로 만든다. 테스트에는 그 테스트에 중요한 값만 넘긴다.
 - AssertJ(`assertThat`)와 BDDMockito(`given`)를 쓴다.
 - 구현 세션은 위 계층별 기준상 테스트 대상인 코드에 한해, 테스트를 먼저 작성해 실패를 확인한 뒤 통과하도록 구현한다.
+- 프론트엔드는 `lib/`의 로직이 있는 순수 함수만 Vitest로 단위 테스트한다. `async` 서버 컴포넌트와 `server-only` 모듈은 단위 테스트하지 않는다.
 
 ## Git
 - `main` 직접 push 금지. 브랜치: `feat/#이슈번호-설명`.
