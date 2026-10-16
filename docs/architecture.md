@@ -580,6 +580,7 @@ Spring의 `ProblemDetail`을 사용하고, 확장 필드로 `code`, `errors`를 
 ```
 - 프론트는 `code`로 분기하고 `detail`을 사용자 메시지로 쓴다.
 - `errors`는 검증 실패 시에만 채운다 (그 외에는 빈 배열).
+- `errors[].reason`에는 사용자에게 보여 줄 수 있는 메시지만 넣는다. 타입 변환 실패(예: `?page=abc`)처럼 프레임워크가 만든 메시지(클래스명, 예외 메시지)는 내보내지 않고 `"형식이 올바르지 않습니다"`로 바꾼다. 타입별 메시지(`messages.properties`의 `typeMismatch`)는 쓰지 않는다 (타입이 늘 때 빠뜨리면 다시 내부 메시지가 나가므로).
 - 500 에러는 내부 정보(스택 트레이스, SQL)를 노출하지 않는다.
 
 ### ErrorCode 목록 (초기)
@@ -869,3 +870,6 @@ main 머지 (deploy.yml)
   - 프론트 API 기반: `API_INTERNAL_URL` 필수(누락 시 오류)·`.env.example` 복사, `server-only`, `rewrites`는 M2로, 캐시는 데이터 함수에 두고 요청 시점 API 뒤에서 호출 (11장)
   - 프론트 에러 처리(`ApiError`), 날짜 표시(KST `YYYY.MM.DD`, `Intl`, 라이브러리 없음) (11장)
   - 프론트 테스트: Vitest로 `lib/` 순수 함수만, 정확한 버전 고정, CI에 test 단계 (1장, 11장, 12-6)
+
+- **v2.7**
+  - 400 `errors[].reason`에 프레임워크 내부 메시지를 내보내지 않고, 타입 변환 실패는 일반 메시지로 바꿈 (9장)
