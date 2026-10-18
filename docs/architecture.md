@@ -759,7 +759,9 @@ CI에서 프론트 이미지를 빌드할 때는 백엔드가 없다. `next buil
   - `langs: []` + `lazy: true`: 코드 블록에 나온 언어만 처음 쓸 때 불러온다. 기본값은 내장 언어 전체를 한 번에 불러와 작은 서버의 기동 후 첫 렌더링 시간과 메모리를 쓴다. 언어 목록을 따로 관리하지 않아도 된다.
   - `defaultLanguage: 'text'`, `fallbackLanguage: 'text'`: 언어를 안 적었거나 모르는 언어(오타 등)여도 오류 없이 같은 코드 블록 모양으로 표시한다.
 - 보안: raw HTML은 react-markdown 기본 동작(이스케이프해서 글자로 표시)을 유지한다. `rehype-raw`, `skipHtml` 변경, `urlTransform` 재정의는 하지 않는다 (기본 `urlTransform`이 `javascript:` 링크를 막는다).
-- 스타일: `@tailwindcss/typography`의 `prose dark:prose-invert`를 감싸는 요소에 둔다 (Tailwind preflight가 제목·목록·표 기본 스타일을 지우므로). 설정은 `globals.css`의 `@plugin "@tailwindcss/typography";`.
+- 스타일: `@tailwindcss/typography`를 쓴다 (Tailwind preflight가 제목·목록·표 기본 스타일을 지우므로). 설정은 `globals.css`의 `@plugin "@tailwindcss/typography";`.
+  - `MarkdownRenderer`가 결과를 `<div className="prose dark:prose-invert max-w-none">`로 감싸서 반환한다. react-markdown에는 `className` prop이 없고, 본문 스타일은 렌더러가 책임져야 호출하는 페이지마다 같은 클래스를 반복하지 않는다.
+  - `max-w-none`으로 `prose`의 기본 최대 너비(65ch)를 끄고, 본문 너비는 호출하는 페이지의 레이아웃이 정한다.
 - 이미지·링크는 기본 `<img>`, `<a>`로 둔다. `next/image` 변환, 외부 링크 새 탭 열기, 제목 앵커 링크·목차는 필요해지면 검토한다 (`rehype-slug`의 `id`가 그 기반이다).
 - 확인용 데이터: `LocalDataInitializer`의 시드 글에 raw HTML(`<script>`, `<img onerror>`)과 `javascript:` 링크, 언어 없는·모르는 언어 코드 블록을 넣어, 로컬에서 표·체크리스트·하이라이팅과 함께 안전하게 표시되는지 본다.
 - `MarkdownRenderer`는 async 서버 컴포넌트라 단위 테스트하지 않는다. 렌더링 결과는 글 상세 페이지에서 시드 글로 확인한다.
@@ -912,4 +914,4 @@ main 머지 (deploy.yml)
   - 글 목록 페이지: `?page`는 1부터(상한 10000), 잘못되거나 범위를 넘은 값은 `notFound()`, `PostCard` 표시 항목, 이전·다음 이동, 빈 목록 문구, `(public)` 레이아웃 헤더 (11장)
 
 - **v2.9**
-  - Markdown 렌더링: 서버 컴포넌트 `MarkdownAsync`, Shiki 라이트·다크 테마와 언어 지연 로딩·대체 언어, raw HTML 기본 이스케이프 유지, `@tailwindcss/typography`, 시드 글로 확인 (1장, 11장)
+  - Markdown 렌더링: 서버 컴포넌트 `MarkdownAsync`, Shiki 라이트·다크 테마와 언어 지연 로딩·대체 언어, raw HTML 기본 이스케이프 유지, `@tailwindcss/typography`(렌더러가 `prose` 요소로 감쌈), 시드 글로 확인 (1장, 11장)
