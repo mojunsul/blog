@@ -657,7 +657,7 @@ frontend/src/
 ├ app/
 │  ├ layout.tsx                     # 최상위 HTML, 폰트, 기본 metadata
 │  ├ (public)/
-│  │  ├ layout.tsx                  # 블로그 헤더/푸터
+│  │  ├ layout.tsx                  # 블로그 헤더 (푸터는 M5)
 │  │  ├ page.tsx                    # /                  글 목록
 │  │  ├ posts/[slug]/page.tsx       # /posts/{slug}      글 상세 + Giscus
 │  │  ├ categories/[slug]/page.tsx  # /categories/{slug}
@@ -677,7 +677,7 @@ frontend/src/
 │  └ rss.xml/route.ts
 ├ components/
 │  ├ ui/            # Button, Input 등 공통
-│  ├ post/          # PostCard, PostList, TagBadge
+│  ├ post/          # PostCard, PostList, Pagination, TagBadge(M4)
 │  ├ markdown/      # MarkdownRenderer
 │  └ admin/         # PostForm, MarkdownPreview
 ├ lib/
@@ -689,6 +689,7 @@ frontend/src/
 │  │  ├ posts.ts
 │  │  └ auth.ts
 │  ├ date.ts        # UTC → KST 표시 변환 (formatDate, YYYY.MM.DD)
+│  ├ pagination.ts  # URL의 page 쿼리 해석 (parsePageParam)
 │  └ utils.ts
 ├ schemas/
 │  └ post.ts        # Zod 스키마 (postSchema, categorySchema, loginSchema) - 서버 검증 규칙과 동일
@@ -731,8 +732,23 @@ CI에서 프론트 이미지를 빌드할 때는 백엔드가 없다. `next buil
 - 날짜 라이브러리(dayjs, date-fns)는 쓰지 않는다. 상대 시간("3일 전"), 기간 계산, 문자열 파싱이 필요해지면 다시 검토한다.
 - 잘못된 입력은 `RangeError`를 그대로 던진다 (API의 `publishedAt`은 PUBLISHED 글에서 항상 있음).
 
+### 글 목록 페이지 (`/`)
+- URL은 `/?page=N`이고, 사용자에게 보이는 값이라 `page`는 **1부터** 센다. API를 호출할 때 `page - 1`로 바꾼다.
+  - 첫 페이지 링크는 `/`(파라미터 없음)로 한다. `?page=1`로 들어와도 첫 페이지를 보여 주고 리다이렉트하지 않는다.
+  - 페이지 크기는 API 기본값(10)을 쓰고 URL로 받지 않는다.
+- `page` 해석은 `lib/pagination.ts`의 순수 함수 `parsePageParam`이 한다. 값이 없으면 1, `^[1-9][0-9]*$`에 맞으면 그 수, 그 외(`0`, 음수, 소수, 문자, 같은 키가 여러 개)는 잘못된 값이다.
+- 잘못된 `page`, 범위를 넘은 `page`(2 이상인데 `content`가 비어 있음)는 `notFound()`. 첫 페이지로 보정하지 않는다 (API와 같은 기준이고, 같은 내용이 여러 URL로 색인되지 않게).
+  - `searchParams`를 `Suspense` 안에서 읽으므로 응답은 이미 스트리밍 중이라 상태 코드는 `200`으로 남고 Next가 `noindex`를 넣는다. 실제 `404` 상태가 필요하면 `proxy.ts`에서 미리 걸러야 하는데, 화면과 색인 결과가 같아 하지 않는다.
+- 구성: `page.tsx`는 `Suspense`(fallback은 짧은 로딩 문구)만 두고, 그 안의 비동기 컴포넌트가 `searchParams`를 읽어 `getPosts(page)`(`lib/api/posts.ts`, `'use cache'` + `cacheLife({ revalidate: 60 })`)를 호출한다. 캐시는 인자(`page`)별로 나뉜다.
+- `PostCard` 표시 항목: 제목(`/posts/{slug}` 링크), 요약(있을 때), 카테고리 이름(있을 때, 텍스트만. 카테고리 페이지는 M4), 발행일(`formatDate`).
+  - 썸네일은 M1에서 표시하지 않는다 (업로드는 M6이고, 외부 URL은 `next/image` 허용 도메인 설정이 필요하다).
+  - 태그는 M4 전까지 항상 `[]`이므로 표시하지 않는다.
+- 페이지 이동(`Pagination`): "이전"·"다음" 링크와 현재 위치(`2 / 3`)만 둔다. "이전"은 `page > 1`, "다음"은 `hasNext`일 때 보이고, 전체가 한 페이지 이내면 영역을 숨긴다. 페이지 번호 목록은 글이 많아지면 검토한다.
+- 글이 하나도 없으면(첫 페이지 `content`가 빔) "아직 작성된 글이 없습니다." 문구를 보여 준다.
+- 레이아웃: `app/page.tsx`를 `app/(public)/page.tsx`로 옮기고, `(public)/layout.tsx`에 블로그 이름(`/` 링크) 헤더를 둔다. 푸터는 넣을 내용(RSS 링크 등)이 생기는 M5에서 추가한다.
+
 ### 프론트엔드 테스트
-- Vitest로 `lib/`의 로직이 있는 순수 함수만 단위 테스트한다 (`date.ts`, `errors.ts`의 파싱 함수).
+- Vitest로 `lib/`의 로직이 있는 순수 함수만 단위 테스트한다 (`date.ts`, `errors.ts`의 파싱 함수, `pagination.ts`).
   - `async` 서버 컴포넌트는 Vitest·Jest 모두 단위 테스트를 지원하지 않으므로 단위 테스트하지 않는다.
   - `server.ts`는 `server-only`가 테스트 환경에서 import 시 오류를 던지므로 단위 테스트하지 않는다 (실제 호출은 화면에서 확인).
 - 최소 구성: `vitest`, `vitest.config.mts`(`resolve: { tsconfigPaths: true }`로 `@/` 별칭 해석, Vite 내장 기능이라 `vite-tsconfig-paths` 플러그인은 쓰지 않는다), `"test": "vitest run"`. React Testing Library·jsdom은 컴포넌트 테스트가 필요해질 때 추가한다.
@@ -873,3 +889,6 @@ main 머지 (deploy.yml)
 
 - **v2.7**
   - 400 `errors[].reason`에 프레임워크 내부 메시지를 내보내지 않고, 타입 변환 실패는 일반 메시지로 바꿈 (9장)
+
+- **v2.8**
+  - 글 목록 페이지: `?page`는 1부터, 잘못되거나 범위를 넘은 값은 `notFound()`, `PostCard` 표시 항목, 이전·다음 이동, 빈 목록 문구, `(public)` 레이아웃 헤더 (11장)
