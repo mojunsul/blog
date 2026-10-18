@@ -11,11 +11,12 @@ describe("parsePageParam", () => {
     ["1", 1],
     ["2", 2],
     ["10", 10],
+    ["10000", 10000],
   ])("양의 정수 %s는 %i페이지다", (value, expected) => {
     expect(parsePageParam(value)).toBe(expected);
   });
 
-  it.each(["0", "-1", "1.5", "abc", "", "01", "1e2", " 2", "2 "])("잘못된 값 '%s'는 null이다", (value) => {
+  it.each(["0", "-1", "1.5", "abc", "", "01", "1e2", " 2", "2 ", "10001", "214748366", "99999999999999999999"])("잘못된 값 '%s'는 null이다", (value) => {
     expect(parsePageParam(value)).toBeNull();
   });
 
