@@ -25,6 +25,7 @@
 | Next.js 16 (App Router) + TypeScript | SSR/ISR 기반 블로그 화면, SEO |
 | Tailwind CSS | 스타일링 |
 | react-markdown + remark-gfm + rehype-slug + Shiki(`@shikijs/rehype`) | Markdown 렌더링, 코드 하이라이팅 |
+| `@tailwindcss/typography` | Markdown 본문 스타일 (`prose`) |
 | react-hook-form + Zod (`@hookform/resolvers`) | 관리자 폼 처리·검증 |
 | openapi-typescript | 백엔드 OpenAPI 명세에서 TS 타입 자동 생성 |
 | Vitest | `lib/`의 순수 함수 단위 테스트 |
@@ -679,7 +680,7 @@ frontend/src/
 ├ components/
 │  ├ ui/            # Button, Input 등 공통
 │  ├ post/          # PostCard, PostList, Pagination, TagBadge(M4)
-│  ├ markdown/      # MarkdownRenderer
+│  ├ markdown/      # MarkdownRenderer (서버 컴포넌트)
 │  └ admin/         # PostForm, MarkdownPreview
 ├ lib/
 │  ├ api/
@@ -748,6 +749,20 @@ CI에서 프론트 이미지를 빌드할 때는 백엔드가 없다. `next buil
 - 페이지 이동(`Pagination`): "이전"·"다음" 링크와 현재 위치(`2 / 3`)만 둔다. "이전"은 `page > 1`, "다음"은 `hasNext`일 때 보이고, 전체가 한 페이지 이내면 영역을 숨긴다. 페이지 번호 목록은 글이 많아지면 검토한다.
 - 글이 하나도 없으면(첫 페이지 `content`가 빔) "아직 작성된 글이 없습니다." 문구를 보여 준다.
 - 레이아웃: `app/page.tsx`를 `app/(public)/page.tsx`로 옮기고, `(public)/layout.tsx`에 블로그 이름(`/` 링크) 헤더를 둔다. 푸터는 넣을 내용(RSS 링크 등)이 생기는 M5에서 추가한다.
+
+### Markdown 렌더링
+- `components/markdown/MarkdownRenderer`는 `content`(Markdown 문자열)만 받는 **서버 컴포넌트**다. react-markdown의 `MarkdownAsync`를 쓴다.
+  - `@shikijs/rehype`는 하이라이터를 비동기로 만드는 플러그인이라 동기 컴포넌트(`Markdown`)에서는 쓸 수 없다. 서버에서 렌더링하므로 Shiki와 문법 파일이 브라우저 번들에 들어가지 않는다.
+- 플러그인: `remarkPlugins: [remarkGfm]`(표, 체크리스트, 취소선), `rehypePlugins: [rehypeSlug, [rehypeShiki, 옵션]]`.
+- Shiki 옵션
+  - `themes: { light: 'github-light', dark: 'github-dark' }`. 사이트가 `prefers-color-scheme`으로 다크 모드를 따르므로, `globals.css`에서 같은 미디어 쿼리로 `--shiki-dark`, `--shiki-dark-bg` 변수 색으로 바꾼다.
+  - `langs: []` + `lazy: true`: 코드 블록에 나온 언어만 처음 쓸 때 불러온다. 기본값은 내장 언어 전체를 한 번에 불러와 작은 서버의 기동 후 첫 렌더링 시간과 메모리를 쓴다. 언어 목록을 따로 관리하지 않아도 된다.
+  - `defaultLanguage: 'text'`, `fallbackLanguage: 'text'`: 언어를 안 적었거나 모르는 언어(오타 등)여도 오류 없이 같은 코드 블록 모양으로 표시한다.
+- 보안: raw HTML은 react-markdown 기본 동작(이스케이프해서 글자로 표시)을 유지한다. `rehype-raw`, `skipHtml` 변경, `urlTransform` 재정의는 하지 않는다 (기본 `urlTransform`이 `javascript:` 링크를 막는다).
+- 스타일: `@tailwindcss/typography`의 `prose dark:prose-invert`를 감싸는 요소에 둔다 (Tailwind preflight가 제목·목록·표 기본 스타일을 지우므로). 설정은 `globals.css`의 `@plugin "@tailwindcss/typography";`.
+- 이미지·링크는 기본 `<img>`, `<a>`로 둔다. `next/image` 변환, 외부 링크 새 탭 열기, 제목 앵커 링크·목차는 필요해지면 검토한다 (`rehype-slug`의 `id`가 그 기반이다).
+- 확인용 데이터: `LocalDataInitializer`의 시드 글에 raw HTML(`<script>`, `<img onerror>`)과 `javascript:` 링크, 언어 없는·모르는 언어 코드 블록을 넣어, 로컬에서 표·체크리스트·하이라이팅과 함께 안전하게 표시되는지 본다.
+- `MarkdownRenderer`는 async 서버 컴포넌트라 단위 테스트하지 않는다. 렌더링 결과는 글 상세 페이지에서 시드 글로 확인한다.
 
 ### 프론트엔드 테스트
 - Vitest로 `lib/`의 로직이 있는 순수 함수만 단위 테스트한다 (`date.ts`, `errors.ts`의 파싱 함수, `pagination.ts`).
@@ -895,3 +910,6 @@ main 머지 (deploy.yml)
 - **v2.8**
   - API `page` 상한 9999 (7장)
   - 글 목록 페이지: `?page`는 1부터(상한 10000), 잘못되거나 범위를 넘은 값은 `notFound()`, `PostCard` 표시 항목, 이전·다음 이동, 빈 목록 문구, `(public)` 레이아웃 헤더 (11장)
+
+- **v2.9**
+  - Markdown 렌더링: 서버 컴포넌트 `MarkdownAsync`, Shiki 라이트·다크 테마와 언어 지연 로딩·대체 언어, raw HTML 기본 이스케이프 유지, `@tailwindcss/typography`, 시드 글로 확인 (1장, 11장)
