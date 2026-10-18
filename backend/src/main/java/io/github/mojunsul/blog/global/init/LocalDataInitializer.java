@@ -160,6 +160,38 @@ public class LocalDataInitializer implements ApplicationRunner {
 				""")
 			.build(), 14));
 
+		postRepository.save(published(Post.builder()
+			.title("Markdown 보안과 코드 블록 확인")
+			.slug("markdown-safety-sample")
+			.summary("raw HTML과 위험한 링크가 실행되지 않고, 언어가 없거나 모르는 코드 블록도 표시되는지 확인한다.")
+			.content("""
+				# 보안과 코드 블록
+
+				## raw HTML
+
+				<script>alert('xss')</script>
+
+				<img src="x" onerror="alert('xss')">
+
+				## 위험한 링크
+
+				[javascript 링크](javascript:alert('xss'))
+
+				## 언어 없는 코드 블록
+
+				```
+				언어를 적지 않은 코드
+				```
+
+				## 모르는 언어 코드 블록
+
+				```not-a-language
+				오타가 난 언어 이름
+				```
+				""")
+			.category(frontend)
+			.build(), 21));
+
 		postRepository.save(Post.builder()
 			.title("작성 중인 글")
 			.slug("draft-post-sample")
