@@ -693,6 +693,7 @@ frontend/src/
 │  │  └ auth.ts
 │  ├ date.ts        # UTC → KST 표시 변환 (formatDate, YYYY.MM.DD)
 │  ├ pagination.ts  # URL의 page 쿼리 해석 (parsePageParam)
+│  ├ slug.ts        # slug 형식 검사 (isValidSlug, 6장 slug 규칙)
 │  └ utils.ts
 ├ schemas/
 │  └ post.ts        # Zod 스키마 (postSchema, categorySchema, loginSchema) - 서버 검증 규칙과 동일
@@ -753,8 +754,11 @@ CI에서 프론트 이미지를 빌드할 때는 백엔드가 없다. `next buil
 
 ### 글 상세 페이지 (`/posts/{slug}`)
 - 구성: 목록 페이지와 같다. `page.tsx`는 `Suspense`만 두고, 그 안의 비동기 컴포넌트가 `params`를 읽어 `getPost(slug)`(`lib/api/posts.ts`, `'use cache'` + `cacheLife({ revalidate: 60 })`)를 호출한다.
-  - `getPost`는 API 경로를 만들 때 `slug`를 `encodeURIComponent`로 감싼다. 경로의 `slug`는 형식을 검사하지 않으므로(8-1), `/`·`..`·`?` 같은 문자가 API 경로를 바꾸지 못하게 한다.
-- `ApiError`의 `status === 404`(없는 글, DRAFT, 대소문자가 다른 slug)면 `notFound()`. 그 외 오류는 그대로 던진다.
+- `getPost`를 호출하기 전에 `lib/slug.ts`의 순수 함수 `isValidSlug`로 6장 slug 규칙(`^[a-z0-9]+(?:-[a-z0-9]+)*$`, 200자 이하)을 검사하고, 맞지 않으면 `notFound()`.
+  - 규칙에 맞는 값은 영문 소문자·숫자·하이픈뿐이라 그대로 API 경로에 넣는다. 맞지 않는 값을 경로에 넣으면 `.`·`..`는 URL 정규화로 다른 API 경로(`/api/v1/posts/`, `/api/v1/`)가 되고, `encodeURIComponent`도 `.`은 인코딩하지 않는다. 인코딩된 슬래시(`%2F`)는 서버가 404가 아닌 400으로 거절할 수 있어 오류 화면이 된다.
+  - 8-1의 "형식이 다른 slug는 404"와 결과가 같다 (API는 형식을 검사하지 않고, 프론트는 호출 전에 걸러 같은 not-found를 보여 준다). Next가 `params`의 `%2F`·`%2E`를 디코딩하든 안 하든 `%`·`/`·`.`은 규칙에 맞지 않으므로 결과가 같다.
+  - 관리자 폼의 Zod 스키마(M2)도 이 함수의 패턴을 함께 쓴다.
+- `ApiError`의 `status === 404`(없는 글, DRAFT)면 `notFound()`. 그 외 오류는 그대로 던진다.
   - 목록 페이지와 같은 이유로 상태 코드는 `200`으로 남고 `noindex`가 붙는다.
 - 표시 항목: 제목(`h1`), 카테고리 이름(있을 때, 텍스트만)과 발행일(`formatDate`)을 `PostCard`와 같은 형식으로, 본문(`MarkdownRenderer`).
   - 요약·썸네일·태그·수정일은 표시하지 않는다. 요약은 목록과 M5의 OG 설명용이고, 썸네일·태그는 목록 페이지와 같은 이유다.
@@ -781,7 +785,7 @@ CI에서 프론트 이미지를 빌드할 때는 백엔드가 없다. `next buil
 - `MarkdownRenderer`는 async 서버 컴포넌트라 단위 테스트하지 않는다. 렌더링 결과는 글 상세 페이지에서 시드 글로 확인한다.
 
 ### 프론트엔드 테스트
-- Vitest로 `lib/`의 로직이 있는 순수 함수만 단위 테스트한다 (`date.ts`, `errors.ts`의 파싱 함수, `pagination.ts`).
+- Vitest로 `lib/`의 로직이 있는 순수 함수만 단위 테스트한다 (`date.ts`, `errors.ts`의 파싱 함수, `pagination.ts`, `slug.ts`).
   - `async` 서버 컴포넌트는 Vitest·Jest 모두 단위 테스트를 지원하지 않으므로 단위 테스트하지 않는다.
   - `server.ts`는 `server-only`가 테스트 환경에서 import 시 오류를 던지므로 단위 테스트하지 않는다 (실제 호출은 화면에서 확인).
 - 최소 구성: `vitest`, `vitest.config.mts`(`resolve: { tsconfigPaths: true }`로 `@/` 별칭 해석, Vite 내장 기능이라 `vite-tsconfig-paths` 플러그인은 쓰지 않는다), `"test": "vitest run"`. React Testing Library·jsdom은 컴포넌트 테스트가 필요해질 때 추가한다.
@@ -931,4 +935,4 @@ main 머지 (deploy.yml)
   - Markdown 렌더링: 서버 컴포넌트 `MarkdownAsync`, Shiki 라이트·다크 테마와 언어 지연 로딩·대체 언어, raw HTML 기본 이스케이프 유지, `@tailwindcss/typography`(렌더러가 `prose` 요소로 감쌈), 시드 글로 확인 (1장, 11장)
 
 - **v2.10**
-  - 글 상세 페이지: `getPost`의 `slug` 인코딩, 404는 `notFound()`, 표시 항목, UI-level 캐시 없이 ISR로 렌더링 결과 캐시, `(public)/not-found.tsx`(루트 not-found는 M5) (11장)
+  - 글 상세 페이지: API 호출 전 `isValidSlug`(6장 slug 규칙)로 걸러 `notFound()`, 404는 `notFound()`, 표시 항목, UI-level 캐시 없이 ISR로 렌더링 결과 캐시, `(public)/not-found.tsx`(루트 not-found는 M5) (11장)
