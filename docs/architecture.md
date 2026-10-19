@@ -660,6 +660,7 @@ frontend/src/
 │  ├ layout.tsx                     # 최상위 HTML, 폰트, 기본 metadata
 │  ├ (public)/
 │  │  ├ layout.tsx                  # 블로그 헤더 (푸터는 M5)
+│  │  ├ not-found.tsx               # 공개 페이지의 notFound() 화면 (헤더 포함)
 │  │  ├ page.tsx                    # /                  글 목록
 │  │  ├ posts/[slug]/page.tsx       # /posts/{slug}      글 상세 + Giscus
 │  │  ├ categories/[slug]/page.tsx  # /categories/{slug}
@@ -673,7 +674,7 @@ frontend/src/
 │  │     ├ posts/new/page.tsx       # /admin/posts/new
 │  │     ├ posts/[id]/edit/page.tsx # /admin/posts/{id}/edit
 │  │     └ categories/page.tsx      # /admin/categories
-│  ├ not-found.tsx
+│  ├ not-found.tsx                  # (M5) 어느 경로에도 맞지 않는 URL
 │  ├ sitemap.ts
 │  ├ robots.ts
 │  └ rss.xml/route.ts
@@ -749,6 +750,19 @@ CI에서 프론트 이미지를 빌드할 때는 백엔드가 없다. `next buil
 - 페이지 이동(`Pagination`): "이전"·"다음" 링크와 현재 위치(`2 / 3`)만 둔다. "이전"은 `page > 1`, "다음"은 `hasNext`일 때 보이고, 전체가 한 페이지 이내면 영역을 숨긴다. 페이지 번호 목록은 글이 많아지면 검토한다.
 - 글이 하나도 없으면(첫 페이지 `content`가 빔) "아직 작성된 글이 없습니다." 문구를 보여 준다.
 - 레이아웃: `app/page.tsx`를 `app/(public)/page.tsx`로 옮기고, `(public)/layout.tsx`에 블로그 이름(`/` 링크) 헤더를 둔다. 푸터는 넣을 내용(RSS 링크 등)이 생기는 M5에서 추가한다.
+
+### 글 상세 페이지 (`/posts/{slug}`)
+- 구성: 목록 페이지와 같다. `page.tsx`는 `Suspense`만 두고, 그 안의 비동기 컴포넌트가 `params`를 읽어 `getPost(slug)`(`lib/api/posts.ts`, `'use cache'` + `cacheLife({ revalidate: 60 })`)를 호출한다.
+  - `getPost`는 API 경로를 만들 때 `slug`를 `encodeURIComponent`로 감싼다. 경로의 `slug`는 형식을 검사하지 않으므로(8-1), `/`·`..`·`?` 같은 문자가 API 경로를 바꾸지 못하게 한다.
+- `ApiError`의 `status === 404`(없는 글, DRAFT, 대소문자가 다른 slug)면 `notFound()`. 그 외 오류는 그대로 던진다.
+  - 목록 페이지와 같은 이유로 상태 코드는 `200`으로 남고 `noindex`가 붙는다.
+- 표시 항목: 제목(`h1`), 카테고리 이름(있을 때, 텍스트만)과 발행일(`formatDate`)을 `PostCard`와 같은 형식으로, 본문(`MarkdownRenderer`).
+  - 요약·썸네일·태그·수정일은 표시하지 않는다. 요약은 목록과 M5의 OG 설명용이고, 썸네일·태그는 목록 페이지와 같은 이유다.
+  - 글별 `<title>`·OG 태그(`generateMetadata`)는 M5에서 추가한다. Giscus도 M5.
+- 캐시: 컴포넌트 단위 `'use cache'`(UI-level)는 두지 않는다. Partial Prefetching이 켜져 있어, 처음 방문한 `slug`는 렌더링이 끝난 페이지가 ISR 캐시에 저장되고, 이후 요청은 `getPost`의 `cacheLife`(60초)가 지날 때까지 다시 렌더링하지 않는다. 그래서 Shiki 하이라이팅은 요청마다가 아니라 글별로 재검증 때만 실행된다.
+  - 운영에서 상세 페이지 응답이 느리면 그때 측정하고 다시 검토한다.
+- not-found 화면: `app/(public)/not-found.tsx`를 둔다. 공개 페이지에서 부른 `notFound()`(상세의 없는 글, 목록의 잘못된 `page`)가 블로그 헤더 안에서 "페이지를 찾을 수 없습니다." 문구와 `/` 링크로 표시된다.
+  - 어느 경로에도 맞지 않는 URL(`/foo`)은 루트 `app/not-found.tsx`가 맡는데, 루트 레이아웃만 거쳐 헤더가 없다. M5의 not-found 페이지 작업에서 함께 정하고, 그 전까지는 Next 기본 404 화면을 쓴다.
 
 ### Markdown 렌더링
 - `components/markdown/MarkdownRenderer`는 `content`(Markdown 문자열)만 받는 **서버 컴포넌트**다. react-markdown의 `MarkdownAsync`를 쓴다.
@@ -915,3 +929,6 @@ main 머지 (deploy.yml)
 
 - **v2.9**
   - Markdown 렌더링: 서버 컴포넌트 `MarkdownAsync`, Shiki 라이트·다크 테마와 언어 지연 로딩·대체 언어, raw HTML 기본 이스케이프 유지, `@tailwindcss/typography`(렌더러가 `prose` 요소로 감쌈), 시드 글로 확인 (1장, 11장)
+
+- **v2.10**
+  - 글 상세 페이지: `getPost`의 `slug` 인코딩, 404는 `notFound()`, 표시 항목, UI-level 캐시 없이 ISR로 렌더링 결과 캐시, `(public)/not-found.tsx`(루트 not-found는 M5) (11장)
