@@ -47,7 +47,7 @@ class PostControllerTest {
 	@Test
 	void 글_목록을_페이지_형식으로_응답한다() throws Exception {
 		// given
-		var post = new PostSummaryResponse(1L, "제목", "slug", null, null, null, List.of(),
+		PostSummaryResponse post = new PostSummaryResponse(1L, "제목", "slug", null, null, null, List.of(),
 			Instant.parse("2026-10-11T01:00:00Z"));
 		given(postService.getPublishedPosts(any()))
 			.willReturn(new PageResponse<>(List.of(post), 0, 10, 1, 1, false));
@@ -112,7 +112,7 @@ class PostControllerTest {
 	@Test
 	void 글_상세를_본문과_수정_시각을_포함해_응답한다() throws Exception {
 		// given
-		var post = new PostDetailResponse(1L, "제목", "my-post", null, "# 본문", null, null, List.of(),
+		PostDetailResponse post = new PostDetailResponse(1L, "제목", "my-post", null, "# 본문", null, null, List.of(),
 			Instant.parse("2026-10-11T01:00:00Z"), Instant.parse("2026-10-11T03:30:00Z"));
 		given(postService.getPublishedPost("my-post")).willReturn(post);
 

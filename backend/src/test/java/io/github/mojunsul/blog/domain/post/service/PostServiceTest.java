@@ -14,6 +14,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import io.github.mojunsul.blog.domain.post.dto.PostDetailResponse;
+import io.github.mojunsul.blog.domain.post.entity.Post;
 import io.github.mojunsul.blog.domain.post.entity.PostStatus;
 import io.github.mojunsul.blog.domain.post.repository.PostRepository;
 import io.github.mojunsul.blog.fixture.PostFixture;
@@ -32,7 +33,7 @@ class PostServiceTest {
 	@Test
 	void 발행된_글이_있으면_상세_응답으로_변환한다() {
 		// given
-		var post = PostFixture.published("my-post", Instant.parse("2026-10-11T01:00:00Z"));
+		Post post = PostFixture.published("my-post", Instant.parse("2026-10-11T01:00:00Z"));
 		given(postRepository.findBySlugAndStatus("my-post", PostStatus.PUBLISHED)).willReturn(Optional.of(post));
 
 		// when

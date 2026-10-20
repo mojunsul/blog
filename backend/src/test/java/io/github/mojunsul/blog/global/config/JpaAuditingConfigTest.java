@@ -7,6 +7,7 @@ import java.time.Instant;
 import java.time.ZoneOffset;
 
 import org.junit.jupiter.api.Test;
+import org.springframework.data.auditing.DateTimeProvider;
 
 class JpaAuditingConfigTest {
 
@@ -17,7 +18,7 @@ class JpaAuditingConfigTest {
 		Clock clock = Clock.fixed(fixed, ZoneOffset.UTC);
 
 		// when
-		var provider = new JpaAuditingConfig().auditingDateTimeProvider(clock);
+		DateTimeProvider provider = new JpaAuditingConfig().auditingDateTimeProvider(clock);
 
 		// then
 		assertThat(provider.getNow()).contains(fixed);
