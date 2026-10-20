@@ -264,7 +264,19 @@ backend/src/test/java/io/github/mojunsul/blog/
 **관리자 계정 생성**
 - 회원가입 API는 만들지 않는다.
 - `AdminInitializer`(`ApplicationRunner`)가 앱 시작 시 관리자 계정이 없으면 환경변수 `ADMIN_USERNAME`, `ADMIN_PASSWORD`로 생성한다 (BCrypt).
-- 이미 존재하면 아무것도 하지 않는다.
+- 이미 존재하면 아무것도 하지 않는다. 계정이 하나라도 있으면(`count() > 0`) 환경변수의 username이 달라도 새로 만들지 않는다.
+- 설정: `application.yaml`의 `blog.admin.username: ${ADMIN_USERNAME:}`, `blog.admin.password: ${ADMIN_PASSWORD:}`, `blog.admin.required: false`를 `@ConfigurationProperties` record(`AdminProperties`)로 받는다. `application-prod.yaml`은 `required: true`.
+- 관리자가 없고 값이 비어 있을 때
+  - `required: true`(prod): `IllegalStateException`으로 기동을 멈춘다. 관리자 없이 운영 서버가 뜨면 로그인할 방법이 없고, 설정 누락이 조용히 숨는다.
+  - `required: false`(local, test): `WARN` 한 줄을 남기고 건너뛴다. 공개 화면 개발에는 관리자가 필요 없고, 저장소가 Public이라 local 기본 비밀번호를 설정 파일에 둘 수 없다. local에서 로그인하려면 IDE 실행 설정이나 셸에 두 환경변수를 넣는다.
+- 값 검증 (값이 있으면 프로필과 무관하게, 어기면 `IllegalStateException`으로 기동 중단)
+  - username: 공백이 아니고 50자 이하 (`admin.username` 컬럼 길이).
+  - password: 12자 이상, UTF-8 72바이트 이하. BCrypt는 72바이트까지만 쓰고 Spring Security는 넘는 값을 거절하므로, 기동 때 미리 막는다.
+  - 오류 메시지와 로그에 비밀번호 값을 넣지 않는다.
+- 생성하면 `INFO`로 username만 남긴다 (5장 관리자 행위 로그).
+- `PasswordEncoder` 빈은 `BCryptPasswordEncoder`(기본 강도)로 `global/config/PasswordEncoderConfig`에 둔다. `SecurityConfig`와 분리해 Security 설정 변경과 섞이지 않게 한다.
+- `Admin` 엔티티는 `BaseTimeEntity`를 상속하지 않는다 (`admin` 테이블에 `updated_at`이 없다). `createdAt`만 `@CreatedDate`로 채운다.
+- 비밀번호·username 변경: API를 두지 않는다. 서버에서 `admin` 행을 지우고(`refresh_token`은 `ON DELETE CASCADE`로 함께 삭제) `infra/.env`의 값을 바꾼 뒤 backend를 재시작하면 새 값으로 다시 만들어진다 (12-2).
 
 ---
 
@@ -827,6 +839,7 @@ CI에서 프론트 이미지를 빌드할 때는 백엔드가 없다. `next buil
 - PostgreSQL 데이터는 named volume으로 영속화
 - 비밀값은 서버의 `infra/.env`에만 둔다 (원본은 GitHub Secrets에서 관리)
   - `POSTGRES_PASSWORD`, `JWT_SECRET`, `ADMIN_USERNAME`, `ADMIN_PASSWORD`, Object Storage 인증 정보 등
+  - 관리자 비밀번호를 바꾸려면 `admin` 행을 삭제하고 `ADMIN_PASSWORD`를 바꾼 뒤 backend를 재시작한다 (5장 '관리자 계정 생성'). 절차는 M3에서 README에 적는다.
 - OCI 보안 목록 + 인스턴스 iptables 양쪽에서 80/443 개방 (22는 본인 IP로 제한 권장)
 - 예약 공인 IP(Reserved Public IP) 사용
 - 모든 서비스에 `restart: unless-stopped`
@@ -955,3 +968,6 @@ main 머지 (deploy.yml)
 
 - **v2.11**
   - 페이지네이션 숫자 변환은 Spring 기본 동작(빈 값·공백은 기본값, 관대한 숫자 형식 허용, 같은 키는 첫 값)을 따르고 바뀐 값에 범위 검사, 주요 동작은 테스트로 고정 (7장)
+
+- **v2.13**
+  - 관리자 계정 생성: `blog.admin.*` 설정, prod는 값이 없으면 기동 실패·그 외는 건너뜀, username·password 검증(72바이트 포함), `PasswordEncoderConfig` 분리, `Admin`은 `createdAt`만, 비밀번호 변경은 행 삭제 후 재시작 (5장, 12-2)
