@@ -239,15 +239,15 @@ GET /api/v1/admin/posts?page=0&size=10&status=DRAFT
 ```
 - 요청은 `AdminPostSearchRequest(page, size, status)` record(`@Valid @ModelAttribute`, 5장)로 받는다. `page`·`size` 검증은 공개 목록(`PostSearchRequest`)과 같고, `status`만 다르다. 공개 목록의 요청 record에 `status`를 넣지 않는다: 공개 API가 DRAFT 조회 파라미터를 받는 길을 만들지 않기 위해서다.
 - 공개 목록과 다른 응답 필드: `status`, `createdAt`, `updatedAt`이 있고 `publishedAt`은 DRAFT면 `null`이다. 관리자 목록 화면이 쓰지 않는 `summary`, `thumbnailUrl`, `tags`는 넣지 않는다. 카테고리가 없는 글은 `"category": null` (공개와 같다).
-- **`status` 값**: 필터를 주지 않으면(파라미터 없음, `?status=`) DRAFT·PUBLISHED 모두 조회한다. 값은 Spring 바인딩 기본 동작(`Enum.valueOf`)을 따른다 (7장 페이지네이션과 같은 방침).
+- **`status` 값**: 필터를 주지 않으면(파라미터 없음, `?status=`) DRAFT·PUBLISHED 모두 조회한다. 값은 Spring 바인딩 기본 동작을 따른다 (7장 페이지네이션과 같은 방침: 직접 파싱하지 않는다).
   | 입력 | 결과 |
   |---|---|
   | `DRAFT`, `PUBLISHED` | 그 상태만 |
-  | 없음, `?status=` | 전체 |
-  | `draft`(대소문자 다름), `ARCHIVED`(없는 값), `null`, ` DRAFT`(앞뒤 공백), `%20`(공백만) | `400` `INVALID_INPUT` (`errors`의 `field`는 `status`, `reason`은 "형식이 올바르지 않습니다") |
-  - 공백은 `page`·`size`와 달리 지우지 않는다: 숫자 변환은 앞뒤 공백을 지우지만 enum 변환은 지우지 않는다 (Spring Boot 4.1.1, `@WebMvcTest`로 확인). `status`는 프론트가 정해진 값(`status=DRAFT`)만 보내므로 관대하게 받을 이유가 없다.
-  - 같은 키가 여러 개면 첫 값만 바꾸고 검사한다 (`page`와 같다): `?status=DRAFT&status=abc`는 `DRAFT`, `?status=abc&status=DRAFT`는 `400`, `?status=&status=DRAFT`는 전체.
-  - 위 동작(빈 값, 공백, 대소문자, 같은 키 여러 개)은 Controller 테스트로 고정한다 (프레임워크 업그레이드로 바뀌면 드러나게, 7장).
+  | 앞뒤 공백이 있는 값(`%20DRAFT`, `DRAFT%20`) | 공백을 지운 값 기준으로 그 상태만 |
+  | 없음, `?status=`, 공백만 있는 값(`%20`) | 전체 |
+  | `draft`(대소문자 다름), `ARCHIVED`(없는 값), `null` | `400` `INVALID_INPUT` (`errors`의 `field`는 `status`, `reason`은 "형식이 올바르지 않습니다") |
+  - 같은 키가 여러 개면 첫 값만 바꾸고 검사한다 (`page`와 같다): `?status=DRAFT&status=abc`는 `DRAFT`, `?status=abc&status=DRAFT`는 `400`, `?status=&status=DRAFT`는 전체. 첫 값이 공백만 있고 뒤에 값이 있는 `?status=%20&status=DRAFT`는 `400`이다 (빈 값과 달리 공백만 있는 값은 같은 키가 둘 이상이면 값 없음으로 처리되지 않는다).
+  - 위 표와 같은 키 동작은 Spring Boot 4.1.1에서 `@WebMvcTest`로 확인한 결과다 (인코딩된 쿼리 문자열을 `URI`로 그대로 보내 디코딩까지 포함). Controller 테스트로 고정해 프레임워크 업그레이드로 바뀌면 드러나게 한다 (7장).
 - **정렬: `id` 내림차순** (최근에 만든 글이 먼저). `publishedAt`은 DRAFT가 `null`이라 쓰지 않는다. `id`는 유일해 같은 값이 없으므로 페이지 사이에서 중복·누락이 없고, 관리자 목록은 발행 순서가 아니라 작성한 순서로 찾기 때문이다. `createdAt`을 쓰지 않는 이유: `id`가 작성 순서와 같고, 보조 정렬 키가 필요 없다. `(status, published_at)` 인덱스는 이 쿼리가 쓰지 않는다. 글이 수백 건인 개인 블로그라 순차 스캔으로 충분해 인덱스를 더하지 않는다.
 - 범위 밖 페이지(`page`가 `totalPages` 이상)는 오류가 아니라 `200`에 `content: []`다.
 - **조회 방식**: QueryDSL 없이 Spring Data 파생 쿼리 두 개(`findAllByOrderByIdDesc`, `findAllByStatusOrderByIdDesc`)로 하고, `status`가 없으면 앞의 것을 부른다 (서비스가 분기). 필터가 `status` 하나라 동적 쿼리가 필요 없다. 검색 조건이 늘어나는 M4에서 `PostQueryRepository`(QueryDSL, 5장)로 옮긴다. 카테고리는 `@EntityGraph(attributePaths = "category")`로 함께 읽어 글마다 쿼리가 나가지 않게 한다 (공개 목록과 같다).
@@ -276,7 +276,8 @@ GET /api/v1/admin/posts?page=0&size=10&status=DRAFT
 ```
 - `categoryId`는 폼의 카테고리 선택값이다 (작성 요청이 `categoryId`로 받는다). 카테고리가 없는 글은 `categoryId`와 `category`가 모두 `null`이다. `category`는 공개 상세와 같은 이름·slug 형태로, 폼이 선택된 항목을 표시하는 데 쓴다.
 - `publishedAt`은 DRAFT면 `null`이다. `tags`는 M4 전까지 항상 `[]`다 (8-1). 조회수(`viewCount`)는 M6에서 구현하므로 넣지 않는다.
-- 없는 `id`: `404` `POST_NOT_FOUND`. DRAFT여도 관리자는 조회한다 (공개 상세와 다르다).
+- 조회는 `PostRepository.findWithCategoryById(Long id)`(`@EntityGraph(attributePaths = "category")`)로 한다. 상태 조건이 없어 DRAFT·PUBLISHED 모두 조회되고(공개 상세의 `findBySlugAndStatus`와 다르다), 카테고리를 함께 읽어 `category`·`categoryId` 때문에 쿼리가 더 나가지 않는다. Repository 테스트로 검증한다.
+- 없는 `id`: `404` `POST_NOT_FOUND`.
 - 경로의 `id`가 Long으로 읽히지 않으면(`abc`, 범위 초과) `400` `INVALID_INPUT` (`errors` `[]`). Long으로 읽히면 그 값으로 조회하고, 없으면(`0`, 음수 포함) `404`다 (카테고리와 같다, 아래 '공통').
 - `PUT`의 응답(`200` + 수정된 상세 응답)도 같은 `AdminPostDetailResponse`다 (글 수정 이슈에서 구현).
 
