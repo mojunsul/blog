@@ -1,8 +1,8 @@
 # 블로그 프로젝트 설계 문서
 
 > Claude Code에서 작업을 시작하기 위한 기준 문서.
-> 저장소 루트에 `docs/architecture.md`로 두고, `CLAUDE.md`에서 이 문서를 참조하도록 한다.
-> 이 문서와 구현이 충돌하면 이 문서를 먼저 수정한 뒤 구현한다.
+> 목차 `docs/architecture.md`와 장별 파일 `docs/architecture/NN-*.md`로 두고, `CLAUDE.md`에서 이 문서를 참조하도록 한다.
+> 이 문서와 구현이 충돌하면 해당 장 파일을 먼저 수정한 뒤 구현한다.
 
 ---
 

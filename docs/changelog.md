@@ -77,4 +77,4 @@
   - JWT 키 판정은 `strip()` 후 표준 Base64 디코더, `access_token` 쿠키가 여러 개면 첫 값만 사용(Path를 `/api`보다 길게 바꾸지 않는 제약 포함) (10-6)
 
 - **v2.16**
-  - 설계 문서를 `docs/architecture/NN-*.md` 장별 파일로 분리하고 `docs/architecture.md`는 목차로 변경, 변경 이력을 `docs/changelog.md`로 분리 (본문 변경 없음, 4장 구조 그림은 후속 반영)
+  - 설계 문서를 `docs/architecture/NN-*.md` 장별 파일로 분리하고 `docs/architecture.md`는 목차로 변경, 변경 이력을 `docs/changelog.md`로 분리 (장 본문은 변경 없음, 00장 머리말과 4장 구조 그림만 새 구조에 맞게 수정)

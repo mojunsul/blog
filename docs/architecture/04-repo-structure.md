@@ -15,7 +15,9 @@ blog/
 │  └ backup/
 │     └ backup.sh                # pg_dump → 압축 → Object Storage 업로드
 ├ docs/
-│  ├ architecture.md             # 이 문서
+│  ├ architecture.md             # 설계 문서 목차
+│  ├ architecture/               # 설계 문서 장별 파일 (NN-*.md)
+│  ├ changelog.md                # 설계 문서 변경 이력
 │  └ verification.md             # 검증 세션 규칙 (CLAUDE.md에서 분리)
 ├ .github/
 │  └ workflows/
