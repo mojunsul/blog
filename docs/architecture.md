@@ -758,6 +758,14 @@ Spring의 `ProblemDetail`을 사용하고, 확장 필드로 `code`, `errors`를 
 - 서명 키: `blog.auth.jwt-secret: ${JWT_SECRET:}`를 **Base64로 디코딩한 바이트**를 쓴다. 생성은 `openssl rand -base64 32`.
   - 문자열을 그대로(UTF-8) 키로 쓰지 않는 이유: 32글자 문자열은 길이 검사를 통과해도 사람이 만든 값이면 256bit 무작위가 아니다. Base64 디코딩 결과의 길이를 검사하면 무작위 바이트 생성을 강제하기 쉽다.
   - 검사는 `JwtProvider` 생성 시(기동 시) 한다. 어기면 `IllegalStateException`으로 기동을 멈추고, 메시지에는 설정 키 이름만 넣는다 (키 값 금지).
+  - 판정 순서: `isBlank()` → `strip()` → `java.util.Base64.getDecoder()`(표준 Base64) → 디코딩 결과 길이. 디코더에 따라 달라지는 입력의 결과는 다음과 같다.
+    | 입력 | 결과 |
+    |---|---|
+    | 앞뒤 공백·줄바꿈 (`.env`에 붙은 경우) | `strip()`으로 지우고 통과 |
+    | 값 중간의 공백·줄바꿈 | Base64 아님 |
+    | 패딩(`=`) 없는 값 (예: 32바이트 키의 43자 표기) | 통과 (표준 디코더는 패딩을 요구하지 않는다) |
+    | `-`·`_`가 든 값 (URL-safe 표기) | Base64 아님 (표준 알파벳만 허용) |
+  - `openssl rand -base64 32`의 출력(44자, 패딩 `=` 하나)이 그대로 통과해야 한다.
   | 값 | `jwt-secret-required: false` (local, test) | `true` (prod) |
   |---|---|---|
   | 비어 있음 (`isBlank()`) | `WARN` 한 줄 후 기동마다 무작위 32바이트 키 사용 (재시작하면 기존 토큰 무효) | `IllegalStateException` |
@@ -769,6 +777,7 @@ Spring의 `ProblemDetail`을 사용하고, 확장 필드로 `code`, `errors`를 
 **`JwtAuthenticationFilter`**
 | `access_token` 쿠키 | 결과 |
 |---|---|
+| 같은 이름이 여러 개 (Path가 다른 예전 쿠키가 남은 경우) | 요청에 실린 순서의 **첫 값만** 쓰고 나머지는 무시한다. 첫 값이 잘못됐으면 뒤 값이 유효해도 인증하지 않는다 (브라우저는 Path가 더 긴 쿠키를 먼저 보내므로 첫 값이 현재 발급분이다) |
 | 없음, 또는 값이 비어 있음(`isBlank()`) | 인증 없이 다음 필터로 |
 | 서명·형식이 맞고 만료 전 | `SecurityContext`에 인증 등록 (principal은 username 문자열, 권한 `ROLE_ADMIN`) |
 | 만료, 서명 불일치, 형식 오류, 서명 없는 토큰(`alg: none`) | 인증 없이 다음 필터로 (jjwt `JwtException`을 잡는다) |
@@ -1105,9 +1114,10 @@ main 머지 (deploy.yml)
 - **v2.14**
   - 저장소 구조에 `docs/verification.md`(검증 세션 규칙) 추가 (4장)
 
-- **v2.14**
+- **v2.15**
   - 로그인·`me`: 요청 검증(username `@NotBlank`·50자, password `@NotEmpty`·공백만 허용), 72바이트 초과 비밀번호는 `401`, username 정확히 비교, 같은 키는 마지막 값, 재로그인 시 기존 Refresh 유지, `me`는 토큰의 `sub`만 사용 (8-3)
   - 로그인 실패 로그는 `GlobalExceptionHandler`의 `WARN`만, 입력 username은 남기지 않음 (5장)
   - access·refresh 쿠키 `Secure`는 `blog.auth.secure-cookie`(local만 `false`), 쿠키는 `CookieUtil`에서 생성 (10-1)
   - JWT: HS256, `sub`·`iat`·`exp`, 키는 Base64 디코딩 32바이트 이상·기동 시 검사(local·test는 비면 무작위 키), `AuthProperties`, 필터는 잘못된 토큰을 무시하고 인가 단계의 `401`에 맡김, 아이디가 없어도 더미 해시로 BCrypt 비교, Refresh 토큰 생성·해시 방식 (10-5, 10-6, 12-2)
   - Security 경로 규칙에 `POST /api/v1/auth/login` 허용 추가, `JwtAuthenticationFilter`는 빈이 아니게 등록 (10-5)
+  - JWT 키 판정은 `strip()` 후 표준 Base64 디코더, `access_token` 쿠키가 여러 개면 첫 값만 사용 (10-6)
