@@ -40,6 +40,9 @@ public class RefreshToken {
 	@Column(nullable = false)
 	private Instant expiresAt;
 
+	// 재발급으로 교체된 시각. Repository의 조건부 UPDATE로만 채운다
+	private Instant usedAt;
+
 	@CreatedDate
 	@Column(nullable = false, updatable = false)
 	private Instant createdAt;
