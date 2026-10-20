@@ -12,6 +12,12 @@ spring:
         jdbc:
           time_zone: UTC
 
+blog:
+  admin:
+    username: ${ADMIN_USERNAME:}
+    password: ${ADMIN_PASSWORD:}
+    required: false   # 운영은 application-prod.yaml에서 true
+
 server:
   forward-headers-strategy: framework
 

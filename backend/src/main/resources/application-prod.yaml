@@ -9,3 +9,7 @@ springdoc:
     enabled: false
   swagger-ui:
     enabled: false
+
+blog:
+  admin:
+    required: true
