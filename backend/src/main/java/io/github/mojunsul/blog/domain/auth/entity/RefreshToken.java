@@ -40,7 +40,7 @@ public class RefreshToken {
 	@Column(nullable = false)
 	private Instant expiresAt;
 
-	// 재발급으로 교체된 시각. Repository의 조건부 UPDATE로만 채운다
+	// 동시 재발급을 막기 위해 Repository의 조건부 UPDATE로만 채운다(setter 없음)
 	private Instant usedAt;
 
 	@CreatedDate
