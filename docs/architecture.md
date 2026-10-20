@@ -448,7 +448,7 @@ GET /api/v1/posts?page=0&size=10&tag=spring
 - 없거나 DRAFT인 글: `404` (`POST_NOT_FOUND`)
 - 조회수는 이 API에서 증가시키지 않는다 (프론트 캐시 때문에 실제 방문 수와 맞지 않고, GET이 상태를 바꾸면 안 되기 때문).
 - 경로의 `slug`는 형식을 검사하지 않고 그대로 조회한다. 규칙에 맞지 않거나 대소문자가 다른 값(`Spring-Jwt`)도 `404`다 (식별자라서 "그런 글이 없다"가 맞는 응답이다).
-  - 단, Spring Security 방화벽이 거절하는 문자(`;`, 인코딩된 `/`·`%`·`.` 등)가 든 경로는 조회 전에 `400` (`INVALID_INPUT`)이다 (10-5).
+  - 단, 서버가 경로 형식을 거절하는 값은 조회 전에 `400`이다 (10-5): Spring Security 방화벽이 거절하는 값(`;` 등)은 ProblemDetail `INVALID_INPUT`, Tomcat이 먼저 거절하는 인코딩된 `/`(`%2F`)는 Tomcat 기본 응답.
 
 #### GET `/api/v1/categories`
 ```json
@@ -497,6 +497,7 @@ GET /api/v1/posts?page=0&size=10&tag=spring
   Set-Cookie: XSRF-TOKEN=...; Path=/; SameSite=Lax        (HTTPS 요청이면 Secure 추가)
   ```
 - 이미 쿠키가 있으면 그 토큰을 그대로 쓰므로 `Set-Cookie`가 없다 (Spring Security 기본 동작).
+- `csrf.spa()`는 모든 요청에서 토큰을 미리 불러오므로 다른 API 응답에도 같은 쿠키가 붙는다 (10-5). 그래도 이 API를 두는 이유는 프론트가 로그인·관리자 화면 진입 때 부르는 명시적 진입점이 필요해서다. 첫 상태 변경 요청(로그인 POST) 전에 다른 API를 우연히 먼저 불렀는지에 기대지 않는다.
 
 #### POST `/api/v1/auth/login`
 요청 (헤더 `X-XSRF-TOKEN` 필요, 10장 참고)
@@ -645,6 +646,7 @@ Spring의 `ProblemDetail`을 사용하고, 확장 필드로 `code`, `errors`를 
 - 10-5의 `ProblemDetailAuthenticationEntryPoint`, `ProblemDetailAccessDeniedHandler`, `ProblemDetailRequestRejectedHandler`(`global/security`)는 `ProblemDetailResponseWriter`로 응답한다.
 
 **ProblemDetail이 아닌 응답**: 필터에서 처리되지 않은 예외처럼 컨트롤러 밖에서 생긴 오류는 서블릿 컨테이너가 `/error`로 보내고(ERROR 디스패치), Spring Boot `BasicErrorController`가 기본 형식(`timestamp`, `status`, `error`, `path`, 메시지·스택 트레이스 없음)으로 응답한다. 서버 버그라 프론트가 `code`로 분기할 대상이 아니고(프론트는 `code: null`로 처리, 11장), ProblemDetail로 맞추려면 `ErrorController`를 따로 구현해야 해서 기본 형식을 둔다. 클라이언트 입력으로 자주 생기는 방화벽 거절은 `/error`로 보내지 않고 ProblemDetail로 응답한다 (10-5).
+- Tomcat이 Spring에 넘기기 전에 거절하는 요청(인코딩된 `/` `%2F` 등, 10-5)도 Tomcat 기본 오류 응답이 나간다. Spring 필터를 거치지 않아 `X-Request-Id`도 없다. 위와 같은 이유로 기본 형식을 둔다.
 
 ---
 
@@ -706,17 +708,22 @@ Spring의 `ProblemDetail`을 사용하고, 확장 필드로 `code`, `errors`를 
   - `/error`: Spring Boot가 Security 필터를 ERROR 디스패치에도 등록하고 인가도 ERROR 디스패치에 적용되므로(기본값), 막으면 컨트롤러 밖 오류(필터의 처리되지 않은 예외 등)의 원래 상태(500 등)가 `401`로 바뀐다. 그래서 경로로 허용한다 (`dispatcherTypeMatchers`가 아니라 경로로 열어 MockMvc로 확인할 수 있게). 응답은 9장 'ProblemDetail이 아닌 응답'. `/api`로 시작하지 않아 외부(Nginx)에서 직접 닿지 않는다 (3장).
 - CSRF: `csrf.spa()`에 SameSite를 붙인 `CookieCsrfTokenRepository`를 넣는다 (`spa()`는 쿠키 속성을 바꿀 수 없어 저장소만 교체).
   - `XSRF-TOKEN` 쿠키: HttpOnly 아님, `Path=/`, `SameSite=Lax`, `Secure`는 요청이 HTTPS인지(`request.isSecure()`)를 따른다. 운영은 Nginx 뒤에서 `forward-headers-strategy: framework`로 HTTPS가 되어 `Secure`가 붙고, local(http)은 붙지 않아 프로필 설정이 필요 없다.
-  - 토큰은 처음 쓸 때 만들어지므로, `GET /api/v1/auth/csrf`(`AuthController`)는 `CsrfToken`을 읽어 쿠키가 없으면 내려보내고 `204`로 응답한다 (8-3).
+  - 토큰 로딩: `csrf.spa()`의 요청 처리기는 모든 요청에서 토큰을 미리 불러온다(Spring Security 7.1.1 `SpaCsrfTokenRequestHandler`, SPA가 언제든 쿠키를 읽을 수 있게 하려는 설계). 그래서 쿠키가 없는 요청이면 CSRF 필터를 지나는 모든 응답(공개 GET, health, 401·403 포함)에 `Set-Cookie: XSRF-TOKEN`이 붙는다. 방화벽·Tomcat에서 거절된 요청은 CSRF 필터 전이라 붙지 않는다.
+    - 이를 받아들인다. 세션을 쓰지 않아 서버 상태가 생기지 않고, 공개 API는 Next 서버 컴포넌트가 서버 간 호출로 부르므로 브라우저에 쿠키가 쌓이지 않는다(서버 측 `fetch`는 `Set-Cookie`를 저장하지 않는다). 막으려면 `spa()` 대신 요청 처리기를 직접 조립해야 해 코드가 늘고 Spring 권장 설정에서 벗어난다.
+  - `GET /api/v1/auth/csrf`(`AuthController`)는 `CsrfToken`을 인자로 받고 `204`로 응답한다. 위 미리 불러오기로 쿠키는 이미 정해지지만, 인자로 받아 이 진입점이 `spa()` 동작에 기대지 않고도 토큰을 만들게 한다. 진입점을 두는 이유는 8-3.
   - 검사 대상: GET·HEAD·OPTIONS·TRACE를 뺀 모든 요청 (Spring 기본값). 조회수 API 제외(10-2)는 M6에서 추가한다.
-- 오류 응답 (모두 `application/problem+json`, 9장 형식, `instance`는 요청 경로)
+- 오류 응답 (Tomcat 거절 행을 빼고 모두 `application/problem+json`, 9장 형식, `instance`는 요청 경로)
   | 상황 | 응답 |
   |---|---|
   | 인증 없이 보호된 경로 | `401` `UNAUTHORIZED` (`AuthenticationEntryPoint`) |
   | CSRF 토큰이 없거나 쿠키와 헤더가 다름 (`CsrfException`) | `403` `INVALID_CSRF_TOKEN` (`AccessDeniedHandler`) |
   | 그 외 권한 없음 | `403` `FORBIDDEN` (`AccessDeniedHandler`) |
-  | 요청 URL이 `StrictHttpFirewall` 기본 규칙에 걸림 (`;`, 인코딩된 `/`·`%`·`.`, `..` 경로 등. 예: `GET /api/v1/posts/a;b`) | `400` `INVALID_INPUT`, `errors` `[]` (`RequestRejectedHandler`) |
+  | 요청 URL이 `StrictHttpFirewall` 기본 규칙에 걸림 (예: `GET /api/v1/posts/a;b`) | `400` `INVALID_INPUT`, `errors` `[]` (`RequestRejectedHandler`) |
+  | Tomcat이 먼저 거절하는 URL (인코딩된 `/` `%2F`, Tomcat 기본 `encodedSolidusHandling=reject`) | Tomcat의 `400` (ProblemDetail 아님, 9장 'ProblemDetail이 아닌 응답') |
   - 클래스: `global/security`의 `ProblemDetailAuthenticationEntryPoint`, `ProblemDetailAccessDeniedHandler`(`exceptionHandling`에 등록), `ProblemDetailRequestRejectedHandler`(빈으로 등록하면 Spring Security가 가져다 쓴다). 응답은 9장의 `ProblemDetailResponseWriter`로 쓴다.
   - 방화벽 거절: 기본 `HttpStatusRequestRejectedHandler`는 `sendError(400)`이라 `/error`로 가서 ProblemDetail이 아닌 형식이 된다. 잘못된 클라이언트 요청이라 다른 400과 같은 `INVALID_INPUT`으로 맞춘다. 상태 코드는 Spring 기본값(`400`)을 유지한다.
+  - Tomcat 거절: Tomcat 11의 커넥터 기본값이고 Spring Boot 4.1.1은 바꾸지 않는다. 설정을 바꾸지 않는다. 경로에 `/`가 인코딩되어 들어올 정상 요청이 없고(slug 규칙에 `/`가 없다), 프론트는 `isValidSlug`로 미리 걸러 API를 부르지 않는다(11장). `decode`로 바꾸면 경로가 달라지는 보안 위험이 생긴다.
+  - MockMvc에는 Tomcat이 없어 `%2F`도 방화벽까지 가서 운영과 결과가 다르다. 테스트 예시는 `;`처럼 운영에서도 Spring까지 오는 값만 쓴다.
   - CSRF 필터가 인가보다 먼저 실행되므로, 인증 없이 CSRF 토큰도 없이 보낸 POST는 `401`이 아니라 `403 INVALID_CSRF_TOKEN`이다.
   - 관리자 계정이 하나뿐이라 로그인하면 항상 `ROLE_ADMIN`이다. `FORBIDDEN`은 권한이 다른 인증 주체(테스트의 `@WithMockUser(roles = "USER")`)에서만 나온다.
   - 로그는 남기지 않는다 (5장 로깅, 프레임워크가 만드는 4xx).
@@ -1027,8 +1034,9 @@ main 머지 (deploy.yml)
 
 - **v2.12**
   - `csrf.spa()`는 Spring Security 7.0부터 (10-2)
-  - Security 필터 설정: 세션 없음, 경로 규칙(Swagger `/swagger-ui.html`, `/error` 허용), `csrf.spa()` + SameSite 쿠키 저장소, 401·403 오류 응답 구분(CSRF는 `INVALID_CSRF_TOKEN`), 방화벽 거절은 `400` `INVALID_INPUT`(8-1 slug 404의 예외), Security 401·403·방화벽 400은 로그 없음 (5장, 8-1, 9장, 10-5)
-  - `GET /api/v1/auth/csrf`: `204`, 쿠키가 없을 때만 `XSRF-TOKEN` 발급 (7장, 8-3)
+  - Security 필터 설정: 세션 없음, 경로 규칙(Swagger `/swagger-ui.html`, `/error` 허용), `csrf.spa()` + SameSite 쿠키 저장소, 401·403 오류 응답 구분(CSRF는 `INVALID_CSRF_TOKEN`), 방화벽 거절은 `400` `INVALID_INPUT`·Tomcat이 먼저 거절하는 `%2F`는 Tomcat 기본 `400`(8-1 slug 404의 예외), Security 401·403·방화벽 400은 로그 없음 (5장, 8-1, 9장, 10-5)
+  - `GET /api/v1/auth/csrf`: `204`, 쿠키가 없을 때만 `XSRF-TOKEN` 발급, 명시적 진입점으로 두는 이유 (7장, 8-3)
+  - `csrf.spa()`는 모든 요청에서 토큰을 미리 불러와 쿠키 없는 요청의 응답마다 `XSRF-TOKEN`이 붙는 것을 받아들임 (10-5)
   - `XSRF-TOKEN` 쿠키 속성(`Path=/`, HTTPS 요청일 때만 `Secure`)과 CSRF 검사 제외 메서드를 10-5에 맞춤, `Secure` 프로필 설정은 access·refresh 쿠키만(#69) (10-1, 10-2)
   - ProblemDetail 생성 코드를 `ProblemDetailFactory`·`ProblemDetailResponseWriter`(`global/exception`)로 공유, 직렬화는 Boot `JsonMapper` 빈, `/error`(ERROR 디스패치)는 Boot 기본 형식 (5장, 9장)
 
