@@ -280,6 +280,7 @@ backend/src/test/java/io/github/mojunsul/blog/
   - username: 50자 이하(`admin.username` 컬럼 길이), 앞뒤 공백 없음(`strip()`한 값과 같아야 함). 로그인 때 정확히 같은 값을 입력해야 하므로 공백을 몰래 지우지 않고 설정 오류로 본다.
   - password: 12자 이상, UTF-8 72바이트 이하. BCrypt는 72바이트까지만 쓰고 Spring Security는 넘는 값을 거절하므로, 기동 때 미리 막는다. 공백을 포함한 모든 문자를 허용한다.
 - 오류 메시지와 로그에 비밀번호 값을 넣지 않는다 (username은 넣어도 된다).
+  - `AdminProperties`는 record라 자동 생성되는 `toString()`에 `password` 원문이 들어간다. `toString()`을 재정의해 `password`는 값이 있으면 `****`, 비어 있으면 빈 값으로 표시한다 (객체를 그대로 로그나 예외 메시지에 넣어도 새지 않게).
 - 생성하면 `INFO`로 username만 남긴다 (5장 관리자 행위 로그).
 - `PasswordEncoder` 빈은 `BCryptPasswordEncoder`(기본 강도)로 `global/config/PasswordEncoderConfig`에 둔다. `SecurityConfig`와 분리해 Security 설정 변경과 섞이지 않게 한다.
 - `Admin` 엔티티는 `BaseTimeEntity`를 상속하지 않는다 (`admin` 테이블에 `updated_at`이 없다). `createdAt`만 `@CreatedDate`로 채운다.
@@ -977,4 +978,4 @@ main 머지 (deploy.yml)
   - 페이지네이션 숫자 변환은 Spring 기본 동작(빈 값·공백은 기본값, 관대한 숫자 형식 허용, 같은 키는 첫 값)을 따르고 바뀐 값에 범위 검사, 주요 동작은 테스트로 고정 (7장)
 
 - **v2.13**
-  - 관리자 계정 생성: `blog.admin.*` 설정(`global/config/AdminProperties`), 두 값이 모두 비면 prod는 기동 실패·그 외는 건너뜀, 한쪽만 있으면 항상 기동 실패, username(50자, 앞뒤 공백 없음)·password(12자 이상, 72바이트 이하) 검증, `PasswordEncoderConfig` 분리, `Admin`은 `createdAt`만, 비밀번호 변경은 행 삭제 후 재시작 (5장, 12-2)
+  - 관리자 계정 생성: `blog.admin.*` 설정(`global/config/AdminProperties`), 두 값이 모두 비면 prod는 기동 실패·그 외는 건너뜀, 한쪽만 있으면 항상 기동 실패, username(50자, 앞뒤 공백 없음)·password(12자 이상, 72바이트 이하) 검증, `AdminProperties.toString()`에서 비밀번호 마스킹, `PasswordEncoderConfig` 분리, `Admin`은 `createdAt`만, 비밀번호 변경은 행 삭제 후 재시작 (5장, 12-2)
