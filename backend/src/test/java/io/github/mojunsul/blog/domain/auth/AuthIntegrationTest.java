@@ -161,9 +161,24 @@ class AuthIntegrationTest extends IntegrationTestSupport {
 	}
 
 	@Test
-	void Access_토큰과_Refresh_쿠키가_없어도_로그아웃은_204다() throws Exception {
+	void 쿠키가_없어도_로그아웃은_204다() throws Exception {
 		// when & then
 		postWithCsrf("/api/v1/auth/logout").andExpect(status().isNoContent());
+	}
+
+	@Test
+	void 쓸_수_없는_access_token이_남아_있어도_로그아웃하면_204이고_행을_지우고_쿠키를_만료시킨다() throws Exception {
+		// given
+		String refreshToken = login().getResponse().getCookie("refresh_token").getValue();
+
+		// when
+		MvcResult result = postWithCsrf("/api/v1/auth/logout", new Cookie("access_token", "forged.token.value"),
+			new Cookie("refresh_token", refreshToken)).andExpect(status().isNoContent()).andReturn();
+
+		// then
+		assertThat(refreshTokenRepository.findAll()).isEmpty();
+		assertThat(result.getResponse().getCookie("access_token").getMaxAge()).isZero();
+		assertThat(result.getResponse().getCookie("refresh_token").getMaxAge()).isZero();
 	}
 
 	@Test
