@@ -4,6 +4,7 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.web.csrf.CsrfToken;
+import org.springframework.web.bind.annotation.CookieValue;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -43,6 +44,28 @@ public class AuthController {
 			.header(HttpHeaders.SET_COOKIE, cookieUtil.accessToken(result.accessToken()).toString())
 			.header(HttpHeaders.SET_COOKIE, cookieUtil.refreshToken(result.refreshToken()).toString())
 			.body(new AdminResponse(result.username()));
+	}
+
+	@PostMapping("/refresh")
+	public ResponseEntity<Void> refresh(
+		@CookieValue(name = CookieUtil.REFRESH_TOKEN, required = false)
+		String refreshToken) {
+		LoginResult result = authService.refresh(refreshToken);
+		return ResponseEntity.noContent()
+			.header(HttpHeaders.SET_COOKIE, cookieUtil.accessToken(result.accessToken()).toString())
+			.header(HttpHeaders.SET_COOKIE, cookieUtil.refreshToken(result.refreshToken()).toString())
+			.build();
+	}
+
+	@PostMapping("/logout")
+	public ResponseEntity<Void> logout(
+		@CookieValue(name = CookieUtil.REFRESH_TOKEN, required = false)
+		String refreshToken) {
+		authService.logout(refreshToken);
+		return ResponseEntity.noContent()
+			.header(HttpHeaders.SET_COOKIE, cookieUtil.expiredAccessToken().toString())
+			.header(HttpHeaders.SET_COOKIE, cookieUtil.expiredRefreshToken().toString())
+			.build();
 	}
 
 	@GetMapping("/me")

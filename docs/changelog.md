@@ -78,3 +78,10 @@
 
 - **v2.16**
   - 설계 문서를 `docs/architecture/NN-*.md` 장별 파일로 분리하고 `docs/architecture.md`는 목차로 변경, 변경 이력을 `docs/changelog.md`로 분리 (장 본문은 변경 없음, 00장 머리말과 4장 구조 그림만 새 구조에 맞게 수정)
+
+- **v2.17**
+  - `refresh_token.used_at` 추가: 재발급해도 행을 지우지 않고 `used_at`을 채워 "쓴 토큰"과 "없는 토큰"을 구분, 재사용(만료 전 쓴 토큰) 감지 시 그 관리자의 토큰을 모두 삭제하고 `WARN` 로그 (6장, 8-3, 10-6, 5장)
+  - 재발급은 조건부 UPDATE 한 문장으로 동시 요청을 하나만 성공시키고, 감지 삭제가 롤백되지 않게 `noRollbackFor = BusinessException.class`를 통합 테스트로 고정 (10-6)
+  - 로그아웃은 인증 없이 허용(CSRF는 검사), 쿠키가 없거나 무효여도 `204`와 만료 쿠키, 쿠키 값에 해당하는 행만 삭제. 재발급·로그아웃 경로를 Security 규칙에 추가 (8-3, 10-1, 10-3, 10-5)
+  - 만료 정리: 매일 04:00 KST `@Scheduled` (`RefreshTokenCleaner`, `SchedulingConfig`) (6장, 10-6)
+  - 만료는 `expires_at <= now`로 한 번 정의해 재발급·재사용 판정·정리가 따름, `refresh_token` 쿠키가 여러 개면 첫 값(재발급·로그아웃 공통, Path 제약 포함), `RefreshTokenCleaner`는 `domain/auth/scheduler`, 5장 구조도에 `SchedulingConfig`·Cleaner·V2 마이그레이션 반영 (5장, 8-3, 10-6)

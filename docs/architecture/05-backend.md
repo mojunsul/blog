@@ -6,7 +6,7 @@
 backend/src/main/java/io/github/mojunsul/blog/
 ├ BlogApplication.java
 ├ global/
-│  ├ config/          # QuerydslConfig, JpaAuditingConfig, OpenApiConfig, ClockConfig, PasswordEncoderConfig, AdminProperties, AuthProperties
+│  ├ config/          # QuerydslConfig, JpaAuditingConfig, OpenApiConfig, ClockConfig, PasswordEncoderConfig, SchedulingConfig, AdminProperties, AuthProperties
 │  ├ security/        # SecurityConfig, JwtProvider, JwtAuthenticationFilter, CookieUtil,
 │  │                  # ProblemDetailAuthenticationEntryPoint, ProblemDetailAccessDeniedHandler, ProblemDetailRequestRejectedHandler
 │  ├ exception/       # ErrorCode, BusinessException, GlobalExceptionHandler, ProblemDetailFactory, ProblemDetailResponseWriter
@@ -22,14 +22,16 @@ backend/src/main/java/io/github/mojunsul/blog/
    │  └ dto/          # PostSearchRequest, PostCreateRequest, PostUpdateRequest, PostSummaryResponse, PostDetailResponse ...
    ├ category/
    ├ tag/             # Tag, PostTag
-   └ auth/            # AuthController, AuthService, Admin·AdminRepository, RefreshToken
+   └ auth/            # AuthController, AuthService, Admin·AdminRepository, RefreshToken·RefreshTokenRepository,
+                      # scheduler/RefreshTokenCleaner (@Scheduled)
 
 backend/src/main/resources/
 ├ application.yaml          # 공통
 ├ application-local.yaml    # 로컬 DB, Swagger 활성화
 ├ application-prod.yaml     # 운영 (값은 환경변수 주입, Swagger 비활성화)
 └ db/migration/
-   └ V1__init_schema.sql
+   ├ V1__init_schema.sql
+   └ V2__add_refresh_token_used_at.sql
 
 backend/src/test/java/io/github/mojunsul/blog/
 ├ support/
@@ -66,6 +68,7 @@ backend/src/test/java/io/github/mojunsul/blog/
   - 프레임워크가 만드는 4xx(입력 검증 실패, JSON 파싱 실패, 405, Security 필터의 401·403, 방화벽 거절 400 등)는 남기지 않는다. 클라이언트 입력 문제라 서버에서 조치할 것이 없고, 공개 API라 봇 요청으로 로그가 쉽게 늘어난다.
   - 서비스에서 예외를 잡아 로그를 남긴 뒤 다시 던지지 않는다 (같은 에러가 두 번 기록된다).
 - 정상 흐름에서는 조회 로그를 남기지 않는다 (요청 기록은 Nginx 접근 로그가 담당). 서비스에서는 관리자 행위(로그인 성공·실패, 글·카테고리 생성·수정·삭제)와 보안 이벤트(Refresh 토큰 재사용 감지)만 `INFO`/`WARN`으로 남긴다 (M2).
+  - 재사용 감지는 `AuthService`가 `WARN`으로 남긴다(username만). 이어서 던지는 `INVALID_REFRESH_TOKEN`의 `GlobalExceptionHandler` `WARN`과 별개이고, 재사용이 아닌 재발급 실패는 후자만 남는다.
   - 로그인 성공은 `AuthService`가 `INFO`로 username만 남긴다. 로그인 실패는 `BusinessException(INVALID_CREDENTIALS)`라 `GlobalExceptionHandler`의 `WARN`(`code`, 요청 경로)이 그 기록이고, 서비스에서 따로 남기지 않는다 (같은 실패가 두 번 기록되지 않게). 실패 로그에 입력된 username을 넣지 않는다: 비밀번호를 username 칸에 잘못 입력하면 그대로 로그에 남고, 줄바꿈이 든 값으로 로그 줄을 위조할 수 있다. 누가 시도했는지는 `requestId`로 Nginx 접근 로그(IP)와 연결해 본다.
 - **요청 추적 ID**: `RequestIdFilter`가 모든 요청에 ID를 정해 MDC(`requestId`)에 넣고, 응답 헤더 `X-Request-Id`로 돌려준다. 로그 패턴에 `requestId`를 출력해 한 요청의 로그를 묶어 본다.
   - 요청에 `X-Request-Id`가 있고 형식(`^[A-Za-z0-9-]{1,64}$`)에 맞으면 그 값을 쓰고, 없거나 형식이 다르면 UUID를 만든다 (로그 위조 방지).

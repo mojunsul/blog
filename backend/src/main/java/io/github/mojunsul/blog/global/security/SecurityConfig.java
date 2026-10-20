@@ -39,7 +39,8 @@ public class SecurityConfig {
 				.requestMatchers("/error").permitAll()
 				.requestMatchers(HttpMethod.GET, "/api/v1/posts/**", "/api/v1/categories", "/api/v1/auth/csrf")
 				.permitAll()
-				.requestMatchers(HttpMethod.POST, "/api/v1/auth/login").permitAll()
+				.requestMatchers(HttpMethod.POST, "/api/v1/auth/login", "/api/v1/auth/refresh", "/api/v1/auth/logout")
+				.permitAll()
 				.requestMatchers("/api/v1/admin/**").hasRole("ADMIN")
 				.anyRequest().authenticated());
 		return http.build();

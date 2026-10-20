@@ -11,7 +11,7 @@
 - JWT 서명 키는 환경변수로만 주입한다 (`JWT_SECRET`, 256bit 이상). 형식과 검사는 10-6.
 - `access_token`·`refresh_token`의 `Secure`는 설정 `blog.auth.secure-cookie`로 정한다. `application.yaml`에 `true`, `application-local.yaml`에만 `false`를 둔다 (test·prod는 `true`).
   - `XSRF-TOKEN`처럼 `request.isSecure()`를 따르지 않는 이유: 운영에서 Nginx의 `X-Forwarded-Proto`가 빠지면 인증 토큰이 `Secure` 없이 조용히 나간다. 인증 토큰은 설정이 빠져도 안전한 쪽(`Secure`)으로 둔다. `XSRF-TOKEN`은 값이 노출돼도 헤더를 직접 붙일 수 없는 다른 출처에는 쓸모가 없어 요청을 따른다 (10-5).
-- 쿠키 이름·속성·`Max-Age`는 `CookieUtil`(`global/security`) 한 곳에서 만든다 (`ResponseCookie`, `Set-Cookie` 헤더). `CookieUtil`은 `@Component`이고 `AuthProperties`를 생성자로 받아 `Secure`를 정한다 (정적 메서드로 두면 컨트롤러가 설정을 따로 받아 넘겨야 한다). `Max-Age`는 토큰 수명과 같다 (Access 900초, Refresh 1209600초). 수명은 코드 상수로 두고 설정으로 빼지 않는다.
+- 쿠키 이름·속성·`Max-Age`는 `CookieUtil`(`global/security`) 한 곳에서 만든다 (`ResponseCookie`, `Set-Cookie` 헤더). `CookieUtil`은 `@Component`이고 `AuthProperties`를 생성자로 받아 `Secure`를 정한다 (정적 메서드로 두면 컨트롤러가 설정을 따로 받아 넘겨야 한다). `Max-Age`는 토큰 수명과 같다 (Access 900초, Refresh 1209600초). 수명은 코드 상수로 두고 설정으로 빼지 않는다. 로그아웃용 만료 쿠키(`Max-Age=0`, 값 빈 문자열)도 여기서 만든다: 브라우저는 이름·`Path`가 같아야 지우므로 발급과 같은 코드를 거치게 한다.
 
 ### 10-2. CSRF 보호
 인증 정보가 **쿠키로 자동 전송**되므로 CSRF 보호를 끄지 않는다. (`csrf().disable()`은 토큰을 Authorization 헤더로 보낼 때만 안전하다.)
@@ -31,9 +31,9 @@
    → BCrypt 검증 → access_token, refresh_token 쿠키 발급, refresh 해시 DB 저장
 3. 관리자 요청 → 쿠키 자동 전송
    → JwtAuthenticationFilter가 access_token 검증 → SecurityContext 등록
-4. 401 (Access 만료) → 프론트가 POST /api/v1/auth/refresh 호출 후 원래 요청 1회 재시도
+4. 401 (Access 만료) → 프론트가 POST /api/v1/auth/refresh 호출 (X-XSRF-TOKEN 포함) 후 원래 요청 1회 재시도
    → 재발급도 401이면 /admin/login으로 이동
-5. 로그아웃 → refresh 해시 삭제, 쿠키 만료
+5. 로그아웃 → POST /api/v1/auth/logout: refresh 해시 삭제, 두 쿠키 `Max-Age=0`
 ```
 - 동시에 여러 요청이 401을 받으면 refresh는 **한 번만** 호출하고 나머지는 그 결과를 기다리도록 프론트에서 처리한다.
 
@@ -51,10 +51,10 @@
   |---|---|
   | `/actuator/health/**`, Swagger(`/v3/api-docs/**`, `/swagger-ui/**`, `/swagger-ui.html`) | 모두 허용 (Swagger는 `local`에서만 켜짐, 5장. `/swagger-ui.html`은 springdoc의 진입 주소로 `/swagger-ui/index.html`로 이동시킨다) |
   | `/error` | 모두 허용 (아래 '`/error`') |
-  | `GET /api/v1/posts/**`, `GET /api/v1/categories`, `GET /api/v1/auth/csrf`, `POST /api/v1/auth/login` | 모두 허용 (로그인도 CSRF 검사는 받는다) |
+  | `GET /api/v1/posts/**`, `GET /api/v1/categories`, `GET /api/v1/auth/csrf`, `POST /api/v1/auth/login`, `POST /api/v1/auth/refresh`, `POST /api/v1/auth/logout` | 모두 허용 (POST는 CSRF 검사를 받는다. 재발급은 Access 토큰이 만료된 상태로 부르고, 로그아웃은 만료 후에도 쿠키를 지울 수 있어야 해서 인증을 요구하지 않는다) |
   | `/api/v1/admin/**` | `ROLE_ADMIN` |
   | 그 외 | 인증 필요 |
-  - 재발급·로그아웃의 규칙은 그 API를 만드는 이슈(#70)에서 추가한다 (없는 경로를 미리 열어 두지 않는다). `GET /api/v1/auth/me`는 '그 외'(인증 필요)에 걸리므로 따로 적지 않는다.
+  - `GET /api/v1/auth/me`는 '그 외'(인증 필요)에 걸리므로 따로 적지 않는다.
   - `/error`: Spring Boot가 Security 필터를 ERROR 디스패치에도 등록하고 인가도 ERROR 디스패치에 적용되므로(기본값), 막으면 컨트롤러 밖 오류(필터의 처리되지 않은 예외 등)의 원래 상태(500 등)가 `401`로 바뀐다. 그래서 경로로 허용한다 (`dispatcherTypeMatchers`가 아니라 경로로 열어 MockMvc로 확인할 수 있게). 응답은 9장 'ProblemDetail이 아닌 응답'. `/api`로 시작하지 않아 외부(Nginx)에서 직접 닿지 않는다 (3장).
 - CSRF: `csrf.spa()`에 SameSite를 붙인 `CookieCsrfTokenRepository`를 넣는다 (`spa()`는 쿠키 속성을 바꿀 수 없어 저장소만 교체).
   - `XSRF-TOKEN` 쿠키: HttpOnly 아님, `Path=/`, `SameSite=Lax`, `Secure`는 요청이 HTTPS인지(`request.isSecure()`)를 따른다. 운영은 Nginx 뒤에서 `forward-headers-strategy: framework`로 HTTPS가 되어 `Secure`가 붙고, local(http)은 붙지 않아 프로필 설정이 필요 없다.
@@ -122,7 +122,24 @@
 - 성공하면 Access 토큰과 Refresh 토큰을 만들고 Refresh 해시를 저장한다 (`@Transactional`). 서비스는 `LoginResult(username, accessToken, refreshToken)`을 돌려주고, 쿠키는 컨트롤러가 `CookieUtil`로 붙인다.
 
 **Refresh 토큰**
+- `refresh_token` 쿠키가 여러 개면(Path가 다른 예전 쿠키가 남은 경우) `access_token`과 같이 요청에 실린 순서의 **첫 값만** 쓴다(`@CookieValue`의 기본 동작). 재발급과 로그아웃이 같다. 브라우저는 Path가 긴 쿠키를 먼저 보내고 현재 발급분은 `Path=/api/v1/auth`이며 더 긴 Path로 발급한 적이 없으므로, 첫 값이 현재 발급분이다. 제약: `refresh_token`의 Path를 `/api/v1/auth`보다 길게 바꾸지 않는다. 바꾼다면 예전 쿠키를 `Max-Age=0`으로 지운다. 첫 값이 잘못됐으면 뒤 값이 유효해도 `401`(로그아웃은 그 값의 행을 지우려 하고 없으면 `204`)이다. Controller 테스트로 고정한다.
 - 원문: `SecureRandom` 32바이트(256bit)를 Base64URL(패딩 없음, 43자)로 인코딩한 문자열. JWT가 아니다 (DB에서 찾아 무효화하는 토큰이라 자체 검증 정보가 필요 없다).
 - 저장: 원문의 SHA-256을 소문자 16진수 64자로 `token_hash`에 저장한다 (6장, 원문 저장 금지). `expires_at`은 발급 + 14일(`Clock`), `created_at`은 `@CreatedDate`.
-- `RefreshToken` 엔티티(`domain/auth/entity`): `admin`은 `@ManyToOne(fetch = LAZY)`, `refresh_token` 테이블에 `updated_at`이 없어 `BaseTimeEntity`를 상속하지 않는다 (`Admin`과 같다). 조회·삭제 쿼리는 #70에서 추가한다.
+- `RefreshToken` 엔티티(`domain/auth/entity`): `admin`은 `@ManyToOne(fetch = LAZY)`, `refresh_token` 테이블에 `updated_at`이 없어 `BaseTimeEntity`를 상속하지 않는다 (`Admin`과 같다). `used_at`(`Instant`, null 허용)은 Repository의 조건부 UPDATE로만 채운다 (엔티티에 setter를 두지 않는다). 컬럼은 `V2__add_refresh_token_used_at.sql`로 추가한다.
 
+**재발급 (`AuthService.refresh`)**
+- `@Transactional(noRollbackFor = BusinessException.class)`. 재사용 감지에서 토큰을 지운 뒤 `INVALID_REFRESH_TOKEN`을 던지므로, 기본 롤백이면 삭제가 취소된다. 이 설정이 빠지면 감지가 조용히 무력화되므로 mock 테스트가 아닌 통합 테스트로 고정한다 (실제 트랜잭션과 DB 필요).
+- 순서
+  1. 쿠키 값이 `null`·`isBlank()`면 `INVALID_REFRESH_TOKEN`.
+  2. 원문의 SHA-256 해시로 `RefreshTokenRepository.markUsed(hash, now)`를 부른다. `UPDATE ... SET used_at = :now WHERE token_hash = :hash AND used_at IS NULL AND expires_at > :now` 한 문장이고 영향 행 수를 돌려준다. **만료는 `expires_at <= now`**로 정의하고 (경계 시각 포함), 아래 4와 만료 정리도 이 정의를 따른다. 조회 후 갱신으로 나누면 동시 요청 둘이 모두 성공할 수 있어, 조건부 UPDATE의 행 잠금으로 하나만 성공하게 한다 (낙관적 락·`SELECT FOR UPDATE` 불필요).
+  3. 영향 행이 1이면 성공: 그 행의 관리자로 Access 토큰과 새 Refresh 토큰(행 저장)을 만들어 `LoginResult`로 돌려준다 (로그인과 같은 생성 코드를 쓴다).
+  4. 영향 행이 0이면 해시로 행을 찾는다. 행이 있고 `used_at`이 있으며 `expires_at > now`(만료 아님)이면 재사용: 그 관리자의 Refresh 토큰을 모두 삭제하고 `WARN`(username만, 토큰 값·해시 금지)을 남긴 뒤 `INVALID_REFRESH_TOKEN`. 그 외(행 없음, 만료)는 로그 없이 `INVALID_REFRESH_TOKEN`.
+- 만료된 쓴 토큰을 재사용으로 보지 않는 이유: 만료 후에는 어차피 못 쓰는 토큰이고, 정리 시각에 따라 같은 입력의 결과(전체 삭제 여부)가 달라지지 않게 한다.
+- 로그인이 기존 행을 유지하므로(8-3) 재사용 감지의 전체 삭제는 다른 기기의 로그인도 끊는다. 의도한 동작이다.
+
+**로그아웃 (`AuthService.logout`)**
+- 쿠키 값이 있으면 해시로 `deleteByTokenHash`, 없으면 아무것도 하지 않는다. 결과와 관계없이 컨트롤러가 `204`와 만료 쿠키 둘을 내린다 (8-3). 로그를 남기지 않는다.
+
+**만료 정리**
+- `RefreshTokenCleaner`(`domain/auth/scheduler`, `@Component`)의 `@Scheduled`가 매일 04:00 KST에 `deleteByExpiresAtLessThanEqual(now)`로 만료(`expires_at <= now`)된 행을 지운다 (`@Transactional`, `cron = "0 0 4 * * *"`, `zone = "Asia/Seoul"`로 서버 시간대에 기대지 않는다). 쓴 행도 같은 `expires_at`을 가지므로 따로 구분하지 않는다. 만료된 행은 재발급에서 이미 거절되므로 정리가 늦어도 보안에는 영향이 없고, 하루 한 번이면 행 수(관리자 1명, 로그인·재발급 횟수)에 충분하다. 로그는 남기지 않는다 (5장 로깅).
+- `@EnableScheduling`은 `global/config/SchedulingConfig`에 둔다. 단일 서버라 중복 실행 방지(분산 락)는 두지 않는다.
