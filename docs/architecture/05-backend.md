@@ -6,7 +6,7 @@
 backend/src/main/java/io/github/mojunsul/blog/
 ├ BlogApplication.java
 ├ global/
-│  ├ config/          # QuerydslConfig, JpaAuditingConfig, OpenApiConfig, ClockConfig, PasswordEncoderConfig, AdminProperties, AuthProperties
+│  ├ config/          # QuerydslConfig, JpaAuditingConfig, OpenApiConfig, ClockConfig, PasswordEncoderConfig, SchedulingConfig, AdminProperties, AuthProperties
 │  ├ security/        # SecurityConfig, JwtProvider, JwtAuthenticationFilter, CookieUtil,
 │  │                  # ProblemDetailAuthenticationEntryPoint, ProblemDetailAccessDeniedHandler, ProblemDetailRequestRejectedHandler
 │  ├ exception/       # ErrorCode, BusinessException, GlobalExceptionHandler, ProblemDetailFactory, ProblemDetailResponseWriter
@@ -22,14 +22,16 @@ backend/src/main/java/io/github/mojunsul/blog/
    │  └ dto/          # PostSearchRequest, PostCreateRequest, PostUpdateRequest, PostSummaryResponse, PostDetailResponse ...
    ├ category/
    ├ tag/             # Tag, PostTag
-   └ auth/            # AuthController, AuthService, Admin·AdminRepository, RefreshToken
+   └ auth/            # AuthController, AuthService, Admin·AdminRepository, RefreshToken·RefreshTokenRepository,
+                      # scheduler/RefreshTokenCleaner (@Scheduled)
 
 backend/src/main/resources/
 ├ application.yaml          # 공통
 ├ application-local.yaml    # 로컬 DB, Swagger 활성화
 ├ application-prod.yaml     # 운영 (값은 환경변수 주입, Swagger 비활성화)
 └ db/migration/
-   └ V1__init_schema.sql
+   ├ V1__init_schema.sql
+   └ V2__add_refresh_token_used_at.sql
 
 backend/src/test/java/io/github/mojunsul/blog/
 ├ support/

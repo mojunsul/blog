@@ -122,6 +122,7 @@
 - 성공하면 Access 토큰과 Refresh 토큰을 만들고 Refresh 해시를 저장한다 (`@Transactional`). 서비스는 `LoginResult(username, accessToken, refreshToken)`을 돌려주고, 쿠키는 컨트롤러가 `CookieUtil`로 붙인다.
 
 **Refresh 토큰**
+- `refresh_token` 쿠키가 여러 개면(Path가 다른 예전 쿠키가 남은 경우) `access_token`과 같이 요청에 실린 순서의 **첫 값만** 쓴다(`@CookieValue`의 기본 동작). 재발급과 로그아웃이 같다. 브라우저는 Path가 긴 쿠키를 먼저 보내고 현재 발급분은 `Path=/api/v1/auth`이며 더 긴 Path로 발급한 적이 없으므로, 첫 값이 현재 발급분이다. 제약: `refresh_token`의 Path를 `/api/v1/auth`보다 길게 바꾸지 않는다. 바꾼다면 예전 쿠키를 `Max-Age=0`으로 지운다. 첫 값이 잘못됐으면 뒤 값이 유효해도 `401`(로그아웃은 그 값의 행을 지우려 하고 없으면 `204`)이다. Controller 테스트로 고정한다.
 - 원문: `SecureRandom` 32바이트(256bit)를 Base64URL(패딩 없음, 43자)로 인코딩한 문자열. JWT가 아니다 (DB에서 찾아 무효화하는 토큰이라 자체 검증 정보가 필요 없다).
 - 저장: 원문의 SHA-256을 소문자 16진수 64자로 `token_hash`에 저장한다 (6장, 원문 저장 금지). `expires_at`은 발급 + 14일(`Clock`), `created_at`은 `@CreatedDate`.
 - `RefreshToken` 엔티티(`domain/auth/entity`): `admin`은 `@ManyToOne(fetch = LAZY)`, `refresh_token` 테이블에 `updated_at`이 없어 `BaseTimeEntity`를 상속하지 않는다 (`Admin`과 같다). `used_at`(`Instant`, null 허용)은 Repository의 조건부 UPDATE로만 채운다 (엔티티에 setter를 두지 않는다). 컬럼은 `V2__add_refresh_token_used_at.sql`로 추가한다.
@@ -130,9 +131,9 @@
 - `@Transactional(noRollbackFor = BusinessException.class)`. 재사용 감지에서 토큰을 지운 뒤 `INVALID_REFRESH_TOKEN`을 던지므로, 기본 롤백이면 삭제가 취소된다. 이 설정이 빠지면 감지가 조용히 무력화되므로 mock 테스트가 아닌 통합 테스트로 고정한다 (실제 트랜잭션과 DB 필요).
 - 순서
   1. 쿠키 값이 `null`·`isBlank()`면 `INVALID_REFRESH_TOKEN`.
-  2. 원문의 SHA-256 해시로 `RefreshTokenRepository.markUsed(hash, now)`를 부른다. `UPDATE ... SET used_at = :now WHERE token_hash = :hash AND used_at IS NULL AND expires_at > :now` 한 문장이고 영향 행 수를 돌려준다. 조회 후 갱신으로 나누면 동시 요청 둘이 모두 성공할 수 있어, 조건부 UPDATE의 행 잠금으로 하나만 성공하게 한다 (낙관적 락·`SELECT FOR UPDATE` 불필요).
+  2. 원문의 SHA-256 해시로 `RefreshTokenRepository.markUsed(hash, now)`를 부른다. `UPDATE ... SET used_at = :now WHERE token_hash = :hash AND used_at IS NULL AND expires_at > :now` 한 문장이고 영향 행 수를 돌려준다. **만료는 `expires_at <= now`**로 정의하고 (경계 시각 포함), 아래 4와 만료 정리도 이 정의를 따른다. 조회 후 갱신으로 나누면 동시 요청 둘이 모두 성공할 수 있어, 조건부 UPDATE의 행 잠금으로 하나만 성공하게 한다 (낙관적 락·`SELECT FOR UPDATE` 불필요).
   3. 영향 행이 1이면 성공: 그 행의 관리자로 Access 토큰과 새 Refresh 토큰(행 저장)을 만들어 `LoginResult`로 돌려준다 (로그인과 같은 생성 코드를 쓴다).
-  4. 영향 행이 0이면 해시로 행을 찾는다. 행이 있고 `used_at`이 있으며 `expires_at`이 지나지 않았으면 재사용: 그 관리자의 Refresh 토큰을 모두 삭제하고 `WARN`(username만, 토큰 값·해시 금지)을 남긴 뒤 `INVALID_REFRESH_TOKEN`. 그 외(행 없음, 만료)는 로그 없이 `INVALID_REFRESH_TOKEN`.
+  4. 영향 행이 0이면 해시로 행을 찾는다. 행이 있고 `used_at`이 있으며 `expires_at > now`(만료 아님)이면 재사용: 그 관리자의 Refresh 토큰을 모두 삭제하고 `WARN`(username만, 토큰 값·해시 금지)을 남긴 뒤 `INVALID_REFRESH_TOKEN`. 그 외(행 없음, 만료)는 로그 없이 `INVALID_REFRESH_TOKEN`.
 - 만료된 쓴 토큰을 재사용으로 보지 않는 이유: 만료 후에는 어차피 못 쓰는 토큰이고, 정리 시각에 따라 같은 입력의 결과(전체 삭제 여부)가 달라지지 않게 한다.
 - 로그인이 기존 행을 유지하므로(8-3) 재사용 감지의 전체 삭제는 다른 기기의 로그인도 끊는다. 의도한 동작이다.
 
@@ -140,5 +141,5 @@
 - 쿠키 값이 있으면 해시로 `deleteByTokenHash`, 없으면 아무것도 하지 않는다. 결과와 관계없이 컨트롤러가 `204`와 만료 쿠키 둘을 내린다 (8-3). 로그를 남기지 않는다.
 
 **만료 정리**
-- `RefreshTokenCleaner`(`domain/auth`, `@Component`)의 `@Scheduled`가 매일 04:00 KST에 `deleteByExpiresAtBefore(now)`로 `expires_at`이 지난 행을 지운다 (`@Transactional`, `cron = "0 0 4 * * *"`, `zone = "Asia/Seoul"`로 서버 시간대에 기대지 않는다). 쓴 행도 같은 `expires_at`을 가지므로 따로 구분하지 않는다. 만료된 행은 재발급에서 이미 거절되므로 정리가 늦어도 보안에는 영향이 없고, 하루 한 번이면 행 수(관리자 1명, 로그인·재발급 횟수)에 충분하다. 로그는 남기지 않는다 (5장 로깅).
+- `RefreshTokenCleaner`(`domain/auth/scheduler`, `@Component`)의 `@Scheduled`가 매일 04:00 KST에 `deleteByExpiresAtLessThanEqual(now)`로 만료(`expires_at <= now`)된 행을 지운다 (`@Transactional`, `cron = "0 0 4 * * *"`, `zone = "Asia/Seoul"`로 서버 시간대에 기대지 않는다). 쓴 행도 같은 `expires_at`을 가지므로 따로 구분하지 않는다. 만료된 행은 재발급에서 이미 거절되므로 정리가 늦어도 보안에는 영향이 없고, 하루 한 번이면 행 수(관리자 1명, 로그인·재발급 횟수)에 충분하다. 로그는 남기지 않는다 (5장 로깅).
 - `@EnableScheduling`은 `global/config/SchedulingConfig`에 둔다. 단일 서버라 중복 실행 방지(분산 락)는 두지 않는다.

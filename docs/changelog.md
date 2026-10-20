@@ -84,3 +84,4 @@
   - 재발급은 조건부 UPDATE 한 문장으로 동시 요청을 하나만 성공시키고, 감지 삭제가 롤백되지 않게 `noRollbackFor = BusinessException.class`를 통합 테스트로 고정 (10-6)
   - 로그아웃은 인증 없이 허용(CSRF는 검사), 쿠키가 없거나 무효여도 `204`와 만료 쿠키, 쿠키 값에 해당하는 행만 삭제. 재발급·로그아웃 경로를 Security 규칙에 추가 (8-3, 10-1, 10-3, 10-5)
   - 만료 정리: 매일 04:00 KST `@Scheduled` (`RefreshTokenCleaner`, `SchedulingConfig`) (6장, 10-6)
+  - 만료는 `expires_at <= now`로 한 번 정의해 재발급·재사용 판정·정리가 따름, `refresh_token` 쿠키가 여러 개면 첫 값(재발급·로그아웃 공통, Path 제약 포함), `RefreshTokenCleaner`는 `domain/auth/scheduler`, 5장 구조도에 `SchedulingConfig`·Cleaner·V2 마이그레이션 반영 (5장, 8-3, 10-6)
