@@ -777,7 +777,7 @@ Spring의 `ProblemDetail`을 사용하고, 확장 필드로 `code`, `errors`를 
 **`JwtAuthenticationFilter`**
 | `access_token` 쿠키 | 결과 |
 |---|---|
-| 같은 이름이 여러 개 (Path가 다른 예전 쿠키가 남은 경우) | 요청에 실린 순서의 **첫 값만** 쓰고 나머지는 무시한다. 첫 값이 잘못됐으면 뒤 값이 유효해도 인증하지 않는다 (브라우저는 Path가 더 긴 쿠키를 먼저 보내므로 첫 값이 현재 발급분이다) |
+| 같은 이름이 여러 개 (Path가 다른 예전 쿠키가 남은 경우) | 요청에 실린 순서의 **첫 값만** 쓰고 나머지는 무시한다. 첫 값이 잘못됐으면 뒤 값이 유효해도 인증하지 않는다 (브라우저는 Path가 긴 쿠키를 먼저 보낸다. 현재 발급분은 `Path=/api`이고 더 긴 Path로 발급한 적이 없어서, 여러 개가 오는 경우는 더 짧은 Path(`/` 등)의 쿠키가 섞인 경우뿐이고 그때 첫 값이 현재 발급분이다. 제약: `access_token`의 Path를 `/api`보다 길게 바꾸지 않는다. 바꾼다면 예전 쿠키를 `Max-Age=0`으로 지운다. 안 그러면 예전 쿠키가 먼저 와 만료(최대 900초)까지 401이 반복된다) |
 | 없음, 또는 값이 비어 있음(`isBlank()`) | 인증 없이 다음 필터로 |
 | 서명·형식이 맞고 만료 전 | `SecurityContext`에 인증 등록 (principal은 username 문자열, 권한 `ROLE_ADMIN`) |
 | 만료, 서명 불일치, 형식 오류, 서명 없는 토큰(`alg: none`) | 인증 없이 다음 필터로 (jjwt `JwtException`을 잡는다) |
@@ -1120,4 +1120,4 @@ main 머지 (deploy.yml)
   - access·refresh 쿠키 `Secure`는 `blog.auth.secure-cookie`(local만 `false`), 쿠키는 `CookieUtil`에서 생성 (10-1)
   - JWT: HS256, `sub`·`iat`·`exp`, 키는 Base64 디코딩 32바이트 이상·기동 시 검사(local·test는 비면 무작위 키), `AuthProperties`, 필터는 잘못된 토큰을 무시하고 인가 단계의 `401`에 맡김, 아이디가 없어도 더미 해시로 BCrypt 비교, Refresh 토큰 생성·해시 방식 (10-5, 10-6, 12-2)
   - Security 경로 규칙에 `POST /api/v1/auth/login` 허용 추가, `JwtAuthenticationFilter`는 빈이 아니게 등록 (10-5)
-  - JWT 키 판정은 `strip()` 후 표준 Base64 디코더, `access_token` 쿠키가 여러 개면 첫 값만 사용 (10-6)
+  - JWT 키 판정은 `strip()` 후 표준 Base64 디코더, `access_token` 쿠키가 여러 개면 첫 값만 사용(Path를 `/api`보다 길게 바꾸지 않는 제약 포함) (10-6)
