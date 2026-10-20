@@ -13,3 +13,5 @@ springdoc:
 blog:
   admin:
     required: true
+  auth:
+    jwt-secret-required: true

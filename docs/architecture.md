@@ -195,7 +195,7 @@ blog/
 backend/src/main/java/io/github/mojunsul/blog/
 ├ BlogApplication.java
 ├ global/
-│  ├ config/          # QuerydslConfig, JpaAuditingConfig, OpenApiConfig, ClockConfig, PasswordEncoderConfig, AdminProperties
+│  ├ config/          # QuerydslConfig, JpaAuditingConfig, OpenApiConfig, ClockConfig, PasswordEncoderConfig, AdminProperties, AuthProperties
 │  ├ security/        # SecurityConfig, JwtProvider, JwtAuthenticationFilter, CookieUtil,
 │  │                  # ProblemDetailAuthenticationEntryPoint, ProblemDetailAccessDeniedHandler, ProblemDetailRequestRejectedHandler
 │  ├ exception/       # ErrorCode, BusinessException, GlobalExceptionHandler, ProblemDetailFactory, ProblemDetailResponseWriter
@@ -255,6 +255,7 @@ backend/src/test/java/io/github/mojunsul/blog/
   - 프레임워크가 만드는 4xx(입력 검증 실패, JSON 파싱 실패, 405, Security 필터의 401·403, 방화벽 거절 400 등)는 남기지 않는다. 클라이언트 입력 문제라 서버에서 조치할 것이 없고, 공개 API라 봇 요청으로 로그가 쉽게 늘어난다.
   - 서비스에서 예외를 잡아 로그를 남긴 뒤 다시 던지지 않는다 (같은 에러가 두 번 기록된다).
 - 정상 흐름에서는 조회 로그를 남기지 않는다 (요청 기록은 Nginx 접근 로그가 담당). 서비스에서는 관리자 행위(로그인 성공·실패, 글·카테고리 생성·수정·삭제)와 보안 이벤트(Refresh 토큰 재사용 감지)만 `INFO`/`WARN`으로 남긴다 (M2).
+  - 로그인 성공은 `AuthService`가 `INFO`로 username만 남긴다. 로그인 실패는 `BusinessException(INVALID_CREDENTIALS)`라 `GlobalExceptionHandler`의 `WARN`(`code`, 요청 경로)이 그 기록이고, 서비스에서 따로 남기지 않는다 (같은 실패가 두 번 기록되지 않게). 실패 로그에 입력된 username을 넣지 않는다: 비밀번호를 username 칸에 잘못 입력하면 그대로 로그에 남고, 줄바꿈이 든 값으로 로그 줄을 위조할 수 있다. 누가 시도했는지는 `requestId`로 Nginx 접근 로그(IP)와 연결해 본다.
 - **요청 추적 ID**: `RequestIdFilter`가 모든 요청에 ID를 정해 MDC(`requestId`)에 넣고, 응답 헤더 `X-Request-Id`로 돌려준다. 로그 패턴에 `requestId`를 출력해 한 요청의 로그를 묶어 본다.
   - 요청에 `X-Request-Id`가 있고 형식(`^[A-Za-z0-9-]{1,64}$`)에 맞으면 그 값을 쓰고, 없거나 형식이 다르면 UUID를 만든다 (로그 위조 방지).
   - 필터는 Security 필터보다 먼저 실행해 인증 실패 로그에도 ID가 찍히게 하고, 요청이 끝나면 MDC를 비운다.
@@ -513,7 +514,21 @@ Set-Cookie: refresh_token=...; HttpOnly; Secure; SameSite=Lax; Path=/api/v1/auth
 ```json
 { "username": "admin" }
 ```
-- 실패: `401` (`INVALID_CREDENTIALS`). 아이디·비밀번호 중 무엇이 틀렸는지 구분하지 않는다.
+- 실패: `401` (`INVALID_CREDENTIALS`). 아이디·비밀번호 중 무엇이 틀렸는지 구분하지 않는다 (응답 본문이 같고, 응답 시간도 같게 한다. 10-6).
+- local 프로필에서는 두 쿠키에 `Secure`가 없다 (10-1).
+- 요청 검증 (`LoginRequest` record, `@Valid @RequestBody`). 검증 실패는 `400` `INVALID_INPUT`, `errors`에 필드별 사유.
+  | 필드 | 규칙 | 어기면 |
+  |---|---|---|
+  | username | 필수(`null`·빈 값·공백만 있는 값 거절, `@NotBlank`), 50자 이하(`admin.username` 컬럼) | `400` |
+  | password | 필수(`null`·빈 값 거절, `@NotEmpty`). 공백만 있는 값은 허용 | `400` |
+  - password에 `@NotBlank`를 쓰지 않는 이유: 관리자 비밀번호는 공백을 포함한 모든 문자를 허용하므로(5장 '관리자 계정 생성') 공백만으로 된 비밀번호도 로그인할 수 있어야 한다. 길이 상한은 검증에 두지 않고 아래처럼 인증 실패로 처리한다.
+  - password가 UTF-8 72바이트를 넘으면 `401` `INVALID_CREDENTIALS`. BCrypt는 비교할 때 72바이트 뒤를 잘라 버려 앞 72바이트가 같으면 맞다고 하므로(Spring Security 7.1.1 `BCrypt.checkpw`), 저장할 수 없는 길이(5장)의 입력은 서비스에서 실패로 본다.
+  - username은 앞뒤 공백을 지우지 않고 대소문자까지 그대로 비교한다 (`admin `, `Admin`은 `admin`과 다른 값이라 `401`). 관리자 생성 때 앞뒤 공백을 금지하므로(5장) 정확히 같은 값만 맞다.
+  - 본문이 없거나 JSON 파싱에 실패하면 `400` `INVALID_INPUT` (`errors` `[]`, 9장 기존 처리). 필드 값이 배열·객체여도 같다. 숫자·불리언은 Jackson 기본 변환으로 문자열이 된다 (`"username": 1`은 `"1"`).
+  - `Content-Type`이 JSON이 아니면 Spring 기본 `415` (ProblemDetail, `errors` `[]`, `code` 없음. 9장 기존 처리). 프론트는 항상 JSON으로 보낸다.
+  - 같은 키가 여러 개면 마지막 값을 쓴다 (Jackson 기본, `{"username":"a","username":"b"}`는 `b`). 알 수 없는 필드는 무시한다 (Jackson 3 기본).
+  - 같은 키, 숫자 값 변환 동작은 Controller 테스트로 고정한다 (7장 페이지네이션처럼 프레임워크 업그레이드로 바뀌면 드러나게).
+- 이미 로그인한 상태에서 다시 로그인해도 새 토큰을 발급하고 기존 Refresh 토큰은 그대로 둔다 (다른 기기의 로그인 유지). 만료된 행 정리는 #70.
 
 #### POST `/api/v1/auth/refresh`
 - 본문 없음. `refresh_token` 쿠키로 인증.
@@ -524,7 +539,9 @@ Set-Cookie: refresh_token=...; HttpOnly; Secure; SameSite=Lax; Path=/api/v1/auth
 - DB의 Refresh 토큰 삭제, 두 쿠키 `Max-Age=0`, `204`
 
 #### GET `/api/v1/auth/me`
-- 로그인 상태: `200` + `{ "username": "admin" }`, 아니면 `401`
+- 로그인 상태: `200` + `{ "username": "admin" }`, 아니면 `401` (`UNAUTHORIZED`, `AuthenticationEntryPoint`).
+- username은 `access_token`의 `sub`에서 꺼내고 DB를 조회하지 않는다. 그래서 관리자 행을 지운 뒤에도 남은 Access 토큰은 만료(최대 15분)까지 `200`이다 (비밀번호 변경 절차 직후 잠깐 생기는 차이라 받아들인다, 5장).
+- 응답 DTO는 로그인과 같은 `AdminResponse(username)`.
 
 ### 8-4. 관리자 API (`/api/v1/admin/**`, ROLE_ADMIN)
 
@@ -661,8 +678,10 @@ Spring의 `ProblemDetail`을 사용하고, 확장 필드로 `code`, `errors`를 
 | `XSRF-TOKEN` | CSRF 토큰 | **HttpOnly 아님** (JS가 읽어서 헤더로 보냄), SameSite=Lax, Path=/, Secure는 HTTPS 요청일 때만 (10-5) |
 
 - 토큰을 localStorage·sessionStorage에 저장하지 않는다.
-- JWT 서명 키는 환경변수로만 주입한다 (`JWT_SECRET`, 256bit 이상).
-- `access_token`·`refresh_token`은 로컬(http) 개발 시에만 `Secure` 속성을 끌 수 있도록 프로필별로 설정한다 (방법은 로그인 API 이슈 #69에서 정한다). `XSRF-TOKEN`은 요청이 HTTPS인지를 따르므로 프로필 설정이 없다 (10-5).
+- JWT 서명 키는 환경변수로만 주입한다 (`JWT_SECRET`, 256bit 이상). 형식과 검사는 10-6.
+- `access_token`·`refresh_token`의 `Secure`는 설정 `blog.auth.secure-cookie`로 정한다. `application.yaml`에 `true`, `application-local.yaml`에만 `false`를 둔다 (test·prod는 `true`).
+  - `XSRF-TOKEN`처럼 `request.isSecure()`를 따르지 않는 이유: 운영에서 Nginx의 `X-Forwarded-Proto`가 빠지면 인증 토큰이 `Secure` 없이 조용히 나간다. 인증 토큰은 설정이 빠져도 안전한 쪽(`Secure`)으로 둔다. `XSRF-TOKEN`은 값이 노출돼도 헤더를 직접 붙일 수 없는 다른 출처에는 쓸모가 없어 요청을 따른다 (10-5).
+- 쿠키 이름·속성·`Max-Age`는 `CookieUtil`(`global/security`) 한 곳에서 만든다 (`ResponseCookie`, `Set-Cookie` 헤더). `CookieUtil`은 `@Component`이고 `AuthProperties`를 생성자로 받아 `Secure`를 정한다 (정적 메서드로 두면 컨트롤러가 설정을 따로 받아 넘겨야 한다). `Max-Age`는 토큰 수명과 같다 (Access 900초, Refresh 1209600초). 수명은 코드 상수로 두고 설정으로 빼지 않는다.
 
 ### 10-2. CSRF 보호
 인증 정보가 **쿠키로 자동 전송**되므로 CSRF 보호를 끄지 않는다. (`csrf().disable()`은 토큰을 Authorization 헤더로 보낼 때만 안전하다.)
@@ -702,10 +721,10 @@ Spring의 `ProblemDetail`을 사용하고, 확장 필드로 `code`, `errors`를 
   |---|---|
   | `/actuator/health/**`, Swagger(`/v3/api-docs/**`, `/swagger-ui/**`, `/swagger-ui.html`) | 모두 허용 (Swagger는 `local`에서만 켜짐, 5장. `/swagger-ui.html`은 springdoc의 진입 주소로 `/swagger-ui/index.html`로 이동시킨다) |
   | `/error` | 모두 허용 (아래 '`/error`') |
-  | `GET /api/v1/posts/**`, `GET /api/v1/categories`, `GET /api/v1/auth/csrf` | 모두 허용 |
+  | `GET /api/v1/posts/**`, `GET /api/v1/categories`, `GET /api/v1/auth/csrf`, `POST /api/v1/auth/login` | 모두 허용 (로그인도 CSRF 검사는 받는다) |
   | `/api/v1/admin/**` | `ROLE_ADMIN` |
   | 그 외 | 인증 필요 |
-  - 로그인·재발급·로그아웃·`me`의 규칙은 그 API를 만드는 이슈에서 추가한다 (없는 경로를 미리 열어 두지 않는다).
+  - 재발급·로그아웃의 규칙은 그 API를 만드는 이슈(#70)에서 추가한다 (없는 경로를 미리 열어 두지 않는다). `GET /api/v1/auth/me`는 '그 외'(인증 필요)에 걸리므로 따로 적지 않는다.
   - `/error`: Spring Boot가 Security 필터를 ERROR 디스패치에도 등록하고 인가도 ERROR 디스패치에 적용되므로(기본값), 막으면 컨트롤러 밖 오류(필터의 처리되지 않은 예외 등)의 원래 상태(500 등)가 `401`로 바뀐다. 그래서 경로로 허용한다 (`dispatcherTypeMatchers`가 아니라 경로로 열어 MockMvc로 확인할 수 있게). 응답은 9장 'ProblemDetail이 아닌 응답'. `/api`로 시작하지 않아 외부(Nginx)에서 직접 닿지 않는다 (3장).
 - CSRF: `csrf.spa()`에 SameSite를 붙인 `CookieCsrfTokenRepository`를 넣는다 (`spa()`는 쿠키 속성을 바꿀 수 없어 저장소만 교체).
   - `XSRF-TOKEN` 쿠키: HttpOnly 아님, `Path=/`, `SameSite=Lax`, `Secure`는 요청이 HTTPS인지(`request.isSecure()`)를 따른다. 운영은 Nginx 뒤에서 `forward-headers-strategy: framework`로 HTTPS가 되어 `Secure`가 붙고, local(http)은 붙지 않아 프로필 설정이 필요 없다.
@@ -729,6 +748,53 @@ Spring의 `ProblemDetail`을 사용하고, 확장 필드로 `code`, `errors`를 
   - 관리자 계정이 하나뿐이라 로그인하면 항상 `ROLE_ADMIN`이다. `FORBIDDEN`은 권한이 다른 인증 주체(테스트의 `@WithMockUser(roles = "USER")`)에서만 나온다.
   - 로그는 남기지 않는다 (5장 로깅, 프레임워크가 만드는 4xx).
 - 필터 순서: `RequestIdFilter`(`HIGHEST_PRECEDENCE`)가 Security 필터보다 먼저 실행되어 400·401·403 응답에도 `X-Request-Id`가 붙는다.
+- `JwtAuthenticationFilter`(`OncePerRequestFilter`)는 빈으로 등록하지 않고 `SecurityConfig`에서 `new`로 만들어 `addFilterBefore(..., UsernamePasswordAuthenticationFilter.class)`로 넣는다. `@Component`로 두면 Spring Boot가 서블릿 필터로도 자동 등록해 Security 체인 밖에서 한 번 더 실행된다. 동작은 10-6.
+
+### 10-6. JWT와 로그인
+**Access 토큰 (JWT, `JwtProvider`)**
+- 라이브러리는 jjwt 0.13, 알고리즘은 `HS256`(`Jwts.SIG.HS256`을 명시. 키 길이에 따라 알고리즘이 바뀌지 않게).
+- claim: `sub`(username), `iat`, `exp`(발급 + 15분). 권한 claim은 두지 않는다 (관리자 한 명이라 유효한 토큰이면 항상 `ROLE_ADMIN`, 10-5).
+- 발급·검증 시각은 `Clock` 빈을 쓴다 (jjwt `clock`에 연결). 만료 판정은 jjwt 기본(허용 오차 0)을 따른다.
+- 서명 키: `blog.auth.jwt-secret: ${JWT_SECRET:}`를 **Base64로 디코딩한 바이트**를 쓴다. 생성은 `openssl rand -base64 32`.
+  - 문자열을 그대로(UTF-8) 키로 쓰지 않는 이유: 32글자 문자열은 길이 검사를 통과해도 사람이 만든 값이면 256bit 무작위가 아니다. Base64 디코딩 결과의 길이를 검사하면 무작위 바이트 생성을 강제하기 쉽다.
+  - 검사는 `JwtProvider` 생성 시(기동 시) 한다. 어기면 `IllegalStateException`으로 기동을 멈추고, 메시지에는 설정 키 이름만 넣는다 (키 값 금지).
+  - 판정 순서: `isBlank()` → `strip()` → `java.util.Base64.getDecoder()`(표준 Base64) → 디코딩 결과 길이. 디코더에 따라 달라지는 입력의 결과는 다음과 같다.
+    | 입력 | 결과 |
+    |---|---|
+    | 앞뒤 공백·줄바꿈 (`.env`에 붙은 경우) | `strip()`으로 지우고 통과 |
+    | 값 중간의 공백·줄바꿈 | Base64 아님 |
+    | 패딩(`=`) 없는 값 (예: 32바이트 키의 43자 표기) | 통과 (표준 디코더는 패딩을 요구하지 않는다) |
+    | `-`·`_`가 든 값 (URL-safe 표기) | Base64 아님 (표준 알파벳만 허용) |
+  - `openssl rand -base64 32`의 출력(44자, 패딩 `=` 하나)이 그대로 통과해야 한다.
+  | 값 | `jwt-secret-required: false` (local, test) | `true` (prod) |
+  |---|---|---|
+  | 비어 있음 (`isBlank()`) | `WARN` 한 줄 후 기동마다 무작위 32바이트 키 사용 (재시작하면 기존 토큰 무효) | `IllegalStateException` |
+  | Base64가 아님 | `IllegalStateException` | 같음 |
+  | 디코딩 결과 32바이트 미만 | `IllegalStateException` | 같음 |
+  - local·test에서 비면 무작위 키를 쓰는 이유: 저장소가 Public이라 고정 개발용 키를 설정 파일에 둘 수 없고, 공개 화면 개발과 테스트는 고정 키가 필요 없다 (5장 '관리자 계정 생성'과 같은 기준).
+- 설정 record: `global/config/AuthProperties` (`blog.auth`: `jwtSecret`, `jwtSecretRequired`, `secureCookie`). `application.yaml`은 `jwt-secret: ${JWT_SECRET:}`, `jwt-secret-required: false`, `secure-cookie: true`, `application-prod.yaml`은 `jwt-secret-required: true`, `application-local.yaml`은 `secure-cookie: false`. `AdminProperties`와 같은 이유로 `toString()`을 재정의해 `jwtSecret`을 가린다 (값이 있으면 `****`).
+
+**`JwtAuthenticationFilter`**
+| `access_token` 쿠키 | 결과 |
+|---|---|
+| 같은 이름이 여러 개 (Path가 다른 예전 쿠키가 남은 경우) | 요청에 실린 순서의 **첫 값만** 쓰고 나머지는 무시한다. 첫 값이 잘못됐으면 뒤 값이 유효해도 인증하지 않는다 (브라우저는 Path가 긴 쿠키를 먼저 보낸다. 현재 발급분은 `Path=/api`이고 더 긴 Path로 발급한 적이 없어서, 여러 개가 오는 경우는 더 짧은 Path(`/` 등)의 쿠키가 섞인 경우뿐이고 그때 첫 값이 현재 발급분이다. 제약: `access_token`의 Path를 `/api`보다 길게 바꾸지 않는다. 바꾼다면 예전 쿠키를 `Max-Age=0`으로 지운다. 안 그러면 예전 쿠키가 먼저 와 만료(최대 900초)까지 401이 반복된다) |
+| 없음, 또는 값이 비어 있음(`isBlank()`) | 인증 없이 다음 필터로 |
+| 서명·형식이 맞고 만료 전 | `SecurityContext`에 인증 등록 (principal은 username 문자열, 권한 `ROLE_ADMIN`) |
+| 만료, 서명 불일치, 형식 오류, 서명 없는 토큰(`alg: none`) | 인증 없이 다음 필터로 (jjwt `JwtException`을 잡는다) |
+- 필터는 직접 응답하지 않는다. 보호된 경로면 인가 단계에서 `401` `UNAUTHORIZED`(10-5)가 되고, 공개 경로는 쿠키가 잘못돼도 그대로 열린다. 만료와 위조를 다른 코드로 나누지 않는다: 프론트는 어느 쪽이든 재발급을 한 번 시도하면 되고(10-3), 구분해 알려 주면 공격자에게만 정보가 된다.
+- 로그를 남기지 않는다 (5장, Security 필터의 401).
+
+**로그인 (`AuthService.login`)**
+- `adminRepository.findByUsername(username)`(대소문자 구분, 정확히 같은 값)으로 찾는다.
+- 아이디가 없을 때도 BCrypt 비교를 한 번 한다. 처음 한 번 만들어 둔 더미 해시(`passwordEncoder.encode`)와 비교해, 아이디 유무에 따라 응답 시간이 달라지지 않게 한다 (Spring Security `DaoAuthenticationProvider`의 `mitigateAgainstTimingAttack`과 같은 방식).
+  - 정리하면 모든 경로에서 `passwordEncoder.matches`를 정확히 한 번 부르고, "관리자가 있음 && 비밀번호 72바이트 이하 && `matches`가 참"일 때만 성공이다. 그 외는 `BusinessException(INVALID_CREDENTIALS)`.
+- `AuthenticationManager`·`UserDetailsService`를 쓰지 않고 서비스에서 직접 비교한다. 로그인 경로가 하나뿐이라 위 규칙을 서비스 코드와 Mockito 테스트로 드러내는 편이 단순하다.
+- 성공하면 Access 토큰과 Refresh 토큰을 만들고 Refresh 해시를 저장한다 (`@Transactional`). 서비스는 `LoginResult(username, accessToken, refreshToken)`을 돌려주고, 쿠키는 컨트롤러가 `CookieUtil`로 붙인다.
+
+**Refresh 토큰**
+- 원문: `SecureRandom` 32바이트(256bit)를 Base64URL(패딩 없음, 43자)로 인코딩한 문자열. JWT가 아니다 (DB에서 찾아 무효화하는 토큰이라 자체 검증 정보가 필요 없다).
+- 저장: 원문의 SHA-256을 소문자 16진수 64자로 `token_hash`에 저장한다 (6장, 원문 저장 금지). `expires_at`은 발급 + 14일(`Clock`), `created_at`은 `@CreatedDate`.
+- `RefreshToken` 엔티티(`domain/auth/entity`): `admin`은 `@ManyToOne(fetch = LAZY)`, `refresh_token` 테이블에 `updated_at`이 없어 `BaseTimeEntity`를 상속하지 않는다 (`Admin`과 같다). 조회·삭제 쿼리는 #70에서 추가한다.
 
 ## 11. 프론트엔드 구조
 
@@ -903,6 +969,7 @@ CI에서 프론트 이미지를 빌드할 때는 백엔드가 없다. `next buil
 - PostgreSQL 데이터는 named volume으로 영속화
 - 비밀값은 서버의 `infra/.env`에만 둔다 (원본은 GitHub Secrets에서 관리)
   - `POSTGRES_PASSWORD`, `JWT_SECRET`, `ADMIN_USERNAME`, `ADMIN_PASSWORD`, Object Storage 인증 정보 등
+  - `JWT_SECRET`은 `openssl rand -base64 32`로 만든다 (Base64, 디코딩 후 32바이트 이상, 10-6). 바꾸면 발급된 Access 토큰이 모두 무효가 된다.
   - 관리자 비밀번호를 바꾸려면 `admin` 행을 삭제하고 `ADMIN_PASSWORD`를 바꾼 뒤 backend를 재시작한다 (5장 '관리자 계정 생성'). 절차는 M3에서 README에 적는다.
 - OCI 보안 목록 + 인스턴스 iptables 양쪽에서 80/443 개방 (22는 본인 IP로 제한 권장)
 - 예약 공인 IP(Reserved Public IP) 사용
@@ -1046,3 +1113,11 @@ main 머지 (deploy.yml)
 
 - **v2.14**
   - 저장소 구조에 `docs/verification.md`(검증 세션 규칙) 추가 (4장)
+
+- **v2.15**
+  - 로그인·`me`: 요청 검증(username `@NotBlank`·50자, password `@NotEmpty`·공백만 허용), 72바이트 초과 비밀번호는 `401`, username 정확히 비교, 같은 키는 마지막 값, 재로그인 시 기존 Refresh 유지, `me`는 토큰의 `sub`만 사용 (8-3)
+  - 로그인 실패 로그는 `GlobalExceptionHandler`의 `WARN`만, 입력 username은 남기지 않음 (5장)
+  - access·refresh 쿠키 `Secure`는 `blog.auth.secure-cookie`(local만 `false`), 쿠키는 `@Component` `CookieUtil`에서 생성 (10-1)
+  - JWT: HS256, `sub`·`iat`·`exp`, 키는 Base64 디코딩 32바이트 이상·기동 시 검사(local·test는 비면 무작위 키), `AuthProperties`, 필터는 잘못된 토큰을 무시하고 인가 단계의 `401`에 맡김, 아이디가 없어도 더미 해시로 BCrypt 비교, Refresh 토큰 생성·해시 방식 (10-5, 10-6, 12-2)
+  - Security 경로 규칙에 `POST /api/v1/auth/login` 허용 추가, `JwtAuthenticationFilter`는 빈이 아니게 등록 (10-5)
+  - JWT 키 판정은 `strip()` 후 표준 Base64 디코더, `access_token` 쿠키가 여러 개면 첫 값만 사용(Path를 `/api`보다 길게 바꾸지 않는 제약 포함) (10-6)
