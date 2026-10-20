@@ -173,7 +173,8 @@ blog/
 │  └ backup/
 │     └ backup.sh                # pg_dump → 압축 → Object Storage 업로드
 ├ docs/
-│  └ architecture.md             # 이 문서
+│  ├ architecture.md             # 이 문서
+│  └ verification.md             # 검증 세션 규칙 (CLAUDE.md에서 분리)
 ├ .github/
 │  └ workflows/
 │     ├ backend-ci.yml     # backend/** 변경 시: 테스트, 빌드
@@ -1042,3 +1043,6 @@ main 머지 (deploy.yml)
 
 - **v2.13**
   - 관리자 계정 생성: `blog.admin.*` 설정(`global/config/AdminProperties`), 두 값이 모두 비면 prod는 기동 실패·그 외는 건너뜀, 한쪽만 있으면 항상 기동 실패, username(50자, 앞뒤 공백 없음)·password(12자 이상, 72바이트 이하) 검증, `AdminProperties.toString()`에서 비밀번호 마스킹, `PasswordEncoderConfig` 분리, `Admin`은 `createdAt`만, 비밀번호 변경은 행 삭제 후 재시작 (5장, 12-2)
+
+- **v2.14**
+  - 저장소 구조에 `docs/verification.md`(검증 세션 규칙) 추가 (4장)
