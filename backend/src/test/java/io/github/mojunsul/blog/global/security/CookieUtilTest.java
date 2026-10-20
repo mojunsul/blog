@@ -3,6 +3,7 @@ package io.github.mojunsul.blog.global.security;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import java.time.Duration;
+import java.util.List;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -43,6 +44,29 @@ class CookieUtilTest {
 		assertThat(cookie.getMaxAge()).isEqualTo(Duration.ofSeconds(1209600));
 		assertThat(cookie.isHttpOnly()).isTrue();
 		assertThat(cookie.getSameSite()).isEqualTo("Lax");
+	}
+
+	@Test
+	void 만료_쿠키는_발급과_같은_이름과_Path에_빈_값_Max_Age_0이다() {
+		// given
+		CookieUtil cookieUtil = cookieUtil(true);
+
+		// when
+		ResponseCookie access = cookieUtil.expiredAccessToken();
+		ResponseCookie refresh = cookieUtil.expiredRefreshToken();
+
+		// then
+		assertThat(access.getName()).isEqualTo("access_token");
+		assertThat(access.getPath()).isEqualTo("/api");
+		assertThat(refresh.getName()).isEqualTo("refresh_token");
+		assertThat(refresh.getPath()).isEqualTo("/api/v1/auth");
+		assertThat(List.of(access, refresh)).allSatisfy(cookie -> {
+			assertThat(cookie.getValue()).isEmpty();
+			assertThat(cookie.getMaxAge()).isEqualTo(Duration.ZERO);
+			assertThat(cookie.isHttpOnly()).isTrue();
+			assertThat(cookie.isSecure()).isTrue();
+			assertThat(cookie.getSameSite()).isEqualTo("Lax");
+		});
 	}
 
 	@ParameterizedTest

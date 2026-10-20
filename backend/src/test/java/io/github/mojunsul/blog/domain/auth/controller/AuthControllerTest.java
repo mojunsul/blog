@@ -31,6 +31,7 @@ import io.github.mojunsul.blog.global.exception.ErrorCode;
 import io.github.mojunsul.blog.global.exception.GlobalExceptionHandler;
 import io.github.mojunsul.blog.global.security.CookieUtil;
 import io.github.mojunsul.blog.support.ControllerTestSupport;
+import jakarta.servlet.http.Cookie;
 
 @WebMvcTest(AuthController.class)
 @AutoConfigureMockMvc(addFilters = false)
@@ -161,5 +162,78 @@ class AuthControllerTest extends ControllerTestSupport {
 		// when & then
 		login("{\"username\":1,\"password\":\"pw\"}").andExpect(status().isOk());
 		then(authService).should().login("1", "pw");
+	}
+
+	@Test
+	void 재발급하면_204와_새_두_쿠키를_응답한다() throws Exception {
+		// given
+		given(authService.refresh("old")).willReturn(new LoginResult("admin", "access", "new-refresh"));
+
+		// when & then
+		mockMvc.perform(post("/api/v1/auth/refresh").cookie(new Cookie("refresh_token", "old")))
+			.andExpect(status().isNoContent())
+			.andExpect(header().stringValues("Set-Cookie", hasItem(containsString("access_token=access"))))
+			.andExpect(header().stringValues("Set-Cookie", hasItem(containsString("Path=/api;"))))
+			.andExpect(header().stringValues("Set-Cookie", hasItem(containsString("refresh_token=new-refresh"))))
+			.andExpect(header().stringValues("Set-Cookie", hasItem(containsString("Path=/api/v1/auth"))))
+			.andExpect(header().stringValues("Set-Cookie", hasItem(containsString("Max-Age=1209600"))))
+			.andExpect(header().stringValues("Set-Cookie", hasItem(containsString("HttpOnly"))))
+			.andExpect(header().stringValues("Set-Cookie", hasItem(containsString("SameSite=Lax"))));
+	}
+
+	@Test
+	void 재발급에_실패하면_401_ProblemDetail로_응답한다() throws Exception {
+		// given
+		given(authService.refresh("bad")).willThrow(new BusinessException(ErrorCode.INVALID_REFRESH_TOKEN));
+
+		// when & then
+		mockMvc.perform(post("/api/v1/auth/refresh").cookie(new Cookie("refresh_token", "bad")))
+			.andExpect(status().isUnauthorized())
+			.andExpect(jsonPath("$.code").value("INVALID_REFRESH_TOKEN"));
+	}
+
+	@Test
+	void 재발급_쿠키가_없으면_null로_Service에_전달한다() throws Exception {
+		// given
+		given(authService.refresh(null)).willThrow(new BusinessException(ErrorCode.INVALID_REFRESH_TOKEN));
+
+		// when & then
+		mockMvc.perform(post("/api/v1/auth/refresh"))
+			.andExpect(status().isUnauthorized())
+			.andExpect(jsonPath("$.code").value("INVALID_REFRESH_TOKEN"));
+	}
+
+	@Test
+	void 재발급_쿠키가_둘이면_첫_값을_Service에_전달한다() throws Exception {
+		// given
+		given(authService.refresh("first")).willReturn(new LoginResult("admin", "access", "new-refresh"));
+
+		// when & then
+		mockMvc.perform(post("/api/v1/auth/refresh")
+			.cookie(new Cookie("refresh_token", "first"), new Cookie("refresh_token", "second")))
+			.andExpect(status().isNoContent());
+		then(authService).should().refresh("first");
+	}
+
+	@Test
+	void 로그아웃하면_204와_만료된_두_쿠키를_응답한다() throws Exception {
+		// when & then
+		mockMvc.perform(post("/api/v1/auth/logout").cookie(new Cookie("refresh_token", "token")))
+			.andExpect(status().isNoContent())
+			.andExpect(header().stringValues("Set-Cookie", hasItem(containsString("access_token=;"))))
+			.andExpect(header().stringValues("Set-Cookie", hasItem(containsString("Path=/api;"))))
+			.andExpect(header().stringValues("Set-Cookie", hasItem(containsString("refresh_token=;"))))
+			.andExpect(header().stringValues("Set-Cookie", hasItem(containsString("Path=/api/v1/auth;"))))
+			.andExpect(header().stringValues("Set-Cookie", hasItem(containsString("Max-Age=0"))));
+		then(authService).should().logout("token");
+	}
+
+	@Test
+	void 로그아웃_쿠키가_둘이면_첫_값을_Service에_전달한다() throws Exception {
+		// when & then
+		mockMvc.perform(post("/api/v1/auth/logout")
+			.cookie(new Cookie("refresh_token", "first"), new Cookie("refresh_token", "second")))
+			.andExpect(status().isNoContent());
+		then(authService).should().logout("first");
 	}
 }

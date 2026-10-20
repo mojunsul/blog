@@ -7,6 +7,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import java.util.List;
+import java.util.stream.Stream;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -17,6 +18,7 @@ import org.springframework.http.MediaType;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
+import org.springframework.test.web.servlet.ResultActions;
 
 import io.github.mojunsul.blog.domain.auth.entity.RefreshToken;
 import io.github.mojunsul.blog.domain.auth.repository.AdminRepository;
@@ -104,6 +106,75 @@ class AuthIntegrationTest extends IntegrationTestSupport {
 		List<RefreshToken> saved = refreshTokenRepository.findAll();
 		assertThat(saved).hasSize(1);
 		assertThat(saved.get(0).getTokenHash()).hasSize(64).isNotEqualTo(refreshToken);
+	}
+
+	private ResultActions postWithCsrf(String path, Cookie... cookies) throws Exception {
+		return mockMvc.perform(post(path)
+			.cookie(Stream.concat(Stream.of(new Cookie("XSRF-TOKEN", CSRF)), Stream.of(cookies)).toArray(Cookie[]::new))
+			.header("X-XSRF-TOKEN", CSRF));
+	}
+
+	@Test
+	void 재발급하면_새_토큰을_받고_옛_행은_사용_처리된다() throws Exception {
+		// given
+		String oldToken = login().getResponse().getCookie("refresh_token").getValue();
+
+		// when
+		MvcResult result = postWithCsrf("/api/v1/auth/refresh", new Cookie("refresh_token", oldToken))
+			.andExpect(status().isNoContent())
+			.andReturn();
+
+		// then
+		String newToken = result.getResponse().getCookie("refresh_token").getValue();
+		assertThat(newToken).isNotEqualTo(oldToken);
+		assertThat(result.getResponse().getCookie("access_token").getValue()).isNotBlank();
+		assertThat(refreshTokenRepository.findAll()).hasSize(2);
+		postWithCsrf("/api/v1/auth/refresh", new Cookie("refresh_token", newToken)).andExpect(status().isNoContent());
+	}
+
+	@Test
+	void 옛_토큰을_다시_쓰면_401이고_전체_삭제가_롤백되지_않는다() throws Exception {
+		// given
+		String oldToken = login().getResponse().getCookie("refresh_token").getValue();
+		postWithCsrf("/api/v1/auth/refresh", new Cookie("refresh_token", oldToken)).andExpect(status().isNoContent());
+
+		// when & then
+		postWithCsrf("/api/v1/auth/refresh", new Cookie("refresh_token", oldToken))
+			.andExpect(status().isUnauthorized())
+			.andExpect(jsonPath("$.code").value("INVALID_REFRESH_TOKEN"));
+		assertThat(refreshTokenRepository.findAll()).isEmpty();
+	}
+
+	@Test
+	void 로그아웃하면_그_토큰으로_재발급할_수_없다() throws Exception {
+		// given
+		String refreshToken = login().getResponse().getCookie("refresh_token").getValue();
+
+		// when
+		postWithCsrf("/api/v1/auth/logout", new Cookie("refresh_token", refreshToken))
+			.andExpect(status().isNoContent());
+
+		// then
+		assertThat(refreshTokenRepository.findAll()).isEmpty();
+		postWithCsrf("/api/v1/auth/refresh", new Cookie("refresh_token", refreshToken))
+			.andExpect(status().isUnauthorized());
+	}
+
+	@Test
+	void Access_토큰과_Refresh_쿠키가_없어도_로그아웃은_204다() throws Exception {
+		// when & then
+		postWithCsrf("/api/v1/auth/logout").andExpect(status().isNoContent());
+	}
+
+	@Test
+	void CSRF_토큰_없는_재발급과_로그아웃은_403이다() throws Exception {
+		// when & then
+		mockMvc.perform(post("/api/v1/auth/refresh").cookie(new Cookie("refresh_token", "token")))
+			.andExpect(status().isForbidden())
+			.andExpect(jsonPath("$.code").value("INVALID_CSRF_TOKEN"));
+		mockMvc.perform(post("/api/v1/auth/logout").cookie(new Cookie("refresh_token", "token")))
+			.andExpect(status().isForbidden())
+			.andExpect(jsonPath("$.code").value("INVALID_CSRF_TOKEN"));
 	}
 
 	@Test
