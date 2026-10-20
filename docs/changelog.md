@@ -75,3 +75,6 @@
   - JWT: HS256, `sub`·`iat`·`exp`, 키는 Base64 디코딩 32바이트 이상·기동 시 검사(local·test는 비면 무작위 키), `AuthProperties`, 필터는 잘못된 토큰을 무시하고 인가 단계의 `401`에 맡김, 아이디가 없어도 더미 해시로 BCrypt 비교, Refresh 토큰 생성·해시 방식 (10-5, 10-6, 12-2)
   - Security 경로 규칙에 `POST /api/v1/auth/login` 허용 추가, `JwtAuthenticationFilter`는 빈이 아니게 등록 (10-5)
   - JWT 키 판정은 `strip()` 후 표준 Base64 디코더, `access_token` 쿠키가 여러 개면 첫 값만 사용(Path를 `/api`보다 길게 바꾸지 않는 제약 포함) (10-6)
+
+- **v2.16**
+  - 설계 문서를 `docs/architecture/NN-*.md` 장별 파일로 분리하고 `docs/architecture.md`는 목차로 변경, 변경 이력을 `docs/changelog.md`로 분리 (본문 변경 없음, 4장 구조 그림은 후속 반영)
