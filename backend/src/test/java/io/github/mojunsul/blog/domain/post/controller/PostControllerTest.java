@@ -3,24 +3,29 @@ package io.github.mojunsul.blog.domain.post.controller;
 import static org.hamcrest.Matchers.nullValue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.BDDMockito.then;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import java.net.URI;
 import java.time.Instant;
 import java.util.List;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.ResultActions;
 
 import io.github.mojunsul.blog.domain.post.dto.PostDetailResponse;
+import io.github.mojunsul.blog.domain.post.dto.PostSearchRequest;
 import io.github.mojunsul.blog.domain.post.dto.PostSummaryResponse;
 import io.github.mojunsul.blog.domain.post.service.PostService;
 import io.github.mojunsul.blog.global.common.PageResponse;
@@ -59,13 +64,49 @@ class PostControllerTest {
 	}
 
 	@ParameterizedTest
-	@CsvSource({"page,-1", "size,0", "size,51"})
+	@CsvSource({"page,-1", "page,10000", "size,0", "size,51"})
 	void 범위를_벗어난_page와_size는_400으로_응답한다(String field, String value) throws Exception {
 		// when & then
 		mockMvc.perform(get("/api/v1/posts").param(field, value))
 			.andExpect(status().isBadRequest())
 			.andExpect(jsonPath("$.code").value("INVALID_INPUT"))
 			.andExpect(jsonPath("$.errors[0].field").value(field));
+	}
+
+	@Test
+	void page_상한값은_200으로_응답한다() throws Exception {
+		// given
+		given(postService.getPublishedPosts(any())).willReturn(new PageResponse<>(List.of(), 9999, 10, 0, 0, false));
+
+		// when & then
+		mockMvc.perform(get("/api/v1/posts").param("page", "9999"))
+			.andExpect(status().isOk());
+	}
+
+	@ParameterizedTest
+	@CsvSource(delimiter = '|', nullValues = "null", value = {"page=|null|null", "page=%20|null|null",
+		"size=%20|null|null", "page=01|1|null", "page=0x10|16|null", "page=1&page=abc|1|null",
+		"size=1&size=2|null|1"})
+	void 숫자로_바꿀_수_있는_쿼리는_바뀐_값으로_Service에_전달한다(String query, Integer page, Integer size) throws Exception {
+		// given
+		given(postService.getPublishedPosts(any())).willReturn(new PageResponse<>(List.of(), 0, 10, 0, 0, false));
+
+		// when
+		ResultActions result = mockMvc.perform(get(URI.create("/api/v1/posts?" + query)));
+
+		// then
+		result.andExpect(status().isOk());
+		then(postService).should().getPublishedPosts(new PostSearchRequest(page, size));
+	}
+
+	@ParameterizedTest
+	@ValueSource(strings = {"page=0x2710", "page=abc&page=1"})
+	void 바뀐_값이_범위를_벗어나거나_첫_값이_숫자가_아니면_400으로_응답한다(String query) throws Exception {
+		// when & then
+		mockMvc.perform(get(URI.create("/api/v1/posts?" + query)))
+			.andExpect(status().isBadRequest())
+			.andExpect(jsonPath("$.code").value("INVALID_INPUT"))
+			.andExpect(jsonPath("$.errors[0].field").value("page"));
 	}
 
 	@Test
