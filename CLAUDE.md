@@ -46,7 +46,7 @@ cd frontend && npm run build
 ## 구조 메모
 - 백엔드 패키지: `io.github.mojunsul.blog`, 설정 파일은 `application.yaml`(`.yml` 아님).
 - 프론트엔드는 `src/` 사용 (`src/app`, import alias `@/*` → `src/*`).
-- `next.config.ts`에 `cacheComponents: true` — ISR은 `revalidate` export가 아니라 `'use cache'` + `cacheLife`.
+- `next.config.ts`에 `cacheComponents: true` — 캐시는 `revalidate` export가 아니라 데이터 함수의 `'use cache'` + `cacheLife`. 페이지 전체는 캐시되지 않는다 (`generateStaticParams` 미사용).
 - API는 같은 도메인의 `/api/v1`. 시간은 UTC 저장·응답, KST 변환은 프론트.
 
 ## 규칙

@@ -22,7 +22,7 @@
 ### 프론트엔드
 | 기술 | 용도 |
 |---|---|
-| Next.js 16 (App Router) + TypeScript | SSR/ISR 기반 블로그 화면, SEO |
+| Next.js 16 (App Router) + TypeScript | 서버 렌더링 + 데이터 캐시 기반 블로그 화면, SEO |
 | Tailwind CSS | 스타일링 |
 | react-markdown + remark-gfm + rehype-slug + Shiki(`@shikijs/rehype`) | Markdown 렌더링, 코드 하이라이팅 |
 | `@tailwindcss/typography` | Markdown 본문 스타일 (`prose`) |
@@ -418,7 +418,7 @@ GET /api/v1/posts?page=0&size=10&tag=spring
 }
 ```
 - 없거나 DRAFT인 글: `404` (`POST_NOT_FOUND`)
-- 조회수는 이 API에서 증가시키지 않는다 (ISR 캐시 때문에 실제 방문 수와 맞지 않고, GET이 상태를 바꾸면 안 되기 때문).
+- 조회수는 이 API에서 증가시키지 않는다 (프론트의 데이터 캐시 때문에 실제 방문 수와 맞지 않고, GET이 상태를 바꾸면 안 되기 때문).
 - 경로의 `slug`는 형식을 검사하지 않고 그대로 조회한다. 규칙에 맞지 않거나 대소문자가 다른 값(`Spring-Jwt`)도 `404`다 (식별자라서 "그런 글이 없다"가 맞는 응답이다).
 
 #### GET `/api/v1/categories`
@@ -706,7 +706,7 @@ frontend/src/
 - **공개 페이지**: 서버 컴포넌트 + 데이터 캐시 (`revalidate: 60`).
   - 페이지 전체가 캐시되지는 않는다. 응답은 매 요청 빌드 때 만든 정적 셸(`Suspense` fallback 포함)과, 캐시된 데이터로 그 자리에서 렌더링한 본문 스트리밍이다 (Next 16.4에서 `next start`·standalone 모두 확인). Partial Prefetching의 ISR 업그레이드는 `generateStaticParams`가 돌려준 `params`에만 적용되는데, 빌드 시 API 비의존 때문에 그 함수를 쓰지 않는다.
   - 본문은 같은 응답 안에서 스트리밍되므로 검색엔진이 받는 HTML에 들어 있다. 매 요청 비용은 캐시된 데이터로 컴포넌트를 렌더링하는 정도라 작은 서버에서도 충분하다고 본다. 운영에서 느리면 측정 후 다시 검토한다.
-  - `next.config.ts`에 `cacheComponents: true`가 켜져 있다 (create-next-app 기본값). 이 모드에서는 `export const revalidate`와 `fetch`의 `next.revalidate`로 ISR을 지정하지 않고, 데이터 함수에 `'use cache'` + `cacheLife({ revalidate: 60 })`를 쓴다. 구현 전 `node_modules/next/dist/docs/`의 caching 문서를 확인한다.
+  - `next.config.ts`에 `cacheComponents: true`가 켜져 있다 (create-next-app 기본값). 이 모드에서는 캐시 주기를 `export const revalidate`나 `fetch`의 `next.revalidate`로 지정하지 않고, 데이터 함수에 `'use cache'` + `cacheLife({ revalidate: 60 })`를 쓴다. 이것은 데이터 캐시이고 페이지 전체를 캐시하지 않는다(위 항목). 구현 전 `node_modules/next/dist/docs/`의 caching 문서를 확인한다.
   - `'use cache'`와 `cacheLife`는 `lib/api/posts.ts` 같은 데이터 함수에 둔다. `server.ts`에는 캐시를 넣지 않는다. 컴포넌트 단위 캐시는 `MarkdownRenderer`에만 둔다 ('Markdown 렌더링').
   - `'use cache'` 함수를 요청 시점 API(`params`, `searchParams`, `connection()`) 없이 호출하면 빌드 때 실행되어 정적 셸에 들어간다(= 빌드 중 백엔드 호출). 데이터 함수는 반드시 요청 시점 API를 거친 뒤 호출한다.
 - **관리자 페이지**: 클라이언트 컴포넌트, 브라우저에서 `/api/v1` 직접 호출.
@@ -942,4 +942,4 @@ main 머지 (deploy.yml)
 
 - **v2.10**
   - 글 상세 페이지: API 호출 전 `isValidSlug`(6장 slug 규칙)로 걸러 `notFound()`, 404는 `getPost`가 `null`로 바꿔 `notFound()`(`'use cache'` 경계에서 `ApiError`가 일반 `Error`가 되므로), 표시 항목, 요청마다 Shiki가 실행되지 않게 `MarkdownRenderer`에 `'use cache'` + `cacheLife('max')`, `(public)/not-found.tsx`(루트 not-found는 M5) (11장)
-  - 공개 페이지는 페이지 전체가 아니라 데이터·Markdown 렌더링 결과를 캐시하고, 응답은 정적 셸 + 본문 스트리밍 (ISR 업그레이드는 `generateStaticParams`를 쓰지 않아 적용되지 않음) (11장)
+  - 공개 페이지는 페이지 전체가 아니라 데이터·Markdown 렌더링 결과를 캐시하고, 응답은 정적 셸 + 본문 스트리밍 (ISR 업그레이드는 `generateStaticParams`를 쓰지 않아 적용되지 않음). 1장·8-1·11장의 "ISR" 표현을 "데이터 캐시"로 정리 (1장, 8-1, 11장)
