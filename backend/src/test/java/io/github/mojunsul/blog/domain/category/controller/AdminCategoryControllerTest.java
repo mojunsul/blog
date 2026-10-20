@@ -1,11 +1,14 @@
 package io.github.mojunsul.blog.domain.category.controller;
 
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.hamcrest.Matchers.hasItem;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.BDDMockito.then;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
@@ -193,8 +196,8 @@ class AdminCategoryControllerTest extends ControllerTestSupport {
 		create(body("\"\\u00a0Backend\"", "\"backend\"")).andExpect(status().isCreated());
 
 		// then
-		then(categoryService).should(org.mockito.Mockito.times(3)).create(name.capture(), anyString());
-		org.assertj.core.api.Assertions.assertThat(name.getAllValues())
+		then(categoryService).should(times(3)).create(name.capture(), anyString());
+		assertThat(name.getAllValues())
 			.containsExactly("Back end", "Backend", "\u00a0Backend");
 	}
 
@@ -238,5 +241,17 @@ class AdminCategoryControllerTest extends ControllerTestSupport {
 			.content("{\"name\":\"a\",\"slug\":\"a\"}")).andExpect(status().isBadRequest());
 		mockMvc.perform(delete(URL + "/" + id)).andExpect(status().isBadRequest())
 			.andExpect(jsonPath("$.code").value("INVALID_INPUT"));
+	}
+
+	@Test
+	void 검증_실패_사유는_사용자용_한국어_메시지다() throws Exception {
+		// when & then
+		create(body("\"a\\u0000b\"", "\"Bad\""))
+			.andExpect(status().isBadRequest())
+			.andExpect(jsonPath("$.errors[?(@.field=='name')].reason").value("카테고리 이름에 제어 문자를 쓸 수 없습니다"))
+			.andExpect(jsonPath("$.errors[?(@.field=='slug')].reason").value("slug는 영문 소문자·숫자·하이픈만 쓸 수 있습니다"));
+		create(body("\"\\u3000\"", "\"backend\""))
+			.andExpect(status().isBadRequest())
+			.andExpect(jsonPath("$.errors[?(@.field=='name')].reason").value(hasItem("카테고리 이름을 입력하세요")));
 	}
 }

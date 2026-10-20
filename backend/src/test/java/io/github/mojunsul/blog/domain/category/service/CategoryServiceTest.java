@@ -1,6 +1,7 @@
 package io.github.mojunsul.blog.domain.category.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.BDDMockito.given;
@@ -122,6 +123,6 @@ class CategoryServiceTest {
 		given(categoryRepository.deleteByIdReturningCount(1L)).willReturn(1);
 
 		// when & then
-		categoryService.delete(1L);
+		assertThatCode(() -> categoryService.delete(1L)).doesNotThrowAnyException();
 	}
 }
