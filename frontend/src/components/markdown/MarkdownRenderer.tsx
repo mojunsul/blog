@@ -14,7 +14,7 @@ const shikiOptions = {
 };
 
 // react-markdown에는 className prop이 없어 본문 스타일을 여기서 감싼다.
-// Shiki가 Date.now()를 불러, 캐시하지 않으면 상세 페이지의 ISR 업그레이드가 실패하고 요청마다 다시 렌더링된다.
+// 상세 페이지는 매 요청 렌더링되므로 캐시하지 않으면 요청마다 Shiki가 실행되고, Shiki가 부르는 Date.now()가 요청마다 오류 로그를 남긴다.
 // 결과가 content에만 달려 있고 content가 캐시 키라 글을 고치면 새 키가 되므로 가장 긴 프로필을 쓴다.
 export async function MarkdownRenderer({ content }: { content: string }) {
   "use cache";
