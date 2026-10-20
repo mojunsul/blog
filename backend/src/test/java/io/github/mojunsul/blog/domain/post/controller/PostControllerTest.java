@@ -22,6 +22,7 @@ import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.ResultActions;
 
 import io.github.mojunsul.blog.domain.post.dto.PostDetailResponse;
 import io.github.mojunsul.blog.domain.post.dto.PostSearchRequest;
@@ -91,10 +92,10 @@ class PostControllerTest {
 		given(postService.getPublishedPosts(any())).willReturn(new PageResponse<>(List.of(), 0, 10, 0, 0, false));
 
 		// when
-		mockMvc.perform(get(URI.create("/api/v1/posts?" + query)))
-			.andExpect(status().isOk());
+		ResultActions result = mockMvc.perform(get(URI.create("/api/v1/posts?" + query)));
 
 		// then
+		result.andExpect(status().isOk());
 		then(postService).should().getPublishedPosts(new PostSearchRequest(page, size));
 	}
 
