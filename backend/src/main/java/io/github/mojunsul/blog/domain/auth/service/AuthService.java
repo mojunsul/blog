@@ -6,6 +6,7 @@ import java.security.NoSuchAlgorithmException;
 import java.security.SecureRandom;
 import java.time.Clock;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.Base64;
 import java.util.HexFormat;
 
@@ -61,13 +62,48 @@ public class AuthService {
 			throw new BusinessException(ErrorCode.INVALID_CREDENTIALS);
 		}
 
+		LoginResult result = issueTokens(admin);
+		log.info("Login succeeded: username={}", username);
+		return result;
+	}
+
+	// 재사용 감지에서 토큰을 지운 뒤 예외를 던지므로, 기본 롤백이면 삭제가 취소된다
+	@Transactional(noRollbackFor = BusinessException.class)
+	public LoginResult refresh(String refreshToken) {
+		if (refreshToken == null || refreshToken.isBlank()) {
+			throw new BusinessException(ErrorCode.INVALID_REFRESH_TOKEN);
+		}
+		String tokenHash = sha256Hex(refreshToken);
+		Instant now = clock.instant();
+		if (refreshTokenRepository.markUsed(tokenHash, now) == 1) {
+			RefreshToken used = refreshTokenRepository.findByTokenHash(tokenHash).orElseThrow();
+			return issueTokens(used.getAdmin());
+		}
+
+		refreshTokenRepository.findByTokenHash(tokenHash)
+			.filter(token -> token.getUsedAt() != null && token.getExpiresAt().isAfter(now))
+			.ifPresent(token -> {
+				refreshTokenRepository.deleteByAdmin(token.getAdmin());
+				log.warn("Refresh token reuse detected: username={}", token.getAdmin().getUsername());
+			});
+		throw new BusinessException(ErrorCode.INVALID_REFRESH_TOKEN);
+	}
+
+	@Transactional
+	public void logout(String refreshToken) {
+		if (refreshToken == null || refreshToken.isBlank()) {
+			return;
+		}
+		refreshTokenRepository.deleteByTokenHash(sha256Hex(refreshToken));
+	}
+
+	private LoginResult issueTokens(Admin admin) {
 		String refreshToken = newRefreshToken();
 		refreshTokenRepository.save(RefreshToken.builder()
 			.admin(admin)
 			.tokenHash(sha256Hex(refreshToken))
 			.expiresAt(clock.instant().plus(REFRESH_TOKEN_TTL))
 			.build());
-		log.info("Login succeeded: username={}", username);
 		return new LoginResult(admin.getUsername(), jwtProvider.createAccessToken(admin.getUsername()), refreshToken);
 	}
 
