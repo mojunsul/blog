@@ -195,8 +195,9 @@ backend/src/main/java/io/github/mojunsul/blog/
 ├ BlogApplication.java
 ├ global/
 │  ├ config/          # QuerydslConfig, JpaAuditingConfig, OpenApiConfig, ClockConfig, PasswordEncoderConfig, AdminProperties
-│  ├ security/        # SecurityConfig, JwtProvider, JwtAuthenticationFilter, CookieUtil
-│  ├ exception/       # ErrorCode, BusinessException, GlobalExceptionHandler
+│  ├ security/        # SecurityConfig, JwtProvider, JwtAuthenticationFilter, CookieUtil,
+│  │                  # ProblemDetailAuthenticationEntryPoint, ProblemDetailAccessDeniedHandler, ProblemDetailRequestRejectedHandler
+│  ├ exception/       # ErrorCode, BusinessException, GlobalExceptionHandler, ProblemDetailFactory, ProblemDetailResponseWriter
 │  ├ init/            # AdminInitializer, LocalDataInitializer (ApplicationRunner)
 │  ├ logging/         # RequestIdFilter
 │  └ common/          # BaseTimeEntity, PageResponse
@@ -250,7 +251,7 @@ backend/src/test/java/io/github/mojunsul/blog/
 - 예외 로그는 `GlobalExceptionHandler` 한 곳에서만 남긴다. 요청 종류(GET·POST)와 무관하다.
   - 5xx(처리되지 않은 예외): `ERROR` + 스택 트레이스
   - 4xx(`BusinessException`): `WARN` 한 줄 (`code`, 요청 경로), 스택 트레이스 없음
-  - 프레임워크가 만드는 4xx(입력 검증 실패, JSON 파싱 실패, 405, Security 필터의 401·403 등)는 남기지 않는다. 클라이언트 입력 문제라 서버에서 조치할 것이 없고, 공개 API라 봇 요청으로 로그가 쉽게 늘어난다.
+  - 프레임워크가 만드는 4xx(입력 검증 실패, JSON 파싱 실패, 405, Security 필터의 401·403, 방화벽 거절 400 등)는 남기지 않는다. 클라이언트 입력 문제라 서버에서 조치할 것이 없고, 공개 API라 봇 요청으로 로그가 쉽게 늘어난다.
   - 서비스에서 예외를 잡아 로그를 남긴 뒤 다시 던지지 않는다 (같은 에러가 두 번 기록된다).
 - 정상 흐름에서는 조회 로그를 남기지 않는다 (요청 기록은 Nginx 접근 로그가 담당). 서비스에서는 관리자 행위(로그인 성공·실패, 글·카테고리 생성·수정·삭제)와 보안 이벤트(Refresh 토큰 재사용 감지)만 `INFO`/`WARN`으로 남긴다 (M2).
 - **요청 추적 ID**: `RequestIdFilter`가 모든 요청에 ID를 정해 MDC(`requestId`)에 넣고, 응답 헤더 `X-Request-Id`로 돌려준다. 로그 패턴에 `requestId`를 출력해 한 요청의 로그를 묶어 본다.
@@ -374,7 +375,7 @@ refresh_token
 |---|---|
 | `200 OK` | 조회·수정 성공 |
 | `201 Created` | 생성 성공 (`Location` 헤더 포함) |
-| `204 No Content` | 삭제, 로그아웃, 재발급 성공 |
+| `204 No Content` | 삭제, 로그아웃, 재발급 성공, CSRF 토큰 발급 |
 | `400 Bad Request` | 입력값 검증 실패 |
 | `401 Unauthorized` | 인증 안 됨, 토큰 만료 |
 | `403 Forbidden` | 권한 없음, CSRF 토큰 불일치 |
@@ -447,6 +448,7 @@ GET /api/v1/posts?page=0&size=10&tag=spring
 - 없거나 DRAFT인 글: `404` (`POST_NOT_FOUND`)
 - 조회수는 이 API에서 증가시키지 않는다 (프론트 캐시 때문에 실제 방문 수와 맞지 않고, GET이 상태를 바꾸면 안 되기 때문).
 - 경로의 `slug`는 형식을 검사하지 않고 그대로 조회한다. 규칙에 맞지 않거나 대소문자가 다른 값(`Spring-Jwt`)도 `404`다 (식별자라서 "그런 글이 없다"가 맞는 응답이다).
+  - 단, Spring Security 방화벽이 거절하는 문자(`;`, 인코딩된 `/`·`%`·`.` 등)가 든 경로는 조회 전에 `400` (`INVALID_INPUT`)이다 (10-5).
 
 #### GET `/api/v1/categories`
 ```json
@@ -487,6 +489,14 @@ GET /api/v1/posts?page=0&size=10&tag=spring
 | POST | `/api/v1/auth/refresh` | Access 재발급 + Refresh Rotation |
 | POST | `/api/v1/auth/logout` | 로그아웃 |
 | GET | `/api/v1/auth/me` | 로그인 상태 확인 |
+
+#### GET `/api/v1/auth/csrf`
+- 인증 불필요. 본문 없이 `204`.
+- 요청에 `XSRF-TOKEN` 쿠키가 없으면 토큰을 새로 만들어 쿠키로 내려보낸다 (속성은 10-1·10-5).
+  ```
+  Set-Cookie: XSRF-TOKEN=...; Path=/; SameSite=Lax        (HTTPS 요청이면 Secure 추가)
+  ```
+- 이미 쿠키가 있으면 그 토큰을 그대로 쓰므로 `Set-Cookie`가 없다 (Spring Security 기본 동작).
 
 #### POST `/api/v1/auth/login`
 요청 (헤더 `X-XSRF-TOKEN` 필요, 10장 참고)
@@ -626,7 +636,15 @@ Spring의 `ProblemDetail`을 사용하고, 확장 필드로 `code`, `errors`를 
 | `DUPLICATE_SLUG` | 409 | slug 중복 (글·카테고리) |
 | `INTERNAL_ERROR` | 500 | 서버 오류 |
 
-> Spring Security 필터 단계에서 발생하는 401/403도 같은 형식으로 응답하도록 `AuthenticationEntryPoint`, `AccessDeniedHandler`를 구현한다 (10-5). ProblemDetail을 만드는 코드는 `GlobalExceptionHandler`와 공유한다.
+> Spring Security 필터 단계에서 발생하는 401/403도 같은 형식으로 응답하도록 `AuthenticationEntryPoint`, `AccessDeniedHandler`를 구현한다 (10-5).
+
+**ProblemDetail 생성 코드 공유** (형식이 `GlobalExceptionHandler`와 Security 필터 두 군데로 갈라지지 않게)
+- `global/exception/ProblemDetailFactory`: `ErrorCode`, `instance`, `errors`로 9장 형식의 `ProblemDetail`을 만드는 정적 메서드. `GlobalExceptionHandler`의 `problem()`과 `FieldError` record를 여기로 옮기고, `GlobalExceptionHandler`는 이를 호출한다.
+- `global/exception/ProblemDetailResponseWriter`(`@Component`): 필터 단계처럼 컨트롤러 밖에서 `HttpServletResponse`에 직접 쓸 때 쓴다. 상태 코드, `Content-Type: application/problem+json`, UTF-8을 설정하고 `ProblemDetailFactory`로 만든 본문(`instance`는 요청 URI, `errors`는 `[]`)을 쓴다.
+  - JSON 직렬화는 Spring Boot가 등록한 `JsonMapper` 빈(Jackson 3, `tools.jackson.databind.json.JsonMapper`)을 주입받아 한다. 이 빈에는 Boot가 `ProblemDetail`의 `properties`(`code`, `errors`)를 최상위 필드로 펼치는 mixin을 넣어 두어, 컨트롤러 응답과 같은 JSON이 된다. `new JsonMapper()`로 따로 만들면 `properties`가 중첩 객체로 나간다.
+- 10-5의 `ProblemDetailAuthenticationEntryPoint`, `ProblemDetailAccessDeniedHandler`, `ProblemDetailRequestRejectedHandler`(`global/security`)는 `ProblemDetailResponseWriter`로 응답한다.
+
+**ProblemDetail이 아닌 응답**: 필터에서 처리되지 않은 예외처럼 컨트롤러 밖에서 생긴 오류는 서블릿 컨테이너가 `/error`로 보내고(ERROR 디스패치), Spring Boot `BasicErrorController`가 기본 형식(`timestamp`, `status`, `error`, `path`, 메시지·스택 트레이스 없음)으로 응답한다. 서버 버그라 프론트가 `code`로 분기할 대상이 아니고(프론트는 `code: null`로 처리, 11장), ProblemDetail로 맞추려면 `ErrorController`를 따로 구현해야 해서 기본 형식을 둔다. 클라이언트 입력으로 자주 생기는 방화벽 거절은 `/error`로 보내지 않고 ProblemDetail로 응답한다 (10-5).
 
 ---
 
@@ -637,11 +655,11 @@ Spring의 `ProblemDetail`을 사용하고, 확장 필드로 `code`, `errors`를 
 |---|---|---|
 | `access_token` | JWT (15분) | HttpOnly, Secure, SameSite=Lax, Path=/api |
 | `refresh_token` | 랜덤 문자열 (14일), DB에는 SHA-256 해시 저장 | HttpOnly, Secure, SameSite=Lax, Path=/api/v1/auth |
-| `XSRF-TOKEN` | CSRF 토큰 | **HttpOnly 아님** (JS가 읽어서 헤더로 보냄), Secure, SameSite=Lax |
+| `XSRF-TOKEN` | CSRF 토큰 | **HttpOnly 아님** (JS가 읽어서 헤더로 보냄), SameSite=Lax, Path=/, Secure는 HTTPS 요청일 때만 (10-5) |
 
 - 토큰을 localStorage·sessionStorage에 저장하지 않는다.
 - JWT 서명 키는 환경변수로만 주입한다 (`JWT_SECRET`, 256bit 이상).
-- 로컬(http) 개발 시에만 `Secure` 속성을 끌 수 있도록 프로필별로 설정한다.
+- `access_token`·`refresh_token`은 로컬(http) 개발 시에만 `Secure` 속성을 끌 수 있도록 프로필별로 설정한다 (방법은 로그인 API 이슈 #69에서 정한다). `XSRF-TOKEN`은 요청이 HTTPS인지를 따르므로 프로필 설정이 없다 (10-5).
 
 ### 10-2. CSRF 보호
 인증 정보가 **쿠키로 자동 전송**되므로 CSRF 보호를 끄지 않는다. (`csrf().disable()`은 토큰을 Authorization 헤더로 보낼 때만 안전하다.)
@@ -651,7 +669,7 @@ Spring의 `ProblemDetail`을 사용하고, 확장 필드로 `code`, `errors`를 
   1. 프론트가 관리자 화면·로그인 화면 진입 시 `GET /api/v1/auth/csrf` 호출 → `XSRF-TOKEN` 쿠키 발급
   2. 상태 변경 요청(POST/PUT/DELETE) 시 쿠키 값을 읽어 `X-XSRF-TOKEN` 헤더로 전송
   3. 서버가 쿠키와 헤더 값을 비교
-- CSRF 검사 제외: GET 요청, `POST /api/v1/posts/{slug}/views`
+- CSRF 검사 제외: GET·HEAD·OPTIONS·TRACE 요청(Spring 기본값, 10-5), `POST /api/v1/posts/{slug}/views`(M6)
 - `SameSite=Lax`는 추가 방어선으로 함께 유지한다.
 
 ### 10-3. 인증 흐름
@@ -679,14 +697,16 @@ Spring의 `ProblemDetail`을 사용하고, 확장 필드로 `code`, `errors`를 
 - 경로 규칙 (위에서부터 적용)
   | 경로 | 규칙 |
   |---|---|
-  | `/actuator/health/**`, Swagger(`/v3/api-docs/**`, `/swagger-ui/**`) | 모두 허용 (Swagger는 `local`에서만 켜짐, 5장) |
+  | `/actuator/health/**`, Swagger(`/v3/api-docs/**`, `/swagger-ui/**`, `/swagger-ui.html`) | 모두 허용 (Swagger는 `local`에서만 켜짐, 5장. `/swagger-ui.html`은 springdoc의 진입 주소로 `/swagger-ui/index.html`로 이동시킨다) |
+  | `/error` | 모두 허용 (아래 '`/error`') |
   | `GET /api/v1/posts/**`, `GET /api/v1/categories`, `GET /api/v1/auth/csrf` | 모두 허용 |
   | `/api/v1/admin/**` | `ROLE_ADMIN` |
   | 그 외 | 인증 필요 |
   - 로그인·재발급·로그아웃·`me`의 규칙은 그 API를 만드는 이슈에서 추가한다 (없는 경로를 미리 열어 두지 않는다).
+  - `/error`: Spring Boot가 Security 필터를 ERROR 디스패치에도 등록하고 인가도 ERROR 디스패치에 적용되므로(기본값), 막으면 컨트롤러 밖 오류(필터의 처리되지 않은 예외 등)의 원래 상태(500 등)가 `401`로 바뀐다. 그래서 경로로 허용한다 (`dispatcherTypeMatchers`가 아니라 경로로 열어 MockMvc로 확인할 수 있게). 응답은 9장 'ProblemDetail이 아닌 응답'. `/api`로 시작하지 않아 외부(Nginx)에서 직접 닿지 않는다 (3장).
 - CSRF: `csrf.spa()`에 SameSite를 붙인 `CookieCsrfTokenRepository`를 넣는다 (`spa()`는 쿠키 속성을 바꿀 수 없어 저장소만 교체).
   - `XSRF-TOKEN` 쿠키: HttpOnly 아님, `Path=/`, `SameSite=Lax`, `Secure`는 요청이 HTTPS인지(`request.isSecure()`)를 따른다. 운영은 Nginx 뒤에서 `forward-headers-strategy: framework`로 HTTPS가 되어 `Secure`가 붙고, local(http)은 붙지 않아 프로필 설정이 필요 없다.
-  - 토큰은 처음 쓸 때 만들어지므로, `GET /api/v1/auth/csrf`(`AuthController`)는 `CsrfToken`을 읽어 쿠키를 내려보내고 `204`로 응답한다.
+  - 토큰은 처음 쓸 때 만들어지므로, `GET /api/v1/auth/csrf`(`AuthController`)는 `CsrfToken`을 읽어 쿠키가 없으면 내려보내고 `204`로 응답한다 (8-3).
   - 검사 대상: GET·HEAD·OPTIONS·TRACE를 뺀 모든 요청 (Spring 기본값). 조회수 API 제외(10-2)는 M6에서 추가한다.
 - 오류 응답 (모두 `application/problem+json`, 9장 형식, `instance`는 요청 경로)
   | 상황 | 응답 |
@@ -694,10 +714,13 @@ Spring의 `ProblemDetail`을 사용하고, 확장 필드로 `code`, `errors`를 
   | 인증 없이 보호된 경로 | `401` `UNAUTHORIZED` (`AuthenticationEntryPoint`) |
   | CSRF 토큰이 없거나 쿠키와 헤더가 다름 (`CsrfException`) | `403` `INVALID_CSRF_TOKEN` (`AccessDeniedHandler`) |
   | 그 외 권한 없음 | `403` `FORBIDDEN` (`AccessDeniedHandler`) |
+  | 요청 URL이 `StrictHttpFirewall` 기본 규칙에 걸림 (`;`, 인코딩된 `/`·`%`·`.`, `..` 경로 등. 예: `GET /api/v1/posts/a;b`) | `400` `INVALID_INPUT`, `errors` `[]` (`RequestRejectedHandler`) |
+  - 클래스: `global/security`의 `ProblemDetailAuthenticationEntryPoint`, `ProblemDetailAccessDeniedHandler`(`exceptionHandling`에 등록), `ProblemDetailRequestRejectedHandler`(빈으로 등록하면 Spring Security가 가져다 쓴다). 응답은 9장의 `ProblemDetailResponseWriter`로 쓴다.
+  - 방화벽 거절: 기본 `HttpStatusRequestRejectedHandler`는 `sendError(400)`이라 `/error`로 가서 ProblemDetail이 아닌 형식이 된다. 잘못된 클라이언트 요청이라 다른 400과 같은 `INVALID_INPUT`으로 맞춘다. 상태 코드는 Spring 기본값(`400`)을 유지한다.
   - CSRF 필터가 인가보다 먼저 실행되므로, 인증 없이 CSRF 토큰도 없이 보낸 POST는 `401`이 아니라 `403 INVALID_CSRF_TOKEN`이다.
   - 관리자 계정이 하나뿐이라 로그인하면 항상 `ROLE_ADMIN`이다. `FORBIDDEN`은 권한이 다른 인증 주체(테스트의 `@WithMockUser(roles = "USER")`)에서만 나온다.
   - 로그는 남기지 않는다 (5장 로깅, 프레임워크가 만드는 4xx).
-- 필터 순서: `RequestIdFilter`(`HIGHEST_PRECEDENCE`)가 Security 필터보다 먼저 실행되어 401·403 응답에도 `X-Request-Id`가 붙는다.
+- 필터 순서: `RequestIdFilter`(`HIGHEST_PRECEDENCE`)가 Security 필터보다 먼저 실행되어 400·401·403 응답에도 `X-Request-Id`가 붙는다.
 
 ## 11. 프론트엔드 구조
 
@@ -1004,7 +1027,10 @@ main 머지 (deploy.yml)
 
 - **v2.12**
   - `csrf.spa()`는 Spring Security 7.0부터 (10-2)
-  - Security 필터 설정: 세션 없음, 경로 규칙, `csrf.spa()` + SameSite 쿠키 저장소, `GET /auth/csrf`는 `204`, 401·403 오류 응답 구분(CSRF는 `INVALID_CSRF_TOKEN`), Security 401·403은 로그 없음 (5장, 9장, 10-5)
+  - Security 필터 설정: 세션 없음, 경로 규칙(Swagger `/swagger-ui.html`, `/error` 허용), `csrf.spa()` + SameSite 쿠키 저장소, 401·403 오류 응답 구분(CSRF는 `INVALID_CSRF_TOKEN`), 방화벽 거절은 `400` `INVALID_INPUT`(8-1 slug 404의 예외), Security 401·403·방화벽 400은 로그 없음 (5장, 8-1, 9장, 10-5)
+  - `GET /api/v1/auth/csrf`: `204`, 쿠키가 없을 때만 `XSRF-TOKEN` 발급 (7장, 8-3)
+  - `XSRF-TOKEN` 쿠키 속성(`Path=/`, HTTPS 요청일 때만 `Secure`)과 CSRF 검사 제외 메서드를 10-5에 맞춤, `Secure` 프로필 설정은 access·refresh 쿠키만(#69) (10-1, 10-2)
+  - ProblemDetail 생성 코드를 `ProblemDetailFactory`·`ProblemDetailResponseWriter`(`global/exception`)로 공유, 직렬화는 Boot `JsonMapper` 빈, `/error`(ERROR 디스패치)는 Boot 기본 형식 (5장, 9장)
 
 - **v2.13**
   - 관리자 계정 생성: `blog.admin.*` 설정(`global/config/AdminProperties`), 두 값이 모두 비면 prod는 기동 실패·그 외는 건너뜀, 한쪽만 있으면 항상 기동 실패, username(50자, 앞뒤 공백 없음)·password(12자 이상, 72바이트 이하) 검증, `AdminProperties.toString()`에서 비밀번호 마스킹, `PasswordEncoderConfig` 분리, `Admin`은 `createdAt`만, 비밀번호 변경은 행 삭제 후 재시작 (5장, 12-2)
