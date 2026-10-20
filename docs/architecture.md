@@ -22,7 +22,7 @@
 ### 프론트엔드
 | 기술 | 용도 |
 |---|---|
-| Next.js 16 (App Router) + TypeScript | 서버 렌더링 + 데이터 캐시 기반 블로그 화면, SEO |
+| Next.js 16 (App Router) + TypeScript | 서버 렌더링 + 캐시 기반 블로그 화면, SEO |
 | Tailwind CSS | 스타일링 |
 | react-markdown + remark-gfm + rehype-slug + Shiki(`@shikijs/rehype`) | Markdown 렌더링, 코드 하이라이팅 |
 | `@tailwindcss/typography` | Markdown 본문 스타일 (`prose`) |
@@ -418,7 +418,7 @@ GET /api/v1/posts?page=0&size=10&tag=spring
 }
 ```
 - 없거나 DRAFT인 글: `404` (`POST_NOT_FOUND`)
-- 조회수는 이 API에서 증가시키지 않는다 (프론트의 데이터 캐시 때문에 실제 방문 수와 맞지 않고, GET이 상태를 바꾸면 안 되기 때문).
+- 조회수는 이 API에서 증가시키지 않는다 (프론트 캐시 때문에 실제 방문 수와 맞지 않고, GET이 상태를 바꾸면 안 되기 때문).
 - 경로의 `slug`는 형식을 검사하지 않고 그대로 조회한다. 규칙에 맞지 않거나 대소문자가 다른 값(`Spring-Jwt`)도 `404`다 (식별자라서 "그런 글이 없다"가 맞는 응답이다).
 
 #### GET `/api/v1/categories`
@@ -703,19 +703,21 @@ frontend/src/
 ```
 
 ### 렌더링 전략
-- **공개 페이지**: 서버 컴포넌트 + 데이터 캐시 (`revalidate: 60`).
-  - 페이지 전체가 캐시되지는 않는다. 응답은 매 요청 빌드 때 만든 정적 셸(`Suspense` fallback 포함)과, 캐시된 데이터로 그 자리에서 렌더링한 본문 스트리밍이다 (Next 16.4에서 `next start`·standalone 모두 확인). Partial Prefetching의 ISR 업그레이드는 `generateStaticParams`가 돌려준 `params`에만 적용되는데, 빌드 시 API 비의존 때문에 그 함수를 쓰지 않는다.
-  - 본문은 같은 응답 안에서 스트리밍되므로 검색엔진이 받는 HTML에 들어 있다. 매 요청 비용은 캐시된 데이터로 컴포넌트를 렌더링하는 정도라 작은 서버에서도 충분하다고 본다. 운영에서 느리면 측정 후 다시 검토한다.
-  - `next.config.ts`에 `cacheComponents: true`가 켜져 있다 (create-next-app 기본값). 이 모드에서는 캐시 주기를 `export const revalidate`나 `fetch`의 `next.revalidate`로 지정하지 않고, 데이터 함수에 `'use cache'` + `cacheLife({ revalidate: 60 })`를 쓴다. 이것은 데이터 캐시이고 페이지 전체를 캐시하지 않는다(위 항목). 구현 전 `node_modules/next/dist/docs/`의 caching 문서를 확인한다.
-  - `'use cache'`와 `cacheLife`는 `lib/api/posts.ts` 같은 데이터 함수에 둔다. `server.ts`에는 캐시를 넣지 않는다. 컴포넌트 단위 캐시는 `MarkdownRenderer`에만 둔다 ('Markdown 렌더링').
-  - `'use cache'` 함수를 요청 시점 API(`params`, `searchParams`, `connection()`) 없이 호출하면 빌드 때 실행되어 정적 셸에 들어간다(= 빌드 중 백엔드 호출). 데이터 함수는 반드시 요청 시점 API를 거친 뒤 호출한다.
+- **공개 페이지**: 서버 컴포넌트로 요청마다 렌더링하고, 아래 두 가지만 캐시한다. 공개 페이지의 캐시 기준은 이 항목에만 두고, 다른 곳은 여기를 가리킨다.
+  - 캐시하는 것
+    - 데이터 함수(`lib/api/posts.ts`): `'use cache'` + `cacheLife({ revalidate: 60 })`. `server.ts`에는 캐시를 넣지 않는다.
+    - `MarkdownRenderer` 컴포넌트: `'use cache'` + `cacheLife('max')` (이유는 'Markdown 렌더링'). 컴포넌트 단위 캐시는 여기에만 둔다.
+  - 캐시하지 않는 것: 페이지 전체. 응답은 빌드 때 만든 정적 셸(`Suspense` fallback 포함)과, 위 캐시로 그 자리에서 렌더링한 본문 스트리밍이다 (Next 16.4의 `next start`·standalone에서 확인). Partial Prefetching의 ISR 업그레이드는 `generateStaticParams`가 돌려준 `params`에만 적용되는데, 빌드 시 API 비의존 때문에 그 함수를 쓰지 않는다.
+    - 본문은 같은 응답 안에서 스트리밍되어 검색엔진이 받는 HTML에 들어 있다. 매 요청 비용은 캐시된 결과로 컴포넌트를 렌더링하는 정도라 작은 서버에서도 충분하다고 본다. 운영에서 느리면 측정 후 다시 검토한다.
+  - `next.config.ts`의 `cacheComponents: true`(create-next-app 기본값) 모드라 캐시 주기는 `export const revalidate`나 `fetch`의 `next.revalidate`가 아니라 `cacheLife`로 정한다. 구현 전 `node_modules/next/dist/docs/`의 caching 문서를 확인한다.
+  - `'use cache'` 함수·컴포넌트를 요청 시점 API(`params`, `searchParams`, `connection()`) 없이 호출하면 빌드 때 실행되어 정적 셸에 들어간다(= 빌드 중 백엔드 호출). 반드시 요청 시점 API를 거친 뒤 호출한다.
 - **관리자 페이지**: 클라이언트 컴포넌트, 브라우저에서 `/api/v1` 직접 호출.
 - `proxy.ts`의 쿠키 체크는 화면 이동 편의용이다. **실제 권한 검증은 Spring Security가 담당한다.**
-- 관리자가 글을 저장·수정·삭제해도 공개 페이지는 최대 60초 후 반영된다. 즉시 반영(on-demand revalidate)은 M5 이후 검토한다.
+- 관리자가 글을 저장·수정·삭제해도 공개 페이지는 데이터 캐시 주기에 따라 최대 60초 후 반영된다(본문이 바뀌면 `MarkdownRenderer`의 캐시 키도 바뀐다). 즉시 반영(on-demand revalidate)은 M5 이후 검토한다.
 
 ### 빌드 시 API 의존 제거
 CI에서 프론트 이미지를 빌드할 때는 백엔드가 없다. `next build`가 데이터 fetch를 하는 페이지를 미리 렌더링하면 빌드가 실패한다.
-- 데이터를 가져오는 페이지(홈, 목록, 상세, sitemap, RSS)는 **빌드 시점에 프리렌더링하지 않고** 요청 시 렌더링하며, 가져온 데이터는 첫 요청 뒤 캐시된다 (Cache Components 모드에서는 요청 시점 데이터를 `Suspense` 안에서 읽는다).
+- 데이터를 가져오는 페이지(홈, 목록, 상세, sitemap, RSS)는 **빌드 시점에 프리렌더링하지 않고** 요청 시 렌더링한다 (캐시 기준은 '렌더링 전략'. Cache Components 모드에서는 요청 시점 데이터를 `Suspense` 안에서 읽는다).
 - `generateStaticParams`는 사용하지 않는다.
 - `next.config`에 `output: 'standalone'`을 설정해 Docker 이미지를 경량화한다.
 
@@ -767,7 +769,7 @@ CI에서 프론트 이미지를 빌드할 때는 백엔드가 없다. `next buil
 - 표시 항목: 제목(`h1`), 카테고리 이름(있을 때, 텍스트만)과 발행일(`formatDate`)을 `PostCard`와 같은 형식으로, 본문(`MarkdownRenderer`).
   - 요약·썸네일·태그·수정일은 표시하지 않는다. 요약은 목록과 M5의 OG 설명용이고, 썸네일·태그는 목록 페이지와 같은 이유다.
   - 글별 `<title>`·OG 태그(`generateMetadata`)는 M5에서 추가한다. Giscus도 M5.
-- 캐시: 목록 페이지처럼 정적 셸 + 본문 스트리밍으로 응답하고 페이지 전체는 캐시되지 않는다('렌더링 전략'). 데이터는 `getPost`가, Markdown 렌더링 결과는 `MarkdownRenderer`의 컴포넌트 단위 캐시가 맡아, 같은 글을 다시 요청해도 백엔드 호출과 Shiki 하이라이팅이 다시 일어나지 않는다 ('Markdown 렌더링').
+- 캐시: 기준은 '렌더링 전략'. 같은 글을 다시 요청하면 `getPost`와 `MarkdownRenderer`의 캐시로 백엔드 호출과 Shiki 하이라이팅이 다시 일어나지 않는다.
 - not-found 화면: `app/(public)/not-found.tsx`를 둔다. 공개 페이지에서 부른 `notFound()`(상세의 없는 글, 목록의 잘못된 `page`)가 블로그 헤더 안에서 "페이지를 찾을 수 없습니다." 문구와 `/` 링크로 표시된다.
   - 어느 경로에도 맞지 않는 URL(`/foo`)은 루트 `app/not-found.tsx`가 맡는데, 루트 레이아웃만 거쳐 헤더가 없다. M5의 not-found 페이지 작업에서 함께 정하고, 그 전까지는 Next 기본 404 화면을 쓴다.
 
@@ -785,7 +787,7 @@ CI에서 프론트 이미지를 빌드할 때는 백엔드가 없다. `next buil
   - `max-w-none`으로 `prose`의 기본 최대 너비(65ch)를 끄고, 본문 너비는 호출하는 페이지의 레이아웃이 정한다.
 - 이미지·링크는 기본 `<img>`, `<a>`로 둔다. `next/image` 변환, 외부 링크 새 탭 열기, 제목 앵커 링크·목차는 필요해지면 검토한다 (`rehype-slug`의 `id`가 그 기반이다).
 - 확인용 데이터: `LocalDataInitializer`의 시드 글에 raw HTML(`<script>`, `<img onerror>`)과 `javascript:` 링크, 언어 없는·모르는 언어 코드 블록을 넣어, 로컬에서 표·체크리스트·하이라이팅과 함께 안전하게 표시되는지 본다.
-- 캐시: `MarkdownRenderer`에 `'use cache'` + `cacheLife('max')`를 둔다.
+- 캐시(`'use cache'` + `cacheLife('max')`, 정의는 '렌더링 전략')를 두는 이유
   - 상세 페이지는 매 요청 렌더링되므로('렌더링 전략'), 캐시하지 않으면 요청마다 Shiki가 실행된다. 또 Shiki는 토큰화할 때 `Date.now()`를 불러, 캐시 밖에서 실행되면 Next가 요청마다 `encountered the unstable value Date.now()` 로그를 남긴다. `connection()`으로 요청 시점 렌더링을 확정하면 로그는 없어지지만 요청마다 Shiki가 실행된다.
   - 결과가 인자 `content`에만 달려 있고 인자가 캐시 키가 되므로, 글을 고치면 새 키가 된다. 같은 본문을 다시 하이라이팅할 이유가 없어 가장 긴 프로필(`max`)을 쓴다. 글 수정 반영 주기는 `getPost`의 60초가 정한다.
 - `MarkdownRenderer`는 async 서버 컴포넌트라 단위 테스트하지 않는다. 렌더링 결과는 글 상세 페이지에서 시드 글로 확인한다.
@@ -941,5 +943,5 @@ main 머지 (deploy.yml)
   - Markdown 렌더링: 서버 컴포넌트 `MarkdownAsync`, Shiki 라이트·다크 테마와 언어 지연 로딩·대체 언어, raw HTML 기본 이스케이프 유지, `@tailwindcss/typography`(렌더러가 `prose` 요소로 감쌈), 시드 글로 확인 (1장, 11장)
 
 - **v2.10**
-  - 글 상세 페이지: API 호출 전 `isValidSlug`(6장 slug 규칙)로 걸러 `notFound()`, 404는 `getPost`가 `null`로 바꿔 `notFound()`(`'use cache'` 경계에서 `ApiError`가 일반 `Error`가 되므로), 표시 항목, 요청마다 Shiki가 실행되지 않게 `MarkdownRenderer`에 `'use cache'` + `cacheLife('max')`, `(public)/not-found.tsx`(루트 not-found는 M5) (11장)
-  - 공개 페이지는 페이지 전체가 아니라 데이터·Markdown 렌더링 결과를 캐시하고, 응답은 정적 셸 + 본문 스트리밍 (ISR 업그레이드는 `generateStaticParams`를 쓰지 않아 적용되지 않음). 1장·8-1·11장의 "ISR" 표현을 "데이터 캐시"로 정리 (1장, 8-1, 11장)
+  - 글 상세 페이지: API 호출 전 `isValidSlug`(6장 slug 규칙)로 걸러 `notFound()`, 404는 `getPost`가 `null`로 바꿔 `notFound()`(`'use cache'` 경계에서 `ApiError`가 일반 `Error`가 되므로), 표시 항목, `(public)/not-found.tsx`(루트 not-found는 M5) (11장)
+  - 공개 페이지 캐시 기준을 '렌더링 전략' 한 곳에 정리: 데이터 함수(60초)와 `MarkdownRenderer`(`cacheLife('max')`)만 캐시하고 페이지 전체는 캐시하지 않음(정적 셸 + 본문 스트리밍, `generateStaticParams`를 쓰지 않아 ISR 업그레이드 미적용). 다른 곳은 이를 가리키도록 정리 (1장, 8-1, 11장)
