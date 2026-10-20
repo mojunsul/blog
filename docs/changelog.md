@@ -85,3 +85,10 @@
   - 로그아웃은 인증 없이 허용(CSRF는 검사), 쿠키가 없거나 무효여도 `204`와 만료 쿠키, 쿠키 값에 해당하는 행만 삭제. 재발급·로그아웃 경로를 Security 규칙에 추가 (8-3, 10-1, 10-3, 10-5)
   - 만료 정리: 매일 04:00 KST `@Scheduled` (`RefreshTokenCleaner`, `SchedulingConfig`) (6장, 10-6)
   - 만료는 `expires_at <= now`로 한 번 정의해 재발급·재사용 판정·정리가 따름, `refresh_token` 쿠키가 여러 개면 첫 값(재발급·로그아웃 공통, Path 제약 포함), `RefreshTokenCleaner`는 `domain/auth/scheduler`, 5장 구조도에 `SchedulingConfig`·Cleaner·V2 마이그레이션 반영 (5장, 8-3, 10-6)
+
+- **v2.18**
+  - 관리자 카테고리 생성·수정·삭제 API 명세: 요청 검증(name 앞뒤 공백 제거 후 1~50자, slug 6장 패턴·100자), 이름 중복 허용, 생성·수정 응답 `AdminCategoryResponse(id, name, slug)`, 경로 `id` 형식 오류 `400`, 검사 순서(`400` → `404` → `409`) (6장, 8-4)
+  - slug 중복은 확인 쿼리 없이 DB 유니크 제약 위반을 서비스 안에서 flush로 잡아 `DUPLICATE_SLUG`로 변환 (8-4)
+  - 삭제는 `@Modifying` JPQL 벌크 삭제의 행 수로 `404`를 판정하고 글의 `category_id`는 FK `ON DELETE SET NULL`에 맡김, 영속성 컨텍스트 어긋남 방지 규칙 (8-4)
+  - 카테고리 관리자 행위 로그는 `id`·`slug`만 남기고 `name`은 제외, 5장 구조도에 category 패키지 구성 반영 (5장, 8-4)
+  - 설계 검증 반영: slug 필수 `@NotBlank`, name 제어 문자(NUL 포함) 금지 `400`, 앞뒤 공백은 `strip()`(전각 공백 제거, NBSP는 받아들임), 수정·삭제 경쟁의 `ObjectOptimisticLockingFailureException`은 `404`, 숫자·불리언·배열·객체 필드 값의 결과 명시 (8-4)

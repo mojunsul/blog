@@ -3,7 +3,9 @@ package io.github.mojunsul.blog.domain.category.repository;
 import java.util.List;
 
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 
 import io.github.mojunsul.blog.domain.category.dto.CategoryResponse;
 import io.github.mojunsul.blog.domain.category.entity.Category;
@@ -19,4 +21,11 @@ public interface CategoryRepository extends JpaRepository<Category, Long> {
 		order by c.name asc, c.id asc
 		""")
 	List<CategoryResponse> findAllWithPublishedPostCount();
+
+	// 글의 category_id는 DB FK(ON DELETE SET NULL)가 처리한다. 지운 행 수로 존재 여부를 판정한다.
+	@Modifying
+	@Query("delete from Category c where c.id = :id")
+	int deleteByIdReturningCount(
+		@Param("id")
+		Long id);
 }

@@ -227,10 +227,56 @@ Location: /api/v1/admin/posts/12
 #### DELETE `/api/v1/admin/posts/{id}`
 - `204`. 없는 글: `404`.
 
-#### 카테고리 생성·수정 요청
+#### POST `/api/v1/admin/categories`
+요청 (`CategoryRequest` record, `@Valid @RequestBody`)
 ```json
 { "name": "Backend", "slug": "backend" }
 ```
+`201 Created`
+```
+Location: /api/v1/admin/categories/1
+```
+```json
+{ "id": 1, "name": "Backend", "slug": "backend" }
+```
+- 응답 DTO는 생성·수정 공통 `AdminCategoryResponse(id, name, slug)`. 글 개수를 세는 `CategoryResponse`(8-1)와 달리 `postCount`가 없다: 방금 만든·고친 카테고리라 프론트가 목록을 다시 불러 갱신한다 (관리자용 목록 API를 따로 두지 않는다, 8-1).
+- `Location`은 단건 조회가 없는 리소스(`GET /admin/categories/{id}`는 두지 않는다)의 식별용이다. 7장 `201` 규칙을 따른다.
+- 이름은 중복을 허용한다 (`name`에 유니크 제약이 없다, 6장). 식별은 `slug`로 하고 `name`은 표시용이다.
+- slug 중복: `409` (`DUPLICATE_SLUG`).
 
----
+**검증 규칙** (글 작성의 규칙 표와 같은 방식, 검증 실패는 `400` `INVALID_INPUT`, `errors`에 필드별 사유)
+| 필드 | 규칙 | 어기면 |
+|---|---|---|
+| name | 필수(`null`·빈 값·공백만 있는 값 거절, `@NotBlank`), 앞뒤 공백을 제거한 값 기준 1~50자, 제어 문자 금지(`@Pattern(regexp = "^\\P{Cc}+$")`, 유니코드 `Cc`: U+0000~001F, U+007F~009F) | `400` |
+| slug | 필수(`null`·빈 값·공백만 있는 값 거절, `@NotBlank`), 6장 slug 규칙(`@Pattern`), 최대 100자(`@Size(max = 100)`, `category.slug` 컬럼) | `400` |
 
+- name의 앞뒤 공백은 `CategoryRequest` 생성자에서 `String.strip()`으로 제거해, 검증·저장·응답이 모두 제거된 값을 쓴다 (`" Backend "`는 `"Backend"`). `strip()`과 `@NotBlank`는 둘 다 `Character.isWhitespace` 기준이라(5장 관리자 username과 같다) 전각 공백(U+3000)·탭·줄바꿈은 제거되고, 그것만 있는 값은 빈 값이 되어 `400`이다. NBSP(U+00A0)는 `isWhitespace`가 공백으로 보지 않아 제거도 거절도 하지 않는다 (받아들인다: 관리자 1명의 입력이고 표시만 어색할 뿐이다). 안쪽 공백은 그대로 둔다.
+- 제어 문자(NUL 포함)가 안쪽에 있는 name은 `400`이다. PostgreSQL이 NUL을 거절해 `DataIntegrityViolationException`이 되면 `409 DUPLICATE_SLUG`로 잘못 나가므로 검증에서 막는다. 제거 대상인 앞뒤의 줄바꿈·탭은 위 `strip()`이 먼저 지운다. 길이는 Java 문자(UTF-16) 수로 세어, 컬럼 길이(코드 포인트 수)를 넘는 값이 검증을 통과하지 않는다.
+- slug는 공백을 제거하지 않는다. 앞뒤 공백·대문자·밑줄·연속 하이픈은 패턴 위반으로 `400`이다 (글 slug와 같다).
+- 한 필드가 여러 규칙을 어기면(`"slug": ""`는 필수와 패턴) `errors`에 같은 `field`로 항목이 여러 개 나올 수 있다. 순서는 정하지 않는다.
+- 본문이 없거나 JSON 파싱에 실패하면 `400` `INVALID_INPUT` (`errors` `[]`), JSON이 아닌 `Content-Type`은 Spring 기본 `415`, 같은 키가 여러 개면 마지막 값, 알 수 없는 필드는 무시한다 (모두 로그인 요청과 같다, 8-3). 필드가 `null`이거나 없으면 필수 위반 `400`이다.
+  - 필드 값이 배열·객체면 `400` `INVALID_INPUT` (`errors` `[]`), 숫자·불리언은 Jackson 기본 변환으로 문자열이 된 뒤 위 규칙을 받는다 (`"slug": 1`은 `"1"`이라 통과, `"name": true`는 `"true"`). 같은 키·변환·배열·객체 동작은 Controller 테스트로 고정한다 (프레임워크 업그레이드로 바뀌면 드러나게, 8-3).
+
+#### PUT `/api/v1/admin/categories/{id}`
+- 본문은 생성과 같다 (전체 교체). `200` + 수정된 `AdminCategoryResponse`.
+- 자기 자신과 같은 slug로 보내는 것은 중복이 아니다 (이름만 바꾸는 경우). 다른 카테고리가 쓰는 slug면 `409` (`DUPLICATE_SLUG`).
+- slug를 바꾸면 기존 slug는 곧바로 쓸 수 없다 (리다이렉트·이전 slug 보관 없음). 글은 `category_id`로 연결되어 있어 글의 연결은 유지된다. `/categories/{slug}` 같은 기존 링크는 `404`가 되는 것을 받아들인다 (개인 블로그, 외부 링크가 거의 없다).
+- 없는 `id`: `404` (`CATEGORY_NOT_FOUND`).
+
+#### DELETE `/api/v1/admin/categories/{id}`
+- `204`. 없는 `id`: `404` (`CATEGORY_NOT_FOUND`). 같은 `id`를 두 번 지우면 두 번째는 `404`다 (글 삭제와 같다).
+- 그 카테고리의 글(DRAFT 포함)은 지워지지 않고 `category_id`만 `NULL`이 된다 (6장 FK `ON DELETE SET NULL`). 공개 API는 `"category": null`로 응답한다 (8-1).
+
+**공통 (카테고리 생성·수정·삭제)**
+- 경로의 `id`가 Long으로 읽히지 않으면(`abc`, 범위 초과) `400` `INVALID_INPUT` (`errors` `[]`). Long으로 읽히면 그 값으로 조회하고, 없으면(`0`, 음수 포함) `404`다.
+- 검사 순서: 인증·CSRF(`401`·`403`) → 경로·본문 형식과 검증(`400`) → 존재(`404`) → slug 중복(`409`). 그래서 없는 `id`에 잘못된 본문을 보내면 `400`이고, 없는 `id`에 중복 slug를 보내면 `404`다.
+- **slug 중복 판정은 DB 유니크 제약(`category.slug`)에 맡긴다.** 서비스가 먼저 `exists`로 확인하면 확인과 저장 사이에 같은 slug가 들어올 수 있어 어차피 제약 위반을 따로 처리해야 하므로, 확인 쿼리 없이 저장 시점의 제약 위반만 `DUPLICATE_SLUG`로 바꾼다. `category`에는 유니크 외에 위반할 수 있는 제약이 없다고 본다: NOT NULL·길이는 앞선 검증이 막고, PostgreSQL이 거절하는 NUL은 name 검증(제어 문자 금지)이 막는다.
+  - 제약 위반은 INSERT·UPDATE 시점에 나와야 서비스 안에서 잡을 수 있으므로 `saveAndFlush`(생성)와 수정 뒤 `flush`(수정)를 서비스 안에서 호출한다. 수정을 변경 감지에만 맡기면 위반이 트랜잭션 커밋 때 서비스 밖에서 나와 `500`이 된다.
+  - 수정의 flush에서 `ObjectOptimisticLockingFailureException`(UPDATE가 0행: `findById` 뒤 flush 전에 다른 요청이 그 카테고리를 지움)이 나오면 `404` (`CATEGORY_NOT_FOUND`)로 바꾼다. 삭제를 행 수로 판정하는 것과 같은 원칙이다(아래).
+  - 잡는 예외는 `DataIntegrityViolationException`이다. 관리자가 1명이라 실제 경쟁은 이중 클릭 정도지만, 같은 경로로 순차 중복도 처리되므로 분기가 하나다.
+- **삭제는 DB FK에 맡기고, 삭제 쿼리는 `@Modifying` JPQL 한 문장(`delete from Category c where c.id = :id`)이 지운 행 수를 돌려준다.** 0이면 `404`다.
+  - JPA가 글의 `category`를 NULL로 바꾸려면 글을 모두 읽어 와야 하고(글이 많으면 N건 UPDATE), 읽어 온 `Post`와 DB 값이 어긋날 수 있다. FK `ON DELETE SET NULL`은 DB가 같은 문장 안에서 처리한다.
+  - 벌크 삭제는 영속성 컨텍스트를 거치지 않으므로, 같은 트랜잭션에서 이미 읽은 `Post`는 옛 `category`를 들고 있다. 삭제 서비스 메서드는 글을 읽지 않고 하나의 문장만 실행하므로 어긋날 곳이 없다. 이 메서드에서 글을 읽는 코드를 추가하지 않는다.
+  - `findById` 후 `delete`로 하지 않는 이유: 조회와 삭제 사이에 다른 요청이 먼저 지우면 삭제가 0행이라 Hibernate가 예외를 던지고 `500`이 된다. 지운 행 수로 판정하면 이 경우도 `404`다.
+- **관리자 행위 로그** (5장): 성공한 뒤에만 서비스가 `INFO`로 남긴다. 생성·수정은 `id`와 `slug`, 삭제는 `id`만 넣는다. `name`은 사용자 입력이라 줄바꿈으로 로그 줄을 위조할 수 있어 넣지 않는다(5장 로그인 실패 로그와 같은 이유). slug는 패턴 검증을 통과한 값이다. 실패(`404`·`409`)는 `GlobalExceptionHandler`의 `WARN`이 기록이다.
+- 공개 목록(`GET /api/v1/categories`)은 변경 즉시 바뀐 DB 값을 돌려준다. 프론트의 캐시 무효화는 관리자 화면 이슈에서 다룬다.
