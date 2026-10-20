@@ -5,7 +5,7 @@ import java.util.List;
 
 import org.springframework.http.ProblemDetail;
 
-/** 9장 형식(ProblemDetail + {@code code}, {@code errors})의 응답 본문을 만든다. */
+/** 컨트롤러 응답과 Security 필터 응답의 형식이 갈라지지 않게 한 곳에서 만든다. */
 public final class ProblemDetailFactory {
 
 	public record FieldError(String field, String reason) {
