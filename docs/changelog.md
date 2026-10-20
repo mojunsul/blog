@@ -91,3 +91,4 @@
   - slug 중복은 확인 쿼리 없이 DB 유니크 제약 위반을 서비스 안에서 flush로 잡아 `DUPLICATE_SLUG`로 변환 (8-4)
   - 삭제는 `@Modifying` JPQL 벌크 삭제의 행 수로 `404`를 판정하고 글의 `category_id`는 FK `ON DELETE SET NULL`에 맡김, 영속성 컨텍스트 어긋남 방지 규칙 (8-4)
   - 카테고리 관리자 행위 로그는 `id`·`slug`만 남기고 `name`은 제외, 5장 구조도에 category 패키지 구성 반영 (5장, 8-4)
+  - 설계 검증 반영: slug 필수 `@NotBlank`, name 제어 문자(NUL 포함) 금지 `400`, 앞뒤 공백은 `strip()`(전각 공백 제거, NBSP는 받아들임), 수정·삭제 경쟁의 `ObjectOptimisticLockingFailureException`은 `404`, 숫자·불리언·배열·객체 필드 값의 결과 명시 (8-4)
