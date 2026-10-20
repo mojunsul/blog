@@ -111,4 +111,69 @@ class PostRepositoryTest extends RepositoryTestSupport {
 		assertThatThrownBy(() -> postRepository.saveAndFlush(PostFixture.draft("same-slug")))
 			.isInstanceOf(DataIntegrityViolationException.class);
 	}
+
+	@Test
+	void 관리자_목록은_상태와_관계없이_id_내림차순으로_조회한다() {
+		// given
+		postRepository.save(PostFixture.published("first", Instant.parse("2026-10-13T01:00:00Z")));
+		postRepository.save(PostFixture.draft("second"));
+		postRepository.save(PostFixture.published("third", Instant.parse("2026-10-12T01:00:00Z")));
+
+		// when
+		Page<Post> page = postRepository.findAllByOrderByIdDesc(PageRequest.of(0, 10));
+
+		// then
+		assertThat(page.getContent()).extracting(Post::getSlug).containsExactly("third", "second", "first");
+	}
+
+	@Test
+	void 관리자_목록을_상태로_조회하면_그_상태의_글만_id_내림차순으로_나온다() {
+		// given
+		postRepository.save(PostFixture.draft("draft-first"));
+		postRepository.save(PostFixture.published("published", Instant.parse("2026-10-13T01:00:00Z")));
+		postRepository.save(PostFixture.draft("draft-second"));
+
+		// when
+		Page<Post> page = postRepository.findAllByStatusOrderByIdDesc(PostStatus.DRAFT, PageRequest.of(0, 10));
+
+		// then
+		assertThat(page.getContent()).extracting(Post::getSlug).containsExactly("draft-second", "draft-first");
+	}
+
+	@Test
+	void 관리자_목록을_조회하면_카테고리가_함께_로딩된다() {
+		// given
+		Category category = categoryRepository.save(CategoryFixture.category("backend"));
+		postRepository.save(PostFixture.draft("draft", category));
+		em.flush();
+		em.clear();
+
+		// when
+		Post found = postRepository.findAllByOrderByIdDesc(PageRequest.of(0, 10)).getContent().get(0);
+
+		// then
+		assertThat(em.getEntityManagerFactory().getPersistenceUnitUtil().isLoaded(found.getCategory())).isTrue();
+	}
+
+	@Test
+	void id로_조회하면_DRAFT와_PUBLISHED_글이_모두_카테고리와_함께_나온다() {
+		// given
+		Category category = categoryRepository.save(CategoryFixture.category("backend"));
+		Long draftId = postRepository.save(PostFixture.draft("draft", category)).getId();
+		Long publishedId = postRepository
+			.save(PostFixture.published("published", Instant.parse("2026-10-13T01:00:00Z"), category))
+			.getId();
+		em.flush();
+		em.clear();
+
+		// when
+		Post draft = postRepository.findWithCategoryById(draftId).orElseThrow();
+		Post published = postRepository.findWithCategoryById(publishedId).orElseThrow();
+
+		// then
+		assertThat(draft.getStatus()).isEqualTo(PostStatus.DRAFT);
+		assertThat(published.getStatus()).isEqualTo(PostStatus.PUBLISHED);
+		assertThat(em.getEntityManagerFactory().getPersistenceUnitUtil().isLoaded(draft.getCategory())).isTrue();
+		assertThat(em.getEntityManagerFactory().getPersistenceUnitUtil().isLoaded(published.getCategory())).isTrue();
+	}
 }
