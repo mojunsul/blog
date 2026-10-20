@@ -710,7 +710,7 @@ Spring의 `ProblemDetail`을 사용하고, 확장 필드로 `code`, `errors`를 
   - `XSRF-TOKEN` 쿠키: HttpOnly 아님, `Path=/`, `SameSite=Lax`, `Secure`는 요청이 HTTPS인지(`request.isSecure()`)를 따른다. 운영은 Nginx 뒤에서 `forward-headers-strategy: framework`로 HTTPS가 되어 `Secure`가 붙고, local(http)은 붙지 않아 프로필 설정이 필요 없다.
   - 토큰 로딩: `csrf.spa()`의 요청 처리기는 모든 요청에서 토큰을 미리 불러온다(Spring Security 7.1.1 `SpaCsrfTokenRequestHandler`, SPA가 언제든 쿠키를 읽을 수 있게 하려는 설계). 그래서 쿠키가 없는 요청이면 CSRF 필터를 지나는 모든 응답(공개 GET, health, 401·403 포함)에 `Set-Cookie: XSRF-TOKEN`이 붙는다. 방화벽·Tomcat에서 거절된 요청은 CSRF 필터 전이라 붙지 않는다.
     - 이를 받아들인다. 세션을 쓰지 않아 서버 상태가 생기지 않고, 공개 API는 Next 서버 컴포넌트가 서버 간 호출로 부르므로 브라우저에 쿠키가 쌓이지 않는다(서버 측 `fetch`는 `Set-Cookie`를 저장하지 않는다). 막으려면 `spa()` 대신 요청 처리기를 직접 조립해야 해 코드가 늘고 Spring 권장 설정에서 벗어난다.
-  - `GET /api/v1/auth/csrf`(`AuthController`)는 `CsrfToken`을 인자로 받고 `204`로 응답한다. 위 미리 불러오기로 쿠키는 이미 정해지지만, 인자로 받아 이 진입점이 `spa()` 동작에 기대지 않고도 토큰을 만들게 한다. 진입점을 두는 이유는 8-3.
+  - `GET /api/v1/auth/csrf`(`AuthController`)는 `CsrfToken`을 인자로 받아 `getToken()`을 호출해 토큰을 확정하고 `204`로 응답한다. 인자로 받은 `CsrfToken`은 지연 객체라 받기만 해서는 토큰이 만들어지지 않고, 값을 읽을 때 만들어져 쿠키로 저장된다. 위 미리 불러오기로 쿠키는 이미 정해지지만, `getToken()`을 직접 불러 이 진입점이 `spa()` 동작에 기대지 않게 한다. 진입점을 두는 이유는 8-3.
   - 검사 대상: GET·HEAD·OPTIONS·TRACE를 뺀 모든 요청 (Spring 기본값). 조회수 API 제외(10-2)는 M6에서 추가한다.
 - 오류 응답 (Tomcat 거절 행을 빼고 모두 `application/problem+json`, 9장 형식, `instance`는 요청 경로)
   | 상황 | 응답 |
@@ -1035,7 +1035,7 @@ main 머지 (deploy.yml)
 - **v2.12**
   - `csrf.spa()`는 Spring Security 7.0부터 (10-2)
   - Security 필터 설정: 세션 없음, 경로 규칙(Swagger `/swagger-ui.html`, `/error` 허용), `csrf.spa()` + SameSite 쿠키 저장소, 401·403 오류 응답 구분(CSRF는 `INVALID_CSRF_TOKEN`), 방화벽 거절은 `400` `INVALID_INPUT`·Tomcat이 먼저 거절하는 `%2F`는 Tomcat 기본 `400`(8-1 slug 404의 예외), Security 401·403·방화벽 400은 로그 없음 (5장, 8-1, 9장, 10-5)
-  - `GET /api/v1/auth/csrf`: `204`, 쿠키가 없을 때만 `XSRF-TOKEN` 발급, 명시적 진입점으로 두는 이유 (7장, 8-3)
+  - `GET /api/v1/auth/csrf`: `204`, 쿠키가 없을 때만 `XSRF-TOKEN` 발급, 명시적 진입점으로 두는 이유, 컨트롤러가 `CsrfToken.getToken()`으로 토큰 확정 (7장, 8-3, 10-5)
   - `csrf.spa()`는 모든 요청에서 토큰을 미리 불러와 쿠키 없는 요청의 응답마다 `XSRF-TOKEN`이 붙는 것을 받아들임 (10-5)
   - `XSRF-TOKEN` 쿠키 속성(`Path=/`, HTTPS 요청일 때만 `Secure`)과 CSRF 검사 제외 메서드를 10-5에 맞춤, `Secure` 프로필 설정은 access·refresh 쿠키만(#69) (10-1, 10-2)
   - ProblemDetail 생성 코드를 `ProblemDetailFactory`·`ProblemDetailResponseWriter`(`global/exception`)로 공유, 직렬화는 Boot `JsonMapper` 빈, `/error`(ERROR 디스패치)는 Boot 기본 형식 (5장, 9장)
