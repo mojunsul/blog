@@ -133,7 +133,7 @@ class SecurityConfigTest extends IntegrationTestSupport {
 	@Test
 	void HTTPS_요청이면_csrf_쿠키에_Secure가_붙는다() throws Exception {
 		// when & then
-		mockMvc.perform(get("/api/v1/auth/csrf").secure(true))
+		mockMvc.perform(get("/api/v1/auth/csrf").header("X-Forwarded-Proto", "https"))
 			.andExpect(header().string("Set-Cookie", containsString("Secure")));
 	}
 }
