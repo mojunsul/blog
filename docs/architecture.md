@@ -705,7 +705,7 @@ frontend/src/
 ### 렌더링 전략
 - **공개 페이지**: 서버 컴포넌트 + ISR (`revalidate: 60`).
   - `next.config.ts`에 `cacheComponents: true`가 켜져 있다 (create-next-app 기본값). 이 모드에서는 `export const revalidate`와 `fetch`의 `next.revalidate`로 ISR을 지정하지 않고, 데이터 함수에 `'use cache'` + `cacheLife({ revalidate: 60 })`를 쓴다. 구현 전 `node_modules/next/dist/docs/`의 caching 문서를 확인한다.
-  - `'use cache'`와 `cacheLife`는 `lib/api/posts.ts` 같은 데이터 함수에 둔다. `server.ts`에는 캐시를 넣지 않는다.
+  - `'use cache'`와 `cacheLife`는 `lib/api/posts.ts` 같은 데이터 함수에 둔다. `server.ts`에는 캐시를 넣지 않는다. 컴포넌트 단위 캐시는 `MarkdownRenderer`에만 둔다 ('Markdown 렌더링').
   - `'use cache'` 함수를 요청 시점 API(`params`, `searchParams`, `connection()`) 없이 호출하면 빌드 때 실행되어 정적 셸에 들어간다(= 빌드 중 백엔드 호출). 데이터 함수는 반드시 요청 시점 API를 거친 뒤 호출한다.
 - **관리자 페이지**: 클라이언트 컴포넌트, 브라우저에서 `/api/v1` 직접 호출.
 - `proxy.ts`의 쿠키 체크는 화면 이동 편의용이다. **실제 권한 검증은 Spring Security가 담당한다.**
@@ -730,6 +730,7 @@ CI에서 프론트 이미지를 빌드할 때는 백엔드가 없다. `next buil
 - 2xx가 아닌 응답은 `ApiError`(`status`, `code`, `detail`, `errors`)로 바꾼다. 본문이 ProblemDetail이면 파싱하고, 아니면(Nginx 502 HTML 등) `code: null`과 일반 메시지를 넣는다.
 - 네트워크 오류(백엔드 다운 등)는 감싸지 않고 그대로 던져 Next 오류 화면으로 보낸다.
 - 페이지에서 `ApiError`의 `status === 404`면 `notFound()`를 호출한다.
+  - 단, `'use cache'` 함수 안에서 던진 오류는 캐시 경계를 넘으며 일반 `Error`가 되어 `instanceof ApiError`와 `status`를 잃는다. 그래서 캐시하는 단건 조회 함수(`getPost`)는 404를 함수 안에서 `null`로 바꿔 돌려주고, 페이지는 `null`이면 `notFound()`를 호출한다. 그 외 오류는 그대로 던진다 (오류 화면으로 가므로 `status`가 없어도 된다).
 
 ### 날짜 표시
 - KST `YYYY.MM.DD` (`2026.10.11`). 내장 `Intl.DateTimeFormat('ko-KR', { timeZone: 'Asia/Seoul', year: 'numeric', month: '2-digit', day: '2-digit' })`의 `formatToParts`로 조립한다 (`timeZone`을 명시해 서버 시간대와 무관하게 동작).
@@ -759,13 +760,13 @@ CI에서 프론트 이미지를 빌드할 때는 백엔드가 없다. `next buil
   - `/posts/..`·`/posts/%2E%2E`는 브라우저가 요청 전에 `/`로 정규화하므로 상세 페이지에 오지 않는다(목록 페이지가 열린다). 검사는 값이 어떤 경로로 들어왔는지와 무관하게 `params`에 온 값에 적용한다.
   - 8-1의 "형식이 다른 slug는 404"와 결과가 같다 (API는 형식을 검사하지 않고, 프론트는 호출 전에 걸러 같은 not-found를 보여 준다). Next가 `params`의 `%2F`·`%2E`를 디코딩하든 안 하든 `%`·`/`·`.`은 규칙에 맞지 않으므로 결과가 같다.
   - 관리자 폼의 Zod 스키마(M2)도 이 함수의 패턴을 함께 쓴다.
-- `ApiError`의 `status === 404`(없는 글, DRAFT)면 `notFound()`. 그 외 오류는 그대로 던진다.
+- `getPost`는 404(없는 글, DRAFT)면 `null`을 돌려주고('에러 처리'), 페이지는 `null`이면 `notFound()`. 그 외 오류는 그대로 던진다.
   - 목록 페이지와 같은 이유로 상태 코드는 `200`으로 남고 `noindex`가 붙는다.
 - 표시 항목: 제목(`h1`), 카테고리 이름(있을 때, 텍스트만)과 발행일(`formatDate`)을 `PostCard`와 같은 형식으로, 본문(`MarkdownRenderer`).
   - 요약·썸네일·태그·수정일은 표시하지 않는다. 요약은 목록과 M5의 OG 설명용이고, 썸네일·태그는 목록 페이지와 같은 이유다.
   - 글별 `<title>`·OG 태그(`generateMetadata`)는 M5에서 추가한다. Giscus도 M5.
-- 캐시: 컴포넌트 단위 `'use cache'`(UI-level)는 두지 않는다. Partial Prefetching이 켜져 있어, 처음 방문한 `slug`는 렌더링이 끝난 페이지가 ISR 캐시에 저장되고, 이후 요청은 `getPost`의 `cacheLife`(60초)가 지날 때까지 다시 렌더링하지 않는다. 그래서 Shiki 하이라이팅은 요청마다가 아니라 글별로 재검증 때만 실행된다.
-  - 운영에서 상세 페이지 응답이 느리면 그때 측정하고 다시 검토한다.
+- 캐시: Partial Prefetching이 켜져 있어, 처음 방문한 `slug`는 백그라운드에서 다시 렌더링(업그레이드)되어 완성된 페이지가 ISR 캐시에 저장된다. 그러려면 렌더링 중 쓰는 데이터와 계산이 모두 캐시돼 있어야 한다.
+  - Shiki는 토큰화할 때 `Date.now()`를 불러, 캐시되지 않은 상태로 실행되면 업그레이드가 실패하고(`encountered the unstable value Date.now()` 로그) 요청마다 다시 렌더링된다. 그래서 `MarkdownRenderer`에 컴포넌트 단위 캐시를 둔다 ('Markdown 렌더링').
 - not-found 화면: `app/(public)/not-found.tsx`를 둔다. 공개 페이지에서 부른 `notFound()`(상세의 없는 글, 목록의 잘못된 `page`)가 블로그 헤더 안에서 "페이지를 찾을 수 없습니다." 문구와 `/` 링크로 표시된다.
   - 어느 경로에도 맞지 않는 URL(`/foo`)은 루트 `app/not-found.tsx`가 맡는데, 루트 레이아웃만 거쳐 헤더가 없다. M5의 not-found 페이지 작업에서 함께 정하고, 그 전까지는 Next 기본 404 화면을 쓴다.
 
@@ -783,6 +784,9 @@ CI에서 프론트 이미지를 빌드할 때는 백엔드가 없다. `next buil
   - `max-w-none`으로 `prose`의 기본 최대 너비(65ch)를 끄고, 본문 너비는 호출하는 페이지의 레이아웃이 정한다.
 - 이미지·링크는 기본 `<img>`, `<a>`로 둔다. `next/image` 변환, 외부 링크 새 탭 열기, 제목 앵커 링크·목차는 필요해지면 검토한다 (`rehype-slug`의 `id`가 그 기반이다).
 - 확인용 데이터: `LocalDataInitializer`의 시드 글에 raw HTML(`<script>`, `<img onerror>`)과 `javascript:` 링크, 언어 없는·모르는 언어 코드 블록을 넣어, 로컬에서 표·체크리스트·하이라이팅과 함께 안전하게 표시되는지 본다.
+- 캐시: `MarkdownRenderer`에 `'use cache'` + `cacheLife('max')`를 둔다.
+  - Shiki가 `Date.now()`를 부르므로 캐시하지 않으면 상세 페이지의 ISR 업그레이드가 실패한다('글 상세 페이지'). `connection()`으로 요청 시점 렌더링을 확정하는 방법도 있지만, 그러면 요청마다 Shiki가 실행된다.
+  - 결과가 인자 `content`에만 달려 있고 인자가 캐시 키가 되므로, 글을 고치면 새 키가 된다. 같은 본문을 다시 하이라이팅할 이유가 없어 가장 긴 프로필(`max`)을 쓴다. 글 수정 반영 주기는 `getPost`의 60초가 정한다.
 - `MarkdownRenderer`는 async 서버 컴포넌트라 단위 테스트하지 않는다. 렌더링 결과는 글 상세 페이지에서 시드 글로 확인한다.
 
 ### 프론트엔드 테스트
@@ -936,4 +940,4 @@ main 머지 (deploy.yml)
   - Markdown 렌더링: 서버 컴포넌트 `MarkdownAsync`, Shiki 라이트·다크 테마와 언어 지연 로딩·대체 언어, raw HTML 기본 이스케이프 유지, `@tailwindcss/typography`(렌더러가 `prose` 요소로 감쌈), 시드 글로 확인 (1장, 11장)
 
 - **v2.10**
-  - 글 상세 페이지: API 호출 전 `isValidSlug`(6장 slug 규칙)로 걸러 `notFound()`, 404는 `notFound()`, 표시 항목, UI-level 캐시 없이 ISR로 렌더링 결과 캐시, `(public)/not-found.tsx`(루트 not-found는 M5) (11장)
+  - 글 상세 페이지: API 호출 전 `isValidSlug`(6장 slug 규칙)로 걸러 `notFound()`, 404는 `getPost`가 `null`로 바꿔 `notFound()`(`'use cache'` 경계에서 `ApiError`가 일반 `Error`가 되므로), 표시 항목, ISR 업그레이드를 위해 `MarkdownRenderer`에 `'use cache'` + `cacheLife('max')`(Shiki의 `Date.now()`), `(public)/not-found.tsx`(루트 not-found는 M5) (11장)
