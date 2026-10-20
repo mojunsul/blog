@@ -19,7 +19,8 @@ backend/src/main/java/io/github/mojunsul/blog/
    │  ├ service/      # PostService
    │  ├ repository/   # PostRepository, PostQueryRepository(QueryDSL)
    │  ├ entity/       # Post, PostStatus
-   │  └ dto/          # PostSearchRequest, PostCreateRequest, PostUpdateRequest, PostSummaryResponse, PostDetailResponse ...
+   │  └ dto/          # PostSearchRequest, AdminPostSearchRequest, PostCreateRequest, PostUpdateRequest, PostSummaryResponse, PostDetailResponse,
+   │                  # AdminPostSummaryResponse, AdminPostDetailResponse ...
    ├ category/
    │  ├ controller/   # CategoryController(공개), AdminCategoryController(관리자)
    │  ├ service/      # CategoryService

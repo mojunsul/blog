@@ -209,17 +209,79 @@ Location: /api/v1/admin/posts/12
 | tags | 선택, 최대 10개, 각 1~50자 |
 | status | 필수, `DRAFT` 또는 `PUBLISHED` |
 
+#### GET `/api/v1/admin/posts`
+쿼리 파라미터 (모두 선택): `page`, `size`(7장), `status`(`DRAFT` 또는 `PUBLISHED`)
+
+```
+GET /api/v1/admin/posts?page=0&size=10&status=DRAFT
+```
+`200 OK` — 응답은 `PageResponse<AdminPostSummaryResponse>` (공개 목록과 같은 페이지 형식, 8-1)
+```json
+{
+  "content": [
+    {
+      "id": 13,
+      "title": "작성 중인 글",
+      "slug": "draft-post",
+      "status": "DRAFT",
+      "category": { "name": "Backend", "slug": "backend" },
+      "publishedAt": null,
+      "createdAt": "2026-10-12T09:00:00Z",
+      "updatedAt": "2026-10-12T09:30:00Z"
+    }
+  ],
+  "page": 0,
+  "size": 10,
+  "totalElements": 1,
+  "totalPages": 1,
+  "hasNext": false
+}
+```
+- 요청은 `AdminPostSearchRequest(page, size, status)` record(`@Valid @ModelAttribute`, 5장)로 받는다. `page`·`size` 검증은 공개 목록(`PostSearchRequest`)과 같고, `status`만 다르다. 공개 목록의 요청 record에 `status`를 넣지 않는다: 공개 API가 DRAFT 조회 파라미터를 받는 길을 만들지 않기 위해서다.
+- 공개 목록과 다른 응답 필드: `status`, `createdAt`, `updatedAt`이 있고 `publishedAt`은 DRAFT면 `null`이다. 관리자 목록 화면이 쓰지 않는 `summary`, `thumbnailUrl`, `tags`는 넣지 않는다. 카테고리가 없는 글은 `"category": null` (공개와 같다).
+- **`status` 값**: 필터를 주지 않으면(파라미터 없음, `?status=`) DRAFT·PUBLISHED 모두 조회한다. 값은 Spring 바인딩 기본 동작(`Enum.valueOf`)을 따른다 (7장 페이지네이션과 같은 방침).
+  | 입력 | 결과 |
+  |---|---|
+  | `DRAFT`, `PUBLISHED` | 그 상태만 |
+  | 없음, `?status=` | 전체 |
+  | `draft`(대소문자 다름), `ARCHIVED`(없는 값), `null`, ` DRAFT`(앞뒤 공백), `%20`(공백만) | `400` `INVALID_INPUT` (`errors`의 `field`는 `status`, `reason`은 "형식이 올바르지 않습니다") |
+  - 공백은 `page`·`size`와 달리 지우지 않는다: 숫자 변환은 앞뒤 공백을 지우지만 enum 변환은 지우지 않는다 (Spring Boot 4.1.1, `@WebMvcTest`로 확인). `status`는 프론트가 정해진 값(`status=DRAFT`)만 보내므로 관대하게 받을 이유가 없다.
+  - 같은 키가 여러 개면 첫 값만 바꾸고 검사한다 (`page`와 같다): `?status=DRAFT&status=abc`는 `DRAFT`, `?status=abc&status=DRAFT`는 `400`, `?status=&status=DRAFT`는 전체.
+  - 위 동작(빈 값, 공백, 대소문자, 같은 키 여러 개)은 Controller 테스트로 고정한다 (프레임워크 업그레이드로 바뀌면 드러나게, 7장).
+- **정렬: `id` 내림차순** (최근에 만든 글이 먼저). `publishedAt`은 DRAFT가 `null`이라 쓰지 않는다. `id`는 유일해 같은 값이 없으므로 페이지 사이에서 중복·누락이 없고, 관리자 목록은 발행 순서가 아니라 작성한 순서로 찾기 때문이다. `createdAt`을 쓰지 않는 이유: `id`가 작성 순서와 같고, 보조 정렬 키가 필요 없다. `(status, published_at)` 인덱스는 이 쿼리가 쓰지 않는다. 글이 수백 건인 개인 블로그라 순차 스캔으로 충분해 인덱스를 더하지 않는다.
+- 범위 밖 페이지(`page`가 `totalPages` 이상)는 오류가 아니라 `200`에 `content: []`다.
+- **조회 방식**: QueryDSL 없이 Spring Data 파생 쿼리 두 개(`findAllByOrderByIdDesc`, `findAllByStatusOrderByIdDesc`)로 하고, `status`가 없으면 앞의 것을 부른다 (서비스가 분기). 필터가 `status` 하나라 동적 쿼리가 필요 없다. 검색 조건이 늘어나는 M4에서 `PostQueryRepository`(QueryDSL, 5장)로 옮긴다. 카테고리는 `@EntityGraph(attributePaths = "category")`로 함께 읽어 글마다 쿼리가 나가지 않게 한다 (공개 목록과 같다).
+- 정렬은 Repository 메서드 이름에 고정하고 Repository 테스트로 검증한다 (5장). 조회 로그는 남기지 않는다 (5장).
+
 #### GET `/api/v1/admin/posts/{id}`
-`200 OK` — 상세 응답에 아래 필드 추가
+수정 폼을 채우는 용도다. 응답은 `AdminPostDetailResponse`로, 공개 상세(`PostDetailResponse`, 8-1)의 필드에 `status`, `categoryId`, `createdAt`을 더한다. PUBLISHED·DRAFT 모두 조회한다.
+
+`200 OK`
 ```json
 {
   "id": 12,
+  "title": "Spring Security + JWT 정리",
+  "slug": "spring-security-jwt",
+  "summary": "HttpOnly 쿠키로 JWT 인증 구현하기",
+  "content": "# 들어가며\n본문 Markdown...",
+  "thumbnailUrl": null,
   "status": "PUBLISHED",
   "categoryId": 1,
+  "category": { "name": "Backend", "slug": "backend" },
+  "tags": [],
+  "publishedAt": "2026-10-11T01:00:00Z",
   "createdAt": "2026-10-10T12:00:00Z",
-  "...": "공개 상세와 동일한 나머지 필드"
+  "updatedAt": "2026-10-11T03:30:00Z"
 }
 ```
+- `categoryId`는 폼의 카테고리 선택값이다 (작성 요청이 `categoryId`로 받는다). 카테고리가 없는 글은 `categoryId`와 `category`가 모두 `null`이다. `category`는 공개 상세와 같은 이름·slug 형태로, 폼이 선택된 항목을 표시하는 데 쓴다.
+- `publishedAt`은 DRAFT면 `null`이다. `tags`는 M4 전까지 항상 `[]`다 (8-1). 조회수(`viewCount`)는 M6에서 구현하므로 넣지 않는다.
+- 없는 `id`: `404` `POST_NOT_FOUND`. DRAFT여도 관리자는 조회한다 (공개 상세와 다르다).
+- 경로의 `id`가 Long으로 읽히지 않으면(`abc`, 범위 초과) `400` `INVALID_INPUT` (`errors` `[]`). Long으로 읽히면 그 값으로 조회하고, 없으면(`0`, 음수 포함) `404`다 (카테고리와 같다, 아래 '공통').
+- `PUT`의 응답(`200` + 수정된 상세 응답)도 같은 `AdminPostDetailResponse`다 (글 수정 이슈에서 구현).
+
+**공통 (글 목록·단건 조회)**
+- 검사 순서: 인증(`401`·`403`) → 쿼리·경로 형식과 검증(`400`) → 존재(`404`). 조회 API라 CSRF 헤더는 필요 없다 (GET).
 
 #### PUT `/api/v1/admin/posts/{id}`
 - 본문은 작성과 동일 (전체 교체). `200` + 수정된 상세 응답.
