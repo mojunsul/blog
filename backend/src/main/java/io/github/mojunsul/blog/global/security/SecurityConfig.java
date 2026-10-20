@@ -7,6 +7,7 @@ import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 import org.springframework.security.web.csrf.CookieCsrfTokenRepository;
 
 import lombok.RequiredArgsConstructor;
@@ -17,6 +18,7 @@ public class SecurityConfig {
 
 	private final ProblemDetailAuthenticationEntryPoint authenticationEntryPoint;
 	private final ProblemDetailAccessDeniedHandler accessDeniedHandler;
+	private final JwtProvider jwtProvider;
 
 	@Bean
 	SecurityFilterChain securityFilterChain(HttpSecurity http) {
@@ -27,6 +29,7 @@ public class SecurityConfig {
 			.httpBasic(AbstractHttpConfigurer::disable)
 			.logout(AbstractHttpConfigurer::disable)
 			.csrf(csrf -> csrf.spa().csrfTokenRepository(csrfTokenRepository()))
+			.addFilterBefore(new JwtAuthenticationFilter(jwtProvider), UsernamePasswordAuthenticationFilter.class)
 			.exceptionHandling(e -> e
 				.authenticationEntryPoint(authenticationEntryPoint)
 				.accessDeniedHandler(accessDeniedHandler))
@@ -36,6 +39,7 @@ public class SecurityConfig {
 				.requestMatchers("/error").permitAll()
 				.requestMatchers(HttpMethod.GET, "/api/v1/posts/**", "/api/v1/categories", "/api/v1/auth/csrf")
 				.permitAll()
+				.requestMatchers(HttpMethod.POST, "/api/v1/auth/login").permitAll()
 				.requestMatchers("/api/v1/admin/**").hasRole("ADMIN")
 				.anyRequest().authenticated());
 		return http.build();
