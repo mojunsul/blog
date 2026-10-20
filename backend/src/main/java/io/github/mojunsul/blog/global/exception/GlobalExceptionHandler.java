@@ -16,6 +16,7 @@ import org.springframework.web.context.request.WebRequest;
 import org.springframework.web.method.annotation.HandlerMethodValidationException;
 import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExceptionHandler;
 
+import io.github.mojunsul.blog.global.exception.ProblemDetailFactory.FieldError;
 import jakarta.servlet.http.HttpServletRequest;
 
 /** 모든 에러를 ProblemDetail(RFC 9457) + 확장 필드 {@code code}, {@code errors}로 변환한다. */
@@ -27,19 +28,16 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
 	// 바인딩 실패의 기본 메시지는 클래스명이 담긴 프레임워크 내부 메시지라 노출하지 않는다
 	private static final String BINDING_FAILURE_REASON = "형식이 올바르지 않습니다";
 
-	public record FieldError(String field, String reason) {
-	}
-
 	@ExceptionHandler(BusinessException.class)
 	ProblemDetail handleBusiness(BusinessException e, HttpServletRequest request) {
 		log.warn("Business exception: code={}, path={}", e.errorCode().name(), request.getRequestURI());
-		return problem(e.errorCode(), request.getRequestURI(), List.of());
+		return ProblemDetailFactory.of(e.errorCode(), request.getRequestURI(), List.of());
 	}
 
 	@ExceptionHandler(Exception.class)
 	ProblemDetail handleUnexpected(Exception e, HttpServletRequest request) {
 		log.error("Unhandled exception on {}", request.getRequestURI(), e);
-		return problem(ErrorCode.INTERNAL_ERROR, request.getRequestURI(), List.of());
+		return ProblemDetailFactory.of(ErrorCode.INTERNAL_ERROR, request.getRequestURI(), List.of());
 	}
 
 	@Override
@@ -80,16 +78,6 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
 	}
 
 	private static ProblemDetail invalidInput(List<FieldError> errors) {
-		return problem(ErrorCode.INVALID_INPUT, null, errors);
-	}
-
-	private static ProblemDetail problem(ErrorCode code, String instance, List<FieldError> errors) {
-		ProblemDetail pd = ProblemDetail.forStatusAndDetail(code.status(), code.message());
-		if (instance != null) {
-			pd.setInstance(java.net.URI.create(instance));
-		}
-		pd.setProperty("code", code.name());
-		pd.setProperty("errors", errors);
-		return pd;
+		return ProblemDetailFactory.of(ErrorCode.INVALID_INPUT, null, errors);
 	}
 }

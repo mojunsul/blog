@@ -4,19 +4,47 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
+import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
+import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.csrf.CookieCsrfTokenRepository;
 
-// M0 임시 설정: 헬스체크, API 문서, 공개 글·카테고리 조회만 열어 둔다. JWT·CSRF 기반 본 설정은 M2에서 교체한다.
+import lombok.RequiredArgsConstructor;
+
 @Configuration
+@RequiredArgsConstructor
 public class SecurityConfig {
+
+	private final ProblemDetailAuthenticationEntryPoint authenticationEntryPoint;
+	private final ProblemDetailAccessDeniedHandler accessDeniedHandler;
 
 	@Bean
 	SecurityFilterChain securityFilterChain(HttpSecurity http) {
-		http.authorizeHttpRequests(auth -> auth
-			.requestMatchers("/actuator/health/**", "/v3/api-docs/**", "/swagger-ui/**", "/swagger-ui.html")
-			.permitAll()
-			.requestMatchers(HttpMethod.GET, "/api/v1/posts/**", "/api/v1/categories").permitAll()
-			.anyRequest().authenticated());
+		http
+			.sessionManagement(s -> s.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+			.requestCache(AbstractHttpConfigurer::disable)
+			.formLogin(AbstractHttpConfigurer::disable)
+			.httpBasic(AbstractHttpConfigurer::disable)
+			.logout(AbstractHttpConfigurer::disable)
+			.csrf(csrf -> csrf.spa().csrfTokenRepository(csrfTokenRepository()))
+			.exceptionHandling(e -> e
+				.authenticationEntryPoint(authenticationEntryPoint)
+				.accessDeniedHandler(accessDeniedHandler))
+			.authorizeHttpRequests(auth -> auth
+				.requestMatchers("/actuator/health/**", "/v3/api-docs/**", "/swagger-ui/**", "/swagger-ui.html")
+				.permitAll()
+				.requestMatchers("/error").permitAll()
+				.requestMatchers(HttpMethod.GET, "/api/v1/posts/**", "/api/v1/categories", "/api/v1/auth/csrf")
+				.permitAll()
+				.requestMatchers("/api/v1/admin/**").hasRole("ADMIN")
+				.anyRequest().authenticated());
 		return http.build();
+	}
+
+	// spa()는 쿠키 속성을 바꿀 수 없어 저장소만 교체한다. Secure는 기본값(request.isSecure())을 따른다.
+	private static CookieCsrfTokenRepository csrfTokenRepository() {
+		CookieCsrfTokenRepository repository = CookieCsrfTokenRepository.withHttpOnlyFalse();
+		repository.setCookieCustomizer(cookie -> cookie.sameSite("Lax"));
+		return repository;
 	}
 }
