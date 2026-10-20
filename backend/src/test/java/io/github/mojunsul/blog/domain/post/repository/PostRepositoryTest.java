@@ -4,12 +4,15 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.time.Instant;
+import java.util.Optional;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 
+import io.github.mojunsul.blog.domain.category.entity.Category;
 import io.github.mojunsul.blog.domain.category.repository.CategoryRepository;
 import io.github.mojunsul.blog.domain.post.entity.Post;
 import io.github.mojunsul.blog.domain.post.entity.PostStatus;
@@ -36,7 +39,7 @@ class PostRepositoryTest extends RepositoryTestSupport {
 		postRepository.save(PostFixture.draft("draft"));
 
 		// when
-		var page = postRepository.findAllByStatusOrderByPublishedAtDescIdDesc(PostStatus.PUBLISHED,
+		Page<Post> page = postRepository.findAllByStatusOrderByPublishedAtDescIdDesc(PostStatus.PUBLISHED,
 			PageRequest.of(0, 10));
 
 		// then
@@ -52,7 +55,7 @@ class PostRepositoryTest extends RepositoryTestSupport {
 		postRepository.save(PostFixture.published("same-second", same));
 
 		// when
-		var page = postRepository.findAllByStatusOrderByPublishedAtDescIdDesc(PostStatus.PUBLISHED,
+		Page<Post> page = postRepository.findAllByStatusOrderByPublishedAtDescIdDesc(PostStatus.PUBLISHED,
 			PageRequest.of(0, 10));
 
 		// then
@@ -66,7 +69,7 @@ class PostRepositoryTest extends RepositoryTestSupport {
 		postRepository.save(PostFixture.published("published", Instant.parse("2026-10-13T01:00:00Z")));
 
 		// when
-		var found = postRepository.findBySlugAndStatus("published", PostStatus.PUBLISHED);
+		Optional<Post> found = postRepository.findBySlugAndStatus("published", PostStatus.PUBLISHED);
 
 		// then
 		assertThat(found).get().extracting(Post::getSlug).isEqualTo("published");
@@ -75,13 +78,13 @@ class PostRepositoryTest extends RepositoryTestSupport {
 	@Test
 	void slug와_PUBLISHED_상태로_조회하면_카테고리가_함께_로딩된다() {
 		// given
-		var category = categoryRepository.save(CategoryFixture.category("backend"));
+		Category category = categoryRepository.save(CategoryFixture.category("backend"));
 		postRepository.save(PostFixture.published("published", Instant.parse("2026-10-13T01:00:00Z"), category));
 		em.flush();
 		em.clear();
 
 		// when
-		var found = postRepository.findBySlugAndStatus("published", PostStatus.PUBLISHED).orElseThrow();
+		Post found = postRepository.findBySlugAndStatus("published", PostStatus.PUBLISHED).orElseThrow();
 
 		// then
 		assertThat(em.getEntityManagerFactory().getPersistenceUnitUtil().isLoaded(found.getCategory())).isTrue();
@@ -93,7 +96,7 @@ class PostRepositoryTest extends RepositoryTestSupport {
 		postRepository.save(PostFixture.draft("draft"));
 
 		// when
-		var found = postRepository.findBySlugAndStatus("draft", PostStatus.PUBLISHED);
+		Optional<Post> found = postRepository.findBySlugAndStatus("draft", PostStatus.PUBLISHED);
 
 		// then
 		assertThat(found).isEmpty();
