@@ -40,7 +40,7 @@
 - `nginx.conf`
   - gzip 압축
   - rate limit: 로그인 `/api/v1/auth/login` (예: IP당 분당 5회), 조회수 API, 그 외 `/api/` 일반 제한
-  - `client_max_body_size` 설정 (글 본문 크기 고려)
+  - `client_max_body_size`는 1MB 이상으로 둔다 (글 작성·수정 요청 본문은 `content` 최대 100,000자 기준 약 600KB 이하, 8-4). 기본값 1MB를 그대로 쓰지 않고 명시한다.
 - 보안 헤더: HSTS, `X-Content-Type-Options: nosniff`, `X-Frame-Options`
 - `server_tokens off;`
 

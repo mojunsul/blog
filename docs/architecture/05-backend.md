@@ -19,7 +19,7 @@ backend/src/main/java/io/github/mojunsul/blog/
    │  ├ service/      # PostService
    │  ├ repository/   # PostRepository, PostQueryRepository(QueryDSL)
    │  ├ entity/       # Post, PostStatus
-   │  └ dto/          # PostSearchRequest, AdminPostSearchRequest, PostCreateRequest, PostUpdateRequest, PostSummaryResponse, PostDetailResponse,
+   │  └ dto/          # PostSearchRequest, AdminPostSearchRequest, PostRequest(작성·수정 공통), PostCreateResponse, PostSummaryResponse, PostDetailResponse,
    │                  # AdminPostSummaryResponse, AdminPostDetailResponse ...
    ├ category/
    │  ├ controller/   # CategoryController(공개), AdminCategoryController(관리자)
@@ -75,6 +75,7 @@ backend/src/test/java/io/github/mojunsul/blog/
   - 서비스에서 예외를 잡아 로그를 남긴 뒤 다시 던지지 않는다 (같은 에러가 두 번 기록된다).
 - 정상 흐름에서는 조회 로그를 남기지 않는다 (요청 기록은 Nginx 접근 로그가 담당). 서비스에서는 관리자 행위(로그인 성공·실패, 글·카테고리 생성·수정·삭제)와 보안 이벤트(Refresh 토큰 재사용 감지)만 `INFO`/`WARN`으로 남긴다 (M2).
   - 카테고리 생성·수정·삭제는 `CategoryService`가 성공한 뒤 `INFO`로 `id`(생성·수정은 `slug`도)만 남긴다. `name`은 로그에 넣지 않는다 (8-4).
+  - 글 생성·수정·삭제는 `PostService`가 같은 방식으로 남긴다 (`id`, 생성·수정은 `slug`도). `title`은 로그에 넣지 않는다 (8-4).
   - 재사용 감지는 `AuthService`가 `WARN`으로 남긴다(username만). 이어서 던지는 `INVALID_REFRESH_TOKEN`의 `GlobalExceptionHandler` `WARN`과 별개이고, 재사용이 아닌 재발급 실패는 후자만 남는다.
   - 로그인 성공은 `AuthService`가 `INFO`로 username만 남긴다. 로그인 실패는 `BusinessException(INVALID_CREDENTIALS)`라 `GlobalExceptionHandler`의 `WARN`(`code`, 요청 경로)이 그 기록이고, 서비스에서 따로 남기지 않는다 (같은 실패가 두 번 기록되지 않게). 실패 로그에 입력된 username을 넣지 않는다: 비밀번호를 username 칸에 잘못 입력하면 그대로 로그에 남고, 줄바꿈이 든 값으로 로그 줄을 위조할 수 있다. 누가 시도했는지는 `requestId`로 Nginx 접근 로그(IP)와 연결해 본다.
 - **요청 추적 ID**: `RequestIdFilter`가 모든 요청에 ID를 정해 MDC(`requestId`)에 넣고, 응답 헤더 `X-Request-Id`로 돌려준다. 로그 패턴에 `requestId`를 출력해 한 요청의 로그를 묶어 본다.
