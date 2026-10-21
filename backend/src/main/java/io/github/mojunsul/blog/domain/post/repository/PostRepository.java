@@ -17,4 +17,13 @@ public interface PostRepository extends JpaRepository<Post, Long> {
 
 	@EntityGraph(attributePaths = "category")
 	Optional<Post> findBySlugAndStatus(String slug, PostStatus status);
+
+	@EntityGraph(attributePaths = "category")
+	Page<Post> findAllByOrderByIdDesc(Pageable pageable);
+
+	@EntityGraph(attributePaths = "category")
+	Page<Post> findAllByStatusOrderByIdDesc(PostStatus status, Pageable pageable);
+
+	@EntityGraph(attributePaths = "category")
+	Optional<Post> findWithCategoryById(Long id);
 }

@@ -92,3 +92,8 @@
   - 삭제는 `@Modifying` JPQL 벌크 삭제의 행 수로 `404`를 판정하고 글의 `category_id`는 FK `ON DELETE SET NULL`에 맡김, 영속성 컨텍스트 어긋남 방지 규칙 (8-4)
   - 카테고리 관리자 행위 로그는 `id`·`slug`만 남기고 `name`은 제외, 5장 구조도에 category 패키지 구성 반영 (5장, 8-4)
   - 설계 검증 반영: slug 필수 `@NotBlank`, name 제어 문자(NUL 포함) 금지 `400`, 앞뒤 공백은 `strip()`(전각 공백 제거, NBSP는 받아들임), 수정·삭제 경쟁의 `ObjectOptimisticLockingFailureException`은 `404`, 숫자·불리언·배열·객체 필드 값의 결과 명시 (8-4)
+
+- **v2.19**
+  - 관리자 글 목록·단건 조회 API 명세: `AdminPostSearchRequest(page, size, status)`, `status` 값(대소문자 구분·없는 값 `400`, 앞뒤 공백은 지움, 값 없음·공백만 있는 값은 전체, 같은 키는 첫 값), 정렬 `id` 내림차순, 범위 밖 페이지는 `200` 빈 목록, 응답 `AdminPostSummaryResponse`·`AdminPostDetailResponse`(`PUT` 응답도 후자), 단건 `id` 형식 오류 `400`·없으면 `404 POST_NOT_FOUND` (DRAFT도 조회), 검사 순서 (5장, 8-4)
+  - 목록 조회는 QueryDSL 없이 파생 쿼리 두 개로 하고 M4에 `PostQueryRepository`로 이전 (8-4)
+  - 단건 조회는 `findWithCategoryById`(`@EntityGraph`, 상태 조건 없음)로 하고 Repository 테스트로 검증 (8-4)
