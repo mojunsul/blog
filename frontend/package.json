@@ -11,13 +11,16 @@
     "gen:api": "openapi-typescript http://localhost:8080/v3/api-docs -o src/types/api.d.ts"
   },
   "dependencies": {
+    "@hookform/resolvers": "^5.9.2",
     "@shikijs/rehype": "^4.5.0",
     "next": "16.4.0",
     "react": "19.3.0",
     "react-dom": "19.3.0",
+    "react-hook-form": "^7.90.0",
     "react-markdown": "^10.1.0",
     "rehype-slug": "^6.0.0",
-    "remark-gfm": "^4.0.1"
+    "remark-gfm": "^4.0.1",
+    "zod": "^4.6.7"
   },
   "devDependencies": {
     "@tailwindcss/turbopack": "^4",

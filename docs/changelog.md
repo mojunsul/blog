@@ -108,3 +108,10 @@
 - **v2.21**
   - OpenAPI 명세를 프론트 타입 생성의 입력으로 정리: 응답 DTO의 nullable 필드에만 `@Schema(nullable = true)`, `OpenApiConfig`의 `OpenApiCustomizer`가 `Response` 스키마의 모든 property를 `required`로 하고 `$ref`+`null`을 `oneOf`로 변환(단위 테스트로 고정), 에러 응답·상태 코드·쿼리 파라미터 펼침은 명세에 반영하지 않음 (5장)
   - 프론트 `API 타입 생성`: `gen:api` 실행 조건, `openapi-typescript` 정확한 버전 고정, 생성 파일 ESLint 제외, 별칭 파일 없이 파일별 한 줄 별칭, `lib/api/types.ts` 삭제, `ProblemDetail`은 `errors.ts`에 직접 정의, 명세 불일치는 백엔드에서 수정, 재생성 누락은 CI 대신 PR 규칙으로 막음 (11장)
+
+- **v2.22**
+  - 관리자 화면 접근 제어를 `proxy.ts`에서 클라이언트 `AdminAuthGuard`(`GET /auth/me`)로 변경: `access_token`(`Path=/api`)이 `/admin` 페이지 요청에 실리지 않아 쿠키 검사가 불가능하고, `Path` 확대·표시 쿠키 추가는 채택하지 않음 (10-1, 11장)
+  - 프론트 `관리자 인증`: `client.ts`의 경로·CSRF 헤더(쿠키 없으면 `GET /auth/csrf` 먼저)·401 재발급 한 번 재시도(`singleFlight`)·실패 시 `/admin/login?next=` 이동, `parseNextParam` 열린 리다이렉트 방지, `loginSchema`와 로그인 결과별 화면, 로그아웃 위치, 화면 확인 목록 (11장)
+  - 로컬 `rewrites`는 `next dev`에서만, 목적지는 `API_INTERNAL_URL` (11장)
+  - CSRF 토큰 호출 시점을 "화면 진입 시"에서 "상태 변경 요청 전 쿠키가 없을 때"로 변경 (8-3, 10-2, 10-3)
+  - 설계 검증 반영: `next` 쿼리 같은 키 여러 개는 첫 값만 검사, `GET /auth/csrf` 실패(비2xx·쿠키 없음·네트워크)는 원래 요청을 보내지 않고 오류로 던짐, `rewrites`의 `API_INTERNAL_URL` 검사는 개발 분기 안에서만 하고 `.env.local` 없는 빌드를 확인 수단에 추가 (11장)
