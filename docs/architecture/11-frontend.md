@@ -83,7 +83,7 @@ CI에서 프론트 이미지를 빌드할 때는 백엔드가 없다. `next buil
   - `server.ts`는 `import 'server-only'`로 클라이언트 번들에 들어가지 않게 한다.
 - 브라우저: 항상 상대 경로 `/api/v1` (M2부터. M1 공개 페이지는 서버 컴포넌트만 호출한다)
   - 로컬(`next dev`)에서는 `next.config`의 `rewrites`로 `/api/:path*` → `${API_INTERNAL_URL}/api/:path*`. 운영은 Nginx가 `/api`를 백엔드로 보내므로(3장) 두지 않는다: `rewrites`는 빌드 때 라우트 목록에 고정되어 실행 시점 환경변수를 읽지 못하고, `output: 'standalone'` 이미지에서 Nginx와 이중으로 라우팅하게 된다. 그래서 `process.env.NODE_ENV === 'development'`일 때만 규칙을 돌려준다.
-  - 목적지는 서버 컴포넌트와 같은 `API_INTERNAL_URL`을 쓴다 (주소를 한 곳에 둔다). 값이 없으면 `server.ts`와 같은 이유로 기본값 없이 설정 시점에 오류를 낸다.
+  - 목적지는 서버 컴포넌트와 같은 `API_INTERNAL_URL`을 쓴다 (주소를 한 곳에 둔다). 값이 없으면 `server.ts`와 같은 이유로 기본값 없이 오류를 내되, 검사는 `rewrites()`가 개발 분기(`NODE_ENV === 'development'`) 안에서 규칙을 돌려줄 때만 한다. 모듈 최상위나 개발이 아닌 분기에서는 검사하지 않고, 개발이 아니면 환경변수가 없어도 빈 규칙을 돌려준다 (CI의 `next build`·`next typegen`에는 이 환경변수도 백엔드도 없다, '빌드 시 API 의존 제거').
 
 ### 에러 처리
 - 2xx가 아닌 응답은 `ApiError`(`status`, `code`, `detail`, `errors`)로 바꾼다. 본문이 ProblemDetail이면 파싱하고, 아니면(Nginx 502 HTML 등) `code: null`과 일반 메시지를 넣는다.
@@ -105,7 +105,7 @@ CI에서 프론트 이미지를 빌드할 때는 백엔드가 없다. `next buil
 **`client.ts`** (`lib/api/client.ts`, 브라우저 전용)
 - 시그니처: `apiFetch<T>(path, { method, body })`. `path`는 `/api/v1` 뒤의 경로(`/auth/me`, `/admin/posts`)이고, 요청 주소는 항상 `/api/v1${path}`다. `method` 기본값 `GET`. `body`가 있으면 `JSON.stringify`하고 `Content-Type: application/json`을 붙인다. 쿠키는 같은 출처 요청이라 `fetch` 기본값으로 실린다.
 - 응답: `204`면 `undefined`, 그 외 2xx는 JSON. 2xx가 아니면 `parseApiError`로 만든 `ApiError`를 던진다 ('에러 처리'). 네트워크 오류는 감싸지 않고 그대로 던진다.
-- CSRF 헤더: `GET`·`HEAD`가 아닌 요청은 `XSRF-TOKEN` 쿠키 값(`readCookie(document.cookie, "XSRF-TOKEN")`)을 `X-XSRF-TOKEN` 헤더로 보낸다. 쿠키가 없으면 먼저 `GET /api/v1/auth/csrf`를 불러 받는다 (세션 쿠키라 브라우저를 다시 열면 사라진다). 이 호출은 `csrf` 응답이 `204`라 `apiFetch`를 거치지 않고 `fetch`로 직접 하고, 쿠키는 서버가 내려 준다. 이 호출은 `singleFlight`로 합치지 않는다. 쿠키가 없는 채로 상태 변경 요청이 동시에 나가는 경우가 없고(첫 상태 변경 요청은 로그인 제출이다), 겹쳐도 각 요청이 쿠키를 받은 직후 그 값을 읽어 헤더로 쓰므로 서버가 보는 쿠키와 헤더는 같다.
+- CSRF 헤더: `GET`·`HEAD`가 아닌 요청은 `XSRF-TOKEN` 쿠키 값(`readCookie(document.cookie, "XSRF-TOKEN")`)을 `X-XSRF-TOKEN` 헤더로 보낸다. 쿠키가 없으면 먼저 `GET /api/v1/auth/csrf`를 불러 받는다 (세션 쿠키라 브라우저를 다시 열면 사라진다). 이 호출은 `csrf` 응답이 `204`라 `apiFetch`를 거치지 않고 `fetch`로 직접 하고, 실패는 원래 요청을 보내지 않고 그대로 던진다: 2xx가 아니면(Nginx 502, 429 등) `parseApiError`로 만든 `ApiError`를, 호출이 끝났는데도 `XSRF-TOKEN` 쿠키가 없으면 `ApiError`(`status` 0이 아닌 응답이므로 호출의 상태 코드, `code: null`)를, 네트워크 오류는 감싸지 않고 던진다. 헤더 없이 보내 `403`으로 만들지 않는다. 호출자에게는 `ApiError`면 "그 외 오류"(로그인 결과 표 참고)로 보인다. 쿠키는 서버가 내려 준다. 이 호출은 `singleFlight`로 합치지 않는다. 쿠키가 없는 채로 상태 변경 요청이 동시에 나가는 경우가 없고(첫 상태 변경 요청은 로그인 제출이다), 겹쳐도 각 요청이 쿠키를 받은 직후 그 값을 읽어 헤더로 쓰므로 서버가 보는 쿠키와 헤더는 같다.
 - 401 처리 (재발급 대상: `/auth/login`, `/auth/refresh`를 뺀 모든 요청)
   1. 응답이 401이면 `POST /auth/refresh`를 부른다. 동시에 여러 요청이 401을 받아도 재발급은 한 번만 보내고 나머지는 그 결과를 기다린다 (`singleFlight`, 10-3). 재발급이 끝나면(성공이든 실패든) 다음 401은 새 재발급을 시작한다.
   2. 재발급이 `2xx`면 원래 요청을 **한 번만** 다시 보낸다.
@@ -134,10 +134,10 @@ CI에서 프론트 이미지를 빌드할 때는 백엔드가 없다. `next buil
 - 제출 결과
   | 결과 | 화면 |
   |---|---|
-  | 성공 | `router.replace(parseNextParam(location.search의 next))` |
+  | 성공 | `router.replace(parseNextParam(new URLSearchParams(location.search).get("next")))` |
   | `401` `INVALID_CREDENTIALS` | 폼 위에 "아이디 또는 비밀번호가 올바르지 않습니다." (아이디·비밀번호 중 무엇이 틀렸는지 구분하지 않는다, 8-3) |
-  | 그 외 `ApiError`(400, 429, 5xx 등)·네트워크 오류 | "로그인하지 못했습니다. 잠시 후 다시 시도해 주세요." |
-  - `next`는 제출 시점에 `window.location.search`에서 읽는다 (`useSearchParams`는 `Suspense` 경계가 필요해지고, 제출 핸들러에서만 쓰므로 필요 없다).
+  | 그 외 `ApiError`(400, 429, 5xx, csrf 호출 실패 등)·네트워크 오류 | "로그인하지 못했습니다. 잠시 후 다시 시도해 주세요." |
+  - `next`는 제출 시점에 `window.location.search`에서 `URLSearchParams.get`으로 읽는다: 같은 키가 여러 개면 **첫 값**만 쓰고 나머지는 무시하며, 키가 없으면 `null`이다. `parseNextParam`은 그 한 값만 검사한다 (첫 값이 잘못됐으면 뒤 값이 유효해도 `/admin`) (`useSearchParams`는 `Suspense` 경계가 필요해지고, 제출 핸들러에서만 쓰므로 필요 없다).
   - 400은 Zod가 같은 규칙으로 먼저 막으므로 거의 나오지 않는다. 필드별 서버 오류 표시는 하지 않고 위 일반 문구로 둔다.
 
 **화면 확인** (백엔드 `local` 프로필 + Postgres + 관리자 계정 환경변수로 `next dev`를 띄워 DevTools로 본다. 완료 조건의 확인 수단이다)
@@ -147,7 +147,8 @@ CI에서 프론트 이미지를 빌드할 때는 백엔드가 없다. `next buil
 4. 로그인한 뒤 `access_token` 쿠키만 지우고 `/admin` 새로고침 → `auth/me` 401 → `auth/refresh` 204 → `auth/me` 200으로 화면 표시 (로그인 화면으로 가지 않음)
 5. `access_token`·`refresh_token`을 모두 지우고 `/admin` 새로고침 → `/admin/login?next=%2Fadmin`
 6. 로그아웃 버튼 → `/admin/login`, 두 쿠키 삭제, 다시 `/admin` 접근 시 1번과 같음
-7. `/admin/login?next=//evil.com`과 `?next=https://evil.com`으로 로그인 → `/admin`으로 이동
+7. `/admin/login?next=//evil.com`, `?next=https://evil.com`, `?next=//evil.com&next=/admin/posts`(첫 값이 잘못됨)로 로그인 → `/admin`으로 이동. `?next=/admin/posts&next=//evil.com`(첫 값이 유효)은 `/admin/posts`
+8. `.env.local` 없이 `API_INTERNAL_URL`을 비운 채 `npm run build`와 `npx next typegen` 성공 (CI와 같은 조건)
 - 동시 요청이 재발급을 한 번만 보내는 것은 `singleFlight` 단위 테스트로 본다 (화면에서는 재현하기 어렵다. #76의 글 목록처럼 한 화면이 API를 여럿 부르게 되면 4번을 그 화면에서 다시 본다).
 
 **로그아웃**

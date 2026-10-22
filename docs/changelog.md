@@ -114,3 +114,4 @@
   - 프론트 `관리자 인증`: `client.ts`의 경로·CSRF 헤더(쿠키 없으면 `GET /auth/csrf` 먼저)·401 재발급 한 번 재시도(`singleFlight`)·실패 시 `/admin/login?next=` 이동, `parseNextParam` 열린 리다이렉트 방지, `loginSchema`와 로그인 결과별 화면, 로그아웃 위치, 화면 확인 목록 (11장)
   - 로컬 `rewrites`는 `next dev`에서만, 목적지는 `API_INTERNAL_URL` (11장)
   - CSRF 토큰 호출 시점을 "화면 진입 시"에서 "상태 변경 요청 전 쿠키가 없을 때"로 변경 (8-3, 10-2, 10-3)
+  - 설계 검증 반영: `next` 쿼리 같은 키 여러 개는 첫 값만 검사, `GET /auth/csrf` 실패(비2xx·쿠키 없음·네트워크)는 원래 요청을 보내지 않고 오류로 던짐, `rewrites`의 `API_INTERNAL_URL` 검사는 개발 분기 안에서만 하고 `.env.local` 없는 빌드를 확인 수단에 추가 (11장)
