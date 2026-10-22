@@ -176,4 +176,14 @@ class PostRepositoryTest extends RepositoryTestSupport {
 		assertThat(em.getEntityManagerFactory().getPersistenceUnitUtil().isLoaded(draft.getCategory())).isTrue();
 		assertThat(em.getEntityManagerFactory().getPersistenceUnitUtil().isLoaded(published.getCategory())).isTrue();
 	}
+
+	@Test
+	void 삭제하면_지운_행_수를_돌려준다() {
+		// given
+		Post post = postRepository.save(PostFixture.draft("post"));
+
+		// when & then
+		assertThat(postRepository.deleteByIdReturningCount(post.getId())).isEqualTo(1);
+		assertThat(postRepository.deleteByIdReturningCount(post.getId())).isZero();
+	}
 }

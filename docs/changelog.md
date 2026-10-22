@@ -97,3 +97,10 @@
   - 관리자 글 목록·단건 조회 API 명세: `AdminPostSearchRequest(page, size, status)`, `status` 값(대소문자 구분·없는 값 `400`, 앞뒤 공백은 지움, 값 없음·공백만 있는 값은 전체, 같은 키는 첫 값), 정렬 `id` 내림차순, 범위 밖 페이지는 `200` 빈 목록, 응답 `AdminPostSummaryResponse`·`AdminPostDetailResponse`(`PUT` 응답도 후자), 단건 `id` 형식 오류 `400`·없으면 `404 POST_NOT_FOUND` (DRAFT도 조회), 검사 순서 (5장, 8-4)
   - 목록 조회는 QueryDSL 없이 파생 쿼리 두 개로 하고 M4에 `PostQueryRepository`로 이전 (8-4)
   - 단건 조회는 `findWithCategoryById`(`@EntityGraph`, 상태 조건 없음)로 하고 Repository 테스트로 검증 (8-4)
+
+- **v2.20**
+  - 관리자 글 작성·수정·삭제 API 명세: 작성·수정 공통 요청 `PostRequest`, 작성 응답 `PostCreateResponse(id, slug)`, 필드 검증(title 앞뒤 공백 제거 후 1~200자·제어 문자 금지, summary·thumbnailUrl 빈 값은 `null`, content 최대 100,000자, thumbnailUrl은 `http(s)` URL 최대 500자, 텍스트 필드 NUL 금지), `status`·`categoryId` 입력 변환 결과, 검사 순서(`400` → 글 `404` → 카테고리 `404` → `409`) (5장, 8-4)
+  - `tags`는 M2 요청에 두지 않고 M4에서 추가(보내도 무시, 응답 `[]`) (8-4)
+  - 발행 시각: PUBLISHED → DRAFT로 돌려도 `publishedAt`을 유지하고 다시 발행해도 최초 시각을 쓴다. 관리자 응답의 DRAFT `publishedAt`은 "발행 이력이 없으면 `null`"로 수정 (6장, 8-4)
+  - 수정은 slug 변경을 허용(기존 주소는 `404`, 자기 slug는 중복 아님), slug 중복은 제약 이름(`post_slug_key`)으로 가려 FK 등 다른 제약 위반을 `409`로 오인하지 않음, 삭제는 `@Modifying` 벌크 삭제의 행 수로 `404` 판정 (8-4)
+  - 글 행위 로그는 `id`·`slug`만 남기고 `title` 제외 (5장), Nginx `client_max_body_size`는 1MB 이상으로 명시 (12-4)

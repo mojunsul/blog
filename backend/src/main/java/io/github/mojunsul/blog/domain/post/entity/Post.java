@@ -74,4 +74,19 @@ public class Post extends BaseTimeEntity {
 			this.publishedAt = now;
 		}
 	}
+
+	// 발행 시각은 지우지 않는다. 다시 발행할 때 최초 발행 시각이 유지돼야 하기 때문이다.
+	public void toDraft() {
+		this.status = PostStatus.DRAFT;
+	}
+
+	public void update(String title, String slug, String summary, String content, String thumbnailUrl,
+		Category category) {
+		this.title = title;
+		this.slug = slug;
+		this.summary = summary;
+		this.content = content;
+		this.thumbnailUrl = thumbnailUrl;
+		this.category = category;
+	}
 }
