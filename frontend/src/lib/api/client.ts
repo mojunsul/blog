@@ -44,7 +44,7 @@ async function send(path: string, { method = "GET", body }: RequestOptions): Pro
   });
 }
 
-// 동시에 여러 요청이 401을 받아도 재발급은 한 번만 보낸다.
+// 같은 Refresh 토큰으로 재발급이 동시에 두 번 나가면 서버가 재사용으로 판정해 모든 토큰을 지운다.
 const refresh = singleFlight(async () => (await send("/auth/refresh", { method: "POST" })).ok);
 
 function redirectToLogin() {

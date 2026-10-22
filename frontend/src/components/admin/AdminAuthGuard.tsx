@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 
 import { getMe } from "@/lib/api/auth";
+import { ApiError } from "@/lib/api/errors";
 
 type Status = "checking" | "authenticated" | "failed";
 
@@ -11,10 +12,14 @@ export function AdminAuthGuard({ children }: { children: React.ReactNode }) {
   const [status, setStatus] = useState<Status>("checking");
 
   useEffect(() => {
-    // 401은 client.ts가 재발급 후 로그인 화면으로 이동시키므로 여기서는 그 외 오류만 실패로 본다.
     getMe().then(
       () => setStatus("authenticated"),
-      () => setStatus("failed"),
+      (error) => {
+        // 401은 client.ts가 로그인 화면으로 이동시키는 중이라 오류 문구를 띄우지 않고 "확인 중..."을 유지한다.
+        if (!(error instanceof ApiError && error.status === 401)) {
+          setStatus("failed");
+        }
+      },
     );
   }, []);
 
