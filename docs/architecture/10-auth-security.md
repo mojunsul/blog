@@ -18,7 +18,7 @@
 
 - Spring Security의 SPA용 CSRF 설정을 사용한다 (`CookieCsrfTokenRepository` + SPA용 `CsrfTokenRequestHandler`, Spring Security 7.0+에서는 `csrf.spa()`, 10-5).
 - 흐름
-  1. 프론트가 관리자 화면·로그인 화면 진입 시 `GET /api/v1/auth/csrf` 호출 → `XSRF-TOKEN` 쿠키 발급
+  1. 프론트가 상태 변경 요청을 보내기 직전에 `XSRF-TOKEN` 쿠키가 없으면 `GET /api/v1/auth/csrf` 호출 → `XSRF-TOKEN` 쿠키 발급 (`client.ts`, 11장)
   2. 상태 변경 요청(POST/PUT/DELETE) 시 쿠키 값을 읽어 `X-XSRF-TOKEN` 헤더로 전송
   3. 서버가 쿠키와 헤더 값을 비교
 - CSRF 검사 제외: GET·HEAD·OPTIONS·TRACE 요청(Spring 기본값, 10-5), `POST /api/v1/posts/{slug}/views`(M6)
@@ -26,13 +26,13 @@
 
 ### 10-3. 인증 흐름
 ```
-1. 로그인 화면 진입 → GET /api/v1/auth/csrf
+1. 쿠키에 XSRF-TOKEN이 없으면 → GET /api/v1/auth/csrf
 2. POST /api/v1/auth/login (X-XSRF-TOKEN 포함)
    → BCrypt 검증 → access_token, refresh_token 쿠키 발급, refresh 해시 DB 저장
 3. 관리자 요청 → 쿠키 자동 전송
    → JwtAuthenticationFilter가 access_token 검증 → SecurityContext 등록
 4. 401 (Access 만료) → 프론트가 POST /api/v1/auth/refresh 호출 (X-XSRF-TOKEN 포함) 후 원래 요청 1회 재시도
-   → 재발급도 401이면 /admin/login으로 이동
+   → 재발급도 401이면 /admin/login?next=원래 경로로 이동 (11장)
 5. 로그아웃 → POST /api/v1/auth/logout: refresh 해시 삭제, 두 쿠키 `Max-Age=0`
 ```
 - 동시에 여러 요청이 401을 받으면 refresh는 **한 번만** 호출하고 나머지는 그 결과를 기다리도록 프론트에서 처리한다.

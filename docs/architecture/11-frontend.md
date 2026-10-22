@@ -3,7 +3,7 @@
 **App Router 규칙 요약**
 - 폴더 = URL 경로, `page.tsx` = 해당 경로의 화면, `layout.tsx` = 공유 레이아웃
 - `[slug]` = 동적 경로, `(group)` = URL에 나타나지 않는 레이아웃 그룹
-- Next.js 16부터 기존 `middleware.ts`는 `proxy.ts`로 이름이 바뀌었다. 설치 버전에 맞춰 사용한다.
+- Next.js 16부터 기존 `middleware.ts`는 `proxy.ts`로 이름이 바뀌었다. 이 프로젝트는 쓰지 않는다 ('관리자 인증').
 
 ```
 frontend/src/
@@ -20,7 +20,8 @@ frontend/src/
 │  ├ admin/
 │  │  ├ login/page.tsx              # /admin/login
 │  │  └ (dashboard)/
-│  │     ├ layout.tsx               # 관리자 레이아웃
+│  │     ├ layout.tsx               # 관리자 레이아웃 (AdminAuthGuard로 감쌈, 메뉴는 #76)
+│  │     ├ page.tsx                 # /admin (임시 화면, #76에서 /admin/posts로 이동하도록 교체)
 │  │     ├ posts/page.tsx           # /admin/posts
 │  │     ├ posts/new/page.tsx       # /admin/posts/new
 │  │     ├ posts/[id]/edit/page.tsx # /admin/posts/{id}/edit
@@ -33,23 +34,26 @@ frontend/src/
 │  ├ ui/            # Button, Input 등 공통
 │  ├ post/          # PostCard, PostList, Pagination, TagBadge(M4)
 │  ├ markdown/      # MarkdownRenderer (서버 컴포넌트)
-│  └ admin/         # PostForm, MarkdownPreview
+│  └ admin/         # LoginForm, AdminAuthGuard, PostForm, MarkdownPreview
 ├ lib/
 │  ├ api/
 │  │  ├ server.ts   # 서버 컴포넌트용 fetch (API_INTERNAL_URL, server-only)
 │  │  ├ client.ts   # (M2) 브라우저용 fetch (/api/v1, CSRF 헤더, 401 시 refresh 후 재시도)
 │  │  ├ errors.ts   # ProblemDetail 타입(명세에 없어 직접 정의)·파싱, ApiError
 │  │  ├ posts.ts
-│  │  └ auth.ts
+│  │  └ auth.ts     # 브라우저용 login·logout·getMe (client.ts 사용)
+│  ├ cookie.ts      # 쿠키 문자열에서 값 읽기 (readCookie)
+│  ├ next-path.ts   # 로그인 후 이동 경로 해석 (parseNextParam)
+│  ├ single-flight.ts # 동시 호출을 한 번의 실행으로 합침 (singleFlight)
 │  ├ date.ts        # UTC → KST 표시 변환 (formatDate, YYYY.MM.DD)
 │  ├ pagination.ts  # URL의 page 쿼리 해석 (parsePageParam)
 │  ├ slug.ts        # slug 형식 검사 (isValidSlug, 6장 slug 규칙)
 │  └ utils.ts
 ├ schemas/
-│  └ post.ts        # Zod 스키마 (postSchema, categorySchema, loginSchema) - 서버 검증 규칙과 동일
+│  ├ auth.ts        # loginSchema - 서버 검증 규칙과 동일
+│  └ post.ts        # postSchema, categorySchema - 서버 검증 규칙과 동일
 ├ types/
 │  └ api.d.ts       # openapi-typescript 생성 파일 (직접 수정 금지)
-└ proxy.ts          # /admin/** 접근 시 access_token 쿠키 없으면 /admin/login으로 이동
 ```
 
 ### 렌더링 전략
@@ -62,7 +66,7 @@ frontend/src/
   - `next.config.ts`의 `cacheComponents: true`(create-next-app 기본값) 모드라 캐시 주기는 `export const revalidate`나 `fetch`의 `next.revalidate`가 아니라 `cacheLife`로 정한다. 구현 전 `node_modules/next/dist/docs/`의 caching 문서를 확인한다.
   - `'use cache'` 함수·컴포넌트를 요청 시점 API(`params`, `searchParams`, `connection()`) 없이 호출하면 빌드 때 실행되어 정적 셸에 들어간다(= 빌드 중 백엔드 호출). 반드시 요청 시점 API를 거친 뒤 호출한다.
 - **관리자 페이지**: 클라이언트 컴포넌트, 브라우저에서 `/api/v1` 직접 호출.
-- `proxy.ts`의 쿠키 체크는 화면 이동 편의용이다. **실제 권한 검증은 Spring Security가 담당한다.**
+- 화면 접근 제어는 `AdminAuthGuard`(클라이언트)가 하는 이동 편의용이다. **실제 권한 검증은 Spring Security가 담당한다.** 자세한 내용은 '관리자 인증'.
 - 관리자가 글을 저장·수정·삭제해도 공개 페이지는 데이터 캐시 주기에 따라 최대 60초 후 반영된다(본문이 바뀌면 `MarkdownRenderer`의 캐시 키도 바뀐다). 즉시 반영(on-demand revalidate)은 M5 이후 검토한다.
 
 ### 빌드 시 API 의존 제거
@@ -78,13 +82,77 @@ CI에서 프론트 이미지를 빌드할 때는 백엔드가 없다. `next buil
   - 로컬: `frontend/.env.example`(커밋, 값 `http://localhost:8080`)을 `.env.local`로 복사해 쓴다. 운영: `docker-compose.prod.yml`의 `environment`에 직접 적는다 (비밀값 아님).
   - `server.ts`는 `import 'server-only'`로 클라이언트 번들에 들어가지 않게 한다.
 - 브라우저: 항상 상대 경로 `/api/v1` (M2부터. M1 공개 페이지는 서버 컴포넌트만 호출한다)
-  - 로컬에서는 `next.config`의 `rewrites`로 `/api/*` → `http://localhost:8080/api/*` (M2, `client.ts`와 함께 추가)
+  - 로컬(`next dev`)에서는 `next.config`의 `rewrites`로 `/api/:path*` → `${API_INTERNAL_URL}/api/:path*`. 운영은 Nginx가 `/api`를 백엔드로 보내므로(3장) 두지 않는다: `rewrites`는 빌드 때 라우트 목록에 고정되어 실행 시점 환경변수를 읽지 못하고, `output: 'standalone'` 이미지에서 Nginx와 이중으로 라우팅하게 된다. 그래서 `process.env.NODE_ENV === 'development'`일 때만 규칙을 돌려준다.
+  - 목적지는 서버 컴포넌트와 같은 `API_INTERNAL_URL`을 쓴다 (주소를 한 곳에 둔다). 값이 없으면 `server.ts`와 같은 이유로 기본값 없이 설정 시점에 오류를 낸다.
 
 ### 에러 처리
 - 2xx가 아닌 응답은 `ApiError`(`status`, `code`, `detail`, `errors`)로 바꾼다. 본문이 ProblemDetail이면 파싱하고, 아니면(Nginx 502 HTML 등) `code: null`과 일반 메시지를 넣는다.
 - 네트워크 오류(백엔드 다운 등)는 감싸지 않고 그대로 던져 Next 오류 화면으로 보낸다.
 - 페이지에서 `ApiError`의 `status === 404`면 `notFound()`를 호출한다.
   - 단, `'use cache'` 함수 안에서 던진 오류는 캐시 경계를 넘으며 일반 `Error`가 되어 `instanceof ApiError`와 `status`를 잃는다. 그래서 캐시하는 단건 조회 함수(`getPost`)는 404를 함수 안에서 `null`로 바꿔 돌려주고, 페이지는 `null`이면 `notFound()`를 호출한다. 그 외 오류는 그대로 던진다 (오류 화면으로 가므로 `status`가 없어도 된다).
+
+### 관리자 인증
+**접근 제어: `proxy.ts` 대신 클라이언트 가드**
+- `proxy.ts`로 `access_token` 쿠키 유무를 검사할 수 없다. `access_token`은 `Path=/api`, `refresh_token`은 `Path=/api/v1/auth`라(10-1) 브라우저가 `/admin/**` 페이지 요청에 실어 보내지 않는다. 검사하면 로그인해도 항상 쿠키가 없는 것으로 보여 `/admin/login`으로 되돌려 보낸다.
+- 쿠키 `Path`를 `/`로 넓히거나 `Path=/`인 로그인 표시 쿠키를 새로 두는 방법은 쓰지 않는다. 앞의 것은 모든 공개 페이지 요청에 JWT가 실리고(10-6 제약), 뒤의 것은 백엔드 변경이 필요한데 얻는 것은 이동 편의뿐이다 (실제 검증은 어차피 Spring Security).
+- 그래서 `proxy.ts`를 만들지 않고, `admin/(dashboard)/layout.tsx`가 클라이언트 컴포넌트 `AdminAuthGuard`로 `children`을 감싼다.
+  - `getMe()`(`GET /api/v1/auth/me`)를 마운트 때 한 번 부른다. 성공하기 전까지는 `children`을 그리지 않고 "확인 중..." 문구만 보여, 하위 화면의 API 호출이 인증 확인 전에 나가지 않게 한다.
+  - 401은 `client.ts`가 재발급과 재시도를 거친 뒤 로그인 화면으로 이동시키므로('`client.ts`') 가드는 따로 다루지 않는다. 그 외 오류(5xx, 네트워크)는 "로그인 상태를 확인하지 못했습니다. 새로고침해 주세요." 문구를 보여 준다 (`children`은 그리지 않는다).
+  - 레이아웃은 클라이언트 이동 중에 유지되므로 확인은 관리자 화면에 들어올 때 한 번이다. 이후 Access 토큰이 만료되면 각 API 호출의 401 처리로 이어진다.
+  - 로그인 화면(`/admin/login`)은 `(dashboard)` 밖이라 가드를 거치지 않는다. 이미 로그인한 상태에서 들어와도 이동시키지 않고 폼을 보여 준다 (다시 로그인하면 쿠키가 새로 발급된다, 8-3).
+- 확인되지 않은 화면의 껍데기(서버가 렌더링한 "확인 중...")는 인증 없이 받을 수 있지만 데이터는 없다. 데이터는 모두 `/api/v1/admin/**`에서 오고 거기서 막힌다.
+
+**`client.ts`** (`lib/api/client.ts`, 브라우저 전용)
+- 시그니처: `apiFetch<T>(path, { method, body })`. `path`는 `/api/v1` 뒤의 경로(`/auth/me`, `/admin/posts`)이고, 요청 주소는 항상 `/api/v1${path}`다. `method` 기본값 `GET`. `body`가 있으면 `JSON.stringify`하고 `Content-Type: application/json`을 붙인다. 쿠키는 같은 출처 요청이라 `fetch` 기본값으로 실린다.
+- 응답: `204`면 `undefined`, 그 외 2xx는 JSON. 2xx가 아니면 `parseApiError`로 만든 `ApiError`를 던진다 ('에러 처리'). 네트워크 오류는 감싸지 않고 그대로 던진다.
+- CSRF 헤더: `GET`·`HEAD`가 아닌 요청은 `XSRF-TOKEN` 쿠키 값(`readCookie(document.cookie, "XSRF-TOKEN")`)을 `X-XSRF-TOKEN` 헤더로 보낸다. 쿠키가 없으면 먼저 `GET /api/v1/auth/csrf`를 불러 받는다 (세션 쿠키라 브라우저를 다시 열면 사라진다). 이 호출은 `csrf` 응답이 `204`라 `apiFetch`를 거치지 않고 `fetch`로 직접 하고, 쿠키는 서버가 내려 준다. 이 호출은 `singleFlight`로 합치지 않는다. 쿠키가 없는 채로 상태 변경 요청이 동시에 나가는 경우가 없고(첫 상태 변경 요청은 로그인 제출이다), 겹쳐도 각 요청이 쿠키를 받은 직후 그 값을 읽어 헤더로 쓰므로 서버가 보는 쿠키와 헤더는 같다.
+- 401 처리 (재발급 대상: `/auth/login`, `/auth/refresh`를 뺀 모든 요청)
+  1. 응답이 401이면 `POST /auth/refresh`를 부른다. 동시에 여러 요청이 401을 받아도 재발급은 한 번만 보내고 나머지는 그 결과를 기다린다 (`singleFlight`, 10-3). 재발급이 끝나면(성공이든 실패든) 다음 401은 새 재발급을 시작한다.
+  2. 재발급이 `2xx`면 원래 요청을 **한 번만** 다시 보낸다.
+  3. 재발급이 실패했거나(`401` `INVALID_REFRESH_TOKEN` 등 2xx가 아님) 다시 보낸 요청도 401이면 `/admin/login?next={현재 경로+쿼리}`로 `window.location.assign`한다 (전체 새로고침이라 메모리의 상태와 열려 있던 폼 입력은 사라진다. 로그인이 풀린 뒤라 받아들인다). 이동 중에도 호출자는 401 `ApiError`를 받는다.
+  - 재발급 요청 자체의 네트워크 오류는 그대로 던진다 (이동하지 않는다).
+  - `/auth/login`의 401(`INVALID_CREDENTIALS`)은 재발급 없이 호출자에게 전달해 폼이 메시지를 보여 준다. `/auth/refresh`는 위 흐름이 직접 부른다.
+- `403 INVALID_CSRF_TOKEN`은 재시도하지 않는다. 헤더를 쿠키에서 읽어 보내므로 쿠키가 있는 한 일치하고, 쿠키가 없으면 위에서 먼저 받는다. 이 오류가 나면 예상 밖 상황이라 `ApiError`로 드러낸다.
+- 테스트: `client.ts`는 `document`·`window`·`fetch`에 기대어 순수 함수가 아니라 단위 테스트하지 않는다. 안에서 쓰는 `readCookie`·`singleFlight`·`parseNextParam`을 단위 테스트하고, 흐름은 아래 화면 확인으로 본다.
+
+**`lib/` 순수 함수**
+- `readCookie(cookieString, name): string | null`: `document.cookie` 형식(`a=1; b=2`)에서 이름이 **정확히 같은** 쿠키의 값을 돌려준다. 없거나 값이 빈 문자열이면 `null`, 같은 이름이 여러 개면 첫 값, 값에 `=`가 있으면 첫 `=` 뒤를 모두 값으로 본다. 디코딩하지 않는다 (Spring이 내리는 토큰은 UUID라 인코딩이 없다).
+- `singleFlight(fn): () => Promise<T>`: 반환 함수를 호출하면 진행 중인 실행이 있으면 그 Promise를 돌려주고, 없으면 `fn`을 실행한다. 성공이든 거절이든 끝나면 진행 중 상태를 비워 다음 호출이 새로 실행한다.
+- `parseNextParam(raw: string | null): string`: 로그인 후 이동 경로를 정한다. `raw`가 `/admin` 자신이거나 `/admin/`, `/admin?`으로 시작하고, `/admin/login`(자기 자신으로의 반복 이동)으로 시작하지 않으며, `\`·제어 문자가 없으면 그 값을, 그 외(`null`, 빈 값, `//evil.com`, `https://...`, `/administrator`, `/posts/1` 등)는 기본값 `/admin`을 돌려준다. 외부 주소로 보내는 열린 리다이렉트를 막기 위해 같은 출처의 `/admin` 아래 경로만 허용한다.
+
+**로그인 화면 (`/admin/login`)**
+- `page.tsx`는 서버 컴포넌트로 제목과 `LoginForm`(클라이언트, `components/admin/`)만 둔다. 블로그 헤더가 있는 `(public)` 밖이라 헤더가 없다.
+- `loginSchema`(`schemas/auth.ts`, Zod)는 서버 규칙(8-3 `LoginRequest`)과 같다.
+  | 필드 | 규칙 | 메시지 |
+  |---|---|---|
+  | username | 앞뒤 공백을 지우지 않고, 공백만 있는 값 거절, 50자 이하 | "아이디를 입력하세요", "아이디는 50자 이하로 입력하세요" |
+  | password | 빈 값 거절, 공백만 있는 값 허용, 길이 상한 없음 | "비밀번호를 입력하세요" |
+  - 값은 서버로 그대로 보낸다 (트림하지 않는다, 서버가 정확히 같은 값만 맞다고 본다).
+  - password 상한이 없는 이유: 72바이트 초과는 서버가 인증 실패로 처리하는 입력이라 폼에서 막지 않는다.
+  - "공백만 있는 값"의 판정은 JS `trim()`과 Java `@NotBlank`가 달라(NBSP 등) 프론트가 약간 더 엄격할 수 있다. 서버 검증이 최종이다.
+- 폼: react-hook-form + `zodResolver(loginSchema)`. 제출 중에는 버튼을 막아 중복 제출을 방지한다. 입력에 `autoComplete`(`username`, `current-password`)를 단다.
+- 제출 결과
+  | 결과 | 화면 |
+  |---|---|
+  | 성공 | `router.replace(parseNextParam(location.search의 next))` |
+  | `401` `INVALID_CREDENTIALS` | 폼 위에 "아이디 또는 비밀번호가 올바르지 않습니다." (아이디·비밀번호 중 무엇이 틀렸는지 구분하지 않는다, 8-3) |
+  | 그 외 `ApiError`(400, 429, 5xx 등)·네트워크 오류 | "로그인하지 못했습니다. 잠시 후 다시 시도해 주세요." |
+  - `next`는 제출 시점에 `window.location.search`에서 읽는다 (`useSearchParams`는 `Suspense` 경계가 필요해지고, 제출 핸들러에서만 쓰므로 필요 없다).
+  - 400은 Zod가 같은 규칙으로 먼저 막으므로 거의 나오지 않는다. 필드별 서버 오류 표시는 하지 않고 위 일반 문구로 둔다.
+
+**화면 확인** (백엔드 `local` 프로필 + Postgres + 관리자 계정 환경변수로 `next dev`를 띄워 DevTools로 본다. 완료 조건의 확인 수단이다)
+1. 로그아웃 상태에서 `/admin` 접근 → `/admin/login?next=%2Fadmin`으로 이동 (`Network`에 `auth/me` 401 → `auth/refresh` 401)
+2. 잘못된 비밀번호 → "아이디 또는 비밀번호가 올바르지 않습니다.", 이동·새로고침 없음. 올바른 값 → `/admin` (`next`가 있으면 그 경로)
+3. `XSRF-TOKEN` 쿠키를 지우고 로그인 → `auth/csrf` 호출이 로그인 요청 앞에 나가고 로그인이 성공 (`403` 없음)
+4. 로그인한 뒤 `access_token` 쿠키만 지우고 `/admin` 새로고침 → `auth/me` 401 → `auth/refresh` 204 → `auth/me` 200으로 화면 표시 (로그인 화면으로 가지 않음)
+5. `access_token`·`refresh_token`을 모두 지우고 `/admin` 새로고침 → `/admin/login?next=%2Fadmin`
+6. 로그아웃 버튼 → `/admin/login`, 두 쿠키 삭제, 다시 `/admin` 접근 시 1번과 같음
+7. `/admin/login?next=//evil.com`과 `?next=https://evil.com`으로 로그인 → `/admin`으로 이동
+- 동시 요청이 재발급을 한 번만 보내는 것은 `singleFlight` 단위 테스트로 본다 (화면에서는 재현하기 어렵다. #76의 글 목록처럼 한 화면이 API를 여럿 부르게 되면 4번을 그 화면에서 다시 본다).
+
+**로그아웃**
+- 위치는 관리자 레이아웃의 메뉴 영역이다 (#76이 만든다). #75는 `logout()`(`lib/api/auth.ts`, `POST /auth/logout`)과 `/admin` 임시 화면의 로그아웃 버튼까지 만든다. 성공하면 `window.location.assign("/admin/login")`로 이동한다 (전체 새로고침으로 화면의 인증 상태를 모두 버린다).
+- 로그아웃은 서버가 인증 없이 받고 쿠키가 없어도 `204`라(8-3) 401 처리는 필요 없다. 실패(네트워크, 5xx, 429)하면 이동하지 않고 버튼이 그대로 남아 다시 누를 수 있다. 오류 문구 표시는 #76에서 레이아웃과 함께 정한다.
 
 ### 날짜 표시
 - KST `YYYY.MM.DD` (`2026.10.11`). 내장 `Intl.DateTimeFormat('ko-KR', { timeZone: 'Asia/Seoul', year: 'numeric', month: '2-digit', day: '2-digit' })`의 `formatToParts`로 조립한다 (`timeZone`을 명시해 서버 시간대와 무관하게 동작).
@@ -143,9 +211,10 @@ CI에서 프론트 이미지를 빌드할 때는 백엔드가 없다. `next buil
 - `MarkdownRenderer`는 async 서버 컴포넌트라 단위 테스트하지 않는다. 렌더링 결과는 글 상세 페이지에서 시드 글로 확인한다.
 
 ### 프론트엔드 테스트
-- Vitest로 `lib/`의 로직이 있는 순수 함수만 단위 테스트한다 (`date.ts`, `errors.ts`의 파싱 함수, `pagination.ts`, `slug.ts`).
+- Vitest로 `lib/`의 로직이 있는 순수 함수만 단위 테스트한다 (`date.ts`, `errors.ts`의 파싱 함수, `pagination.ts`, `slug.ts`, `cookie.ts`, `next-path.ts`, `single-flight.ts`).
   - `async` 서버 컴포넌트는 Vitest·Jest 모두 단위 테스트를 지원하지 않으므로 단위 테스트하지 않는다.
   - `server.ts`는 `server-only`가 테스트 환경에서 import 시 오류를 던지므로 단위 테스트하지 않는다 (실제 호출은 화면에서 확인).
+  - `client.ts`와 `auth.ts`(브라우저 전역·`fetch`에 기대는 파일), `loginSchema`(라이브러리 규칙을 그대로 선언)는 단위 테스트하지 않는다. 흐름은 '관리자 인증'의 화면 확인으로 본다.
 - 최소 구성: `vitest`, `vitest.config.mts`(`resolve: { tsconfigPaths: true }`로 `@/` 별칭 해석, Vite 내장 기능이라 `vite-tsconfig-paths` 플러그인은 쓰지 않는다), `"test": "vitest run"`. React Testing Library·jsdom은 컴포넌트 테스트가 필요해질 때 추가한다.
 - `vitest`는 정확한 버전으로 고정한다(`^` 없음). Vitest는 메이저가 7~9개월마다 나와 깨지는 변경이 있으므로, 메이저 업그레이드는 별도 이슈로 한다.
 
