@@ -58,6 +58,16 @@ backend/src/test/java/io/github/mojunsul/blog/
 - 시간 타입은 엔티티에서 `Instant`를 사용하고, 테스트 가능하도록 `Clock` 빈을 주입받는다.
 - 검증은 프론트(Zod)와 무관하게 **서버에서 반드시 다시 한다** (`@Valid` + Bean Validation).
 - Actuator는 `health`만 노출한다. Swagger는 `local` 프로필에서만 활성화한다.
+- **OpenAPI 명세는 프론트 타입 생성의 입력이다** (11장 'API 타입 생성'). springdoc 기본 출력은 응답 필드에 `required`·nullable이 없어 생성 타입이 모든 필드를 `?`(선택)로 만들고, 객체 참조의 nullable은 어노테이션만으로 올바르게 표현되지 않는다 (`@Schema(nullable = true)`를 `$ref` 필드에 붙이면 `$ref`와 `"type": "null"`이 한 스키마에 같이 나와 생성기가 `null`을 버린다, springdoc 3.1.1·OpenAPI 3.1에서 확인). 그래서 아래처럼 한다.
+  - 응답 DTO에서 `null`이 될 수 있는 필드에만 `@Schema(nullable = true)`를 붙인다. 그 외 응답 필드는 항상 값이 있다 (`tags`는 항상 배열).
+    - 공개 `PostSummaryResponse`·`PostDetailResponse`: `summary`, `thumbnailUrl`, `category`
+    - `AdminPostSummaryResponse`: `category`, `publishedAt`
+    - `AdminPostDetailResponse`: `summary`, `thumbnailUrl`, `categoryId`, `category`, `publishedAt`
+  - `global/config/OpenApiConfig`의 `OpenApiCustomizer` 빈이 이름에 `Response`가 들어간 스키마(`PageResponseXxx` 포함)에만 다음을 적용한다. `Request` 스키마는 검증 어노테이션이 `required`를 이미 만들므로 건드리지 않는다.
+    - 모든 property를 `required`에 넣는다 (응답은 `null`이어도 필드를 내려 주므로 키가 빠지는 경우가 없다. 응답 DTO마다 `requiredMode`를 붙이는 반복을 피한다).
+    - `$ref`이면서 `types`에 `null`이 있는 property는 `oneOf: [{$ref}, {type: null}]`로 바꾼다 (스칼라의 `["string", "null"]`은 springdoc이 올바르게 만들므로 그대로 둔다).
+  - 이 두 규칙은 Spring 없는 단위 테스트(`OpenApiConfigTest`)로 고정한다: 커스터마이저를 직접 호출해 `Response`의 `required`, `$ref`+`null`의 `oneOf` 변환, 스칼라 nullable 유지, `Request` 스키마 불변을 확인한다. `@Schema(nullable = true)`를 빠뜨렸는지는 이 테스트가 모르므로, 생성 타입(`api.d.ts`)의 `| null`을 위 목록과 대조해 확인한다 (완료 조건).
+  - 에러 응답(`ProblemDetail`의 `code`·`errors` 확장)과 상태 코드(201·204), `@ModelAttribute` 쿼리 파라미터 펼침은 명세에 반영하지 않는다. 프론트는 `components.schemas`만 쓰고(`paths`는 쓰지 않는다), 반영하려면 엔드포인트마다 어노테이션이 필요해 얻는 것에 비해 반복이 크다. Swagger UI의 "Try it out"은 이 때문에 정확하지 않을 수 있다.
 - Spring Data `Page`를 그대로 직렬화하지 않고 `PageResponse`로 변환해서 반환한다.
 - 목록·검색 API의 쿼리 파라미터는 검증 어노테이션을 붙인 요청 record(`@Valid @ModelAttribute`, 예: `PostSearchRequest`)로 받는다. 컨트롤러에서 `Pageable`을 직접 받지 않는다 (임의 `sort` 노출 방지, M4 검색 조건 확장).
 - 목록 정렬은 Repository 쿼리에 고정해 Repository 테스트로 검증한다.

@@ -38,8 +38,7 @@ frontend/src/
 │  ├ api/
 │  │  ├ server.ts   # 서버 컴포넌트용 fetch (API_INTERNAL_URL, server-only)
 │  │  ├ client.ts   # (M2) 브라우저용 fetch (/api/v1, CSRF 헤더, 401 시 refresh 후 재시도)
-│  │  ├ errors.ts   # ProblemDetail 파싱, ApiError
-│  │  ├ types.ts    # (M1 임시) 응답 타입 수작업 정의, M2에서 api.d.ts로 교체 후 삭제
+│  │  ├ errors.ts   # ProblemDetail 타입(명세에 없어 직접 정의)·파싱, ApiError
 │  │  ├ posts.ts
 │  │  └ auth.ts
 │  ├ date.ts        # UTC → KST 표시 변환 (formatDate, YYYY.MM.DD)
@@ -150,12 +149,22 @@ CI에서 프론트 이미지를 빌드할 때는 백엔드가 없다. `next buil
 - 최소 구성: `vitest`, `vitest.config.mts`(`resolve: { tsconfigPaths: true }`로 `@/` 별칭 해석, Vite 내장 기능이라 `vite-tsconfig-paths` 플러그인은 쓰지 않는다), `"test": "vitest run"`. React Testing Library·jsdom은 컴포넌트 테스트가 필요해질 때 추가한다.
 - `vitest`는 정확한 버전으로 고정한다(`^` 없음). Vitest는 메이저가 7~9개월마다 나와 깨지는 변경이 있으므로, 메이저 업그레이드는 별도 이슈로 한다.
 
-### 스크립트
+### API 타입 생성
 ```json
 "scripts": {
   "gen:api": "openapi-typescript http://localhost:8080/v3/api-docs -o src/types/api.d.ts"
 }
 ```
+- **실행**: 백엔드를 `local` 프로필로 띄운 상태(Postgres 필요, Swagger는 `local`에서만 켜진다)에서 `npm run gen:api`를 실행하고 `src/types/api.d.ts`를 커밋한다. 직접 수정하지 않는다. CI에 백엔드가 없어도 프론트가 빌드되도록 파일을 커밋한다 (2-3).
+- **버전**: `openapi-typescript`는 정확한 버전으로 고정한다(`^` 없음, devDependency). 버전이 바뀌면 같은 명세에서도 출력이 달라져 재생성 diff에 섞이므로, 올리는 일은 별도 이슈로 한다.
+- **린트**: 생성 파일은 ESLint 대상에서 뺀다(`eslint.config.mjs`의 `globalIgnores`에 `src/types/api.d.ts`). 타입 검사(`tsc`)는 그대로 거친다.
+- **타입 사용**: 별칭 파일을 두지 않는다 (`lib/api/types.ts`는 삭제). 사용하는 파일에서 `import type { components } from "@/types/api"`로 받고, 쓰는 스키마만 파일 상단에 한 줄 별칭으로 둔다 (`type PostSummary = components["schemas"]["PostSummaryResponse"];`). 스키마 이름(`...Response`)과 화면에서 부르는 이름이 달라도 파일 안에서만 보이는 별칭이라 충분하고, 공용 별칭 파일은 명세 변경을 한 번 더 따라가야 하는 두 번째 목록이 되기 때문이다.
+  - 제네릭 `PageResponse<T>`는 springdoc이 `PageResponsePostSummaryResponse`처럼 스키마마다 펼쳐 놓는다. 그 스키마를 그대로 쓰고 제네릭 별칭은 만들지 않는다.
+  - 날짜는 `format: date-time`이어도 생성 타입이 `string`이다. 지금처럼 `string`으로 받고 `formatDate`로 변환한다.
+  - 명세에 없는 `ProblemDetail`(`code`, `errors` 확장)은 `errors.ts`에 직접 정의한다. 오류 응답은 이미 `Partial<ProblemDetail>`로 방어적으로 파싱하고(Nginx HTML 등 ProblemDetail이 아닌 응답이 올 수 있다), 에러 응답을 명세에 싣지 않는다 (5장).
+- **명세가 실제 응답과 다를 때**: 프론트 타입을 손으로 고치지 않고 백엔드에서 고친다 (5장 'OpenAPI 명세'). 고친 뒤 `gen:api`를 다시 실행한다.
+- **재생성 누락 방지**: 자동 검사(CI)는 두지 않는다. 프론트 CI에는 백엔드·DB가 없고, 검사하려면 백엔드 CI에서 앱을 띄워 명세를 뽑아 커밋된 파일과 비교해야 해 관리자 1명인 블로그에는 비용이 크다. 대신 컨트롤러 시그니처나 응답 DTO를 바꾸는 PR은 같은 PR에서 `gen:api`를 다시 실행해 커밋한다. 누락으로 타입이 어긋난 일이 반복되면 CI 검사를 도입한다.
+- **확인**: 생성 직후 `npx tsc --noEmit`이 통과해야 한다. 응답 필드의 `?`(선택)가 남아 있으면 5장의 `required` 규칙이 빠진 것이다.
 
 ---
 
