@@ -1,4 +1,13 @@
-import type { ProblemDetail } from "@/lib/api/types";
+// 오류 응답은 OpenAPI 명세에 싣지 않으므로 생성 타입에 없다
+interface ProblemDetail {
+  type: string;
+  title: string;
+  status: number;
+  detail: string;
+  instance: string;
+  code: string;
+  errors: { field: string; reason: string }[];
+}
 
 const GENERIC_MESSAGE = "요청을 처리하지 못했습니다. 잠시 후 다시 시도해 주세요.";
 

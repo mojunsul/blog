@@ -1,5 +1,7 @@
 import { PostCard } from "@/components/post/PostCard";
-import type { PostSummary } from "@/lib/api/types";
+import type { components } from "@/types/api";
+
+type PostSummary = components["schemas"]["PostSummaryResponse"];
 
 export function PostList({ posts }: { posts: PostSummary[] }) {
   return (
