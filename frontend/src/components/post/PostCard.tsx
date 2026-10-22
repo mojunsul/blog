@@ -1,7 +1,9 @@
 import Link from "next/link";
 
-import type { PostSummary } from "@/lib/api/types";
+import type { components } from "@/types/api";
 import { formatDate } from "@/lib/date";
+
+type PostSummary = components["schemas"]["PostSummaryResponse"];
 
 export function PostCard({ post }: { post: PostSummary }) {
   return (

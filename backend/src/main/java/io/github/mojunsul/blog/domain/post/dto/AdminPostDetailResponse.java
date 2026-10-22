@@ -5,19 +5,20 @@ import java.util.List;
 
 import io.github.mojunsul.blog.domain.post.entity.Post;
 import io.github.mojunsul.blog.domain.post.entity.PostStatus;
+import io.swagger.v3.oas.annotations.media.Schema;
 
 public record AdminPostDetailResponse(
 	Long id,
 	String title,
 	String slug,
-	String summary,
+	@Schema(nullable = true) String summary,
 	String content,
-	String thumbnailUrl,
+	@Schema(nullable = true) String thumbnailUrl,
 	PostStatus status,
-	Long categoryId,
-	PostCategoryResponse category,
+	@Schema(nullable = true) Long categoryId,
+	@Schema(nullable = true) PostCategoryResponse category,
 	List<String> tags,
-	Instant publishedAt,
+	@Schema(nullable = true) Instant publishedAt,
 	Instant createdAt,
 	Instant updatedAt) {
 

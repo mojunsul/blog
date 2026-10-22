@@ -12,6 +12,8 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // 생성 파일 (npm run gen:api)
+    "src/types/api.d.ts",
   ]),
 ]);
 

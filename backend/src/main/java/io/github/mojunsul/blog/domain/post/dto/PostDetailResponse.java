@@ -4,15 +4,16 @@ import java.time.Instant;
 import java.util.List;
 
 import io.github.mojunsul.blog.domain.post.entity.Post;
+import io.swagger.v3.oas.annotations.media.Schema;
 
 public record PostDetailResponse(
 	Long id,
 	String title,
 	String slug,
-	String summary,
+	@Schema(nullable = true) String summary,
 	String content,
-	String thumbnailUrl,
-	PostCategoryResponse category,
+	@Schema(nullable = true) String thumbnailUrl,
+	@Schema(nullable = true) PostCategoryResponse category,
 	List<String> tags,
 	Instant publishedAt,
 	Instant updatedAt) {
