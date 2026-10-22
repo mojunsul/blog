@@ -4,14 +4,15 @@ import java.time.Instant;
 
 import io.github.mojunsul.blog.domain.post.entity.Post;
 import io.github.mojunsul.blog.domain.post.entity.PostStatus;
+import io.swagger.v3.oas.annotations.media.Schema;
 
 public record AdminPostSummaryResponse(
 	Long id,
 	String title,
 	String slug,
 	PostStatus status,
-	PostCategoryResponse category,
-	Instant publishedAt,
+	@Schema(nullable = true) PostCategoryResponse category,
+	@Schema(nullable = true) Instant publishedAt,
 	Instant createdAt,
 	Instant updatedAt) {
 
