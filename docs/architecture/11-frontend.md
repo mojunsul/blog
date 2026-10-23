@@ -300,9 +300,9 @@ CI에서 프론트 이미지를 빌드할 때는 백엔드가 없다. `next buil
 1. 목록의 "새 글" → `/admin/posts/new`. 카테고리 선택에 "카테고리 없음"과 "{name} ({slug})" 항목, 상태 기본값 "작성 중". 값을 채워 저장 → `POST` `201` 뒤 `/admin/posts`, 목록 맨 위에 그 글
 2. `postSchema` 규칙 (요청 본문은 `Network`의 `POST` 페이로드로 본다)
    - 필수·형식: 빈 폼 저장 → 제목·slug·본문 아래 필수 문구, `Network`에 `POST` 없음. 공백만 있는 제목·본문, `My Slug`·` my-slug`(앞 공백), 201자 slug, `ftp://a`·`https://a b` 썸네일 → 각 문구
-   - 길이 경계: 201자 제목, 501자 요약, 100,001자 본문, 501자 썸네일 URL → 각 길이 문구 (200·500·100,000·500자는 통과). 앞뒤 공백을 붙인 500자 요약·500자 썸네일 URL도 통과하고, 요청 본문에는 공백을 지운 값이 간다
-   - 제어 문자·NUL: DevTools 콘솔에서 값을 넣고 저장 → 각 문구. 대상은 제목·썸네일 URL에 `\t`, 요약·본문에 `\u0000` (`Tab` 키는 포커스를 옮겨 입력되지 않는다). 넣는 방법: `Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set.call(el, 값)`(`textarea`는 `HTMLTextAreaElement`) 뒤 `el.dispatchEvent(new Event("input", { bubbles: true }))`. React는 루트에서 버블 단계로 이벤트를 받으므로 `bubbles: true`가 없으면 폼 값이 바뀌지 않는다
-   - 공백 처리: 앞뒤 공백이 있는 제목은 지운 값으로 저장된다. 앞뒤에 공백·줄바꿈이 있는 본문은 요청 본문에 그대로 간다. 공백만 있는 요약·썸네일 URL은 오류 없이 저장되고 요청 본문은 `""`, 응답의 `summary`·`thumbnailUrl`은 `null`
+   - 길이 경계: 201자 제목, 501자 요약, 100,001자 본문, 501자 썸네일 URL → 각 길이 문구 (200·500·100,000·500자는 통과). 200자 slug, 앞뒤 공백을 붙인 200자 제목·500자 요약·500자 썸네일 URL도 통과하고, 요청 본문에는 공백을 지운 값이 간다
+   - 제어 문자·NUL: DevTools 콘솔에서 값을 넣고 저장 → 각 문구. 대상은 제목에 `a\tb`, 썸네일 URL에 `https://a\u0001b`, 요약·본문에 `\u0000` (`Tab` 키는 포커스를 옮겨 입력되지 않는다). 제목·썸네일 URL은 앞뒤 공백을 지우므로 제어 문자를 가운데에 넣고, 썸네일 URL은 `\s`에 들지 않는 제어 문자로 `\p{Cc}` 검사를 본다. 넣는 방법: `Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set.call(el, 값)`(`textarea`는 `HTMLTextAreaElement`) 뒤 `el.dispatchEvent(new Event("input", { bubbles: true }))`. React는 루트에서 버블 단계로 이벤트를 받으므로 `bubbles: true`가 없으면 폼 값이 바뀌지 않는다
+   - 공백 처리: 앞뒤 공백이 있는 제목은 지운 값으로 저장된다. 앞뒤에 공백·줄바꿈이 있는 본문은 요청 본문에 그대로 간다. 공백만 있는 요약·썸네일 URL은 오류 없이 저장되고 요청 본문은 `""`. `POST` 응답에는 두 필드가 없으므로, 저장한 글의 수정 화면을 열어 `GET /admin/posts/{id}` 응답의 `summary`·`thumbnailUrl`이 `null`이고 두 칸이 비어 있는지 본다
 3. 이미 있는 slug로 저장 → slug 아래 "이미 사용 중인 slug입니다.", 입력 유지. 폼을 연 뒤 그 카테고리를 `DELETE /api/v1/admin/categories/{id}`로 지우고 그 카테고리로 저장 → 카테고리 아래 "카테고리를 찾을 수 없습니다."
 4. 목록의 제목 링크 → `/admin/posts/{id}/edit`에 값이 채워진다 (카테고리 없는 글은 "카테고리 없음", `null`인 요약·썸네일은 빈 칸). 수정 후 저장 → `PUT` `200` 뒤 목록의 수정일 반영. 카테고리를 "카테고리 없음"으로 저장 → 목록의 카테고리 "-". 카테고리 있는 글의 수정 화면에서 DevTools Local Overrides로 `GET /categories` 응답에서 그 카테고리를 빼고 새로고침 → "카테고리 없음"으로 보이고, 그대로 저장 → `PUT` 본문에 `categoryId` 없음, `200`
 5. `PUBLISHED` 글의 slug를 바꿔 저장 → confirm에 불러온 slug, 취소 → 요청 없음, 확인 → 저장. `DRAFT` 글의 slug 변경은 confirm 없음
