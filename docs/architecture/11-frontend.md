@@ -20,8 +20,8 @@ frontend/src/
 │  ├ admin/
 │  │  ├ login/page.tsx              # /admin/login
 │  │  └ (dashboard)/
-│  │     ├ layout.tsx               # 관리자 레이아웃 (AdminAuthGuard로 감쌈, 메뉴는 #76)
-│  │     ├ page.tsx                 # /admin (임시 화면, #76에서 /admin/posts로 이동하도록 교체)
+│  │     ├ layout.tsx               # 관리자 레이아웃 (AdminAuthGuard로 감쌈, 메뉴·로그아웃)
+│  │     ├ page.tsx                 # /admin → /admin/posts 이동 (redirect)
 │  │     ├ posts/page.tsx           # /admin/posts
 │  │     ├ posts/new/page.tsx       # /admin/posts/new
 │  │     ├ posts/[id]/edit/page.tsx # /admin/posts/{id}/edit
@@ -34,19 +34,21 @@ frontend/src/
 │  ├ ui/            # Button, Input 등 공통
 │  ├ post/          # PostCard, PostList, Pagination, TagBadge(M4)
 │  ├ markdown/      # MarkdownRenderer (서버 컴포넌트)
-│  └ admin/         # LoginForm, AdminAuthGuard, PostForm, MarkdownPreview
+│  └ admin/         # LoginForm, AdminAuthGuard, LogoutButton, AdminPostList, PostForm, MarkdownPreview
 ├ lib/
 │  ├ api/
 │  │  ├ server.ts   # 서버 컴포넌트용 fetch (API_INTERNAL_URL, server-only)
 │  │  ├ client.ts   # (M2) 브라우저용 fetch (/api/v1, CSRF 헤더, 401 시 refresh 후 재시도)
 │  │  ├ errors.ts   # ProblemDetail 타입(명세에 없어 직접 정의)·파싱, ApiError
 │  │  ├ posts.ts
-│  │  └ auth.ts     # 브라우저용 login·logout·getMe (client.ts 사용)
+│  │  ├ auth.ts     # 브라우저용 login·logout·getMe (client.ts 사용)
+│  │  └ admin-posts.ts # 브라우저용 관리자 글 API (getAdminPosts, deletePost, client.ts 사용)
 │  ├ cookie.ts      # 쿠키 문자열에서 값 읽기 (readCookie)
 │  ├ next-path.ts   # 로그인 후 이동 경로 해석 (parseNextParam)
 │  ├ single-flight.ts # 동시 호출을 한 번의 실행으로 합침 (singleFlight)
 │  ├ date.ts        # UTC → KST 표시 변환 (formatDate, YYYY.MM.DD)
 │  ├ pagination.ts  # URL의 page 쿼리 해석 (parsePageParam)
+│  ├ post-status.ts # URL의 status 쿼리 해석 (parseStatusParam)
 │  ├ slug.ts        # slug 형식 검사 (isValidSlug, 6장 slug 규칙)
 │  └ utils.ts
 ├ schemas/
@@ -67,7 +69,9 @@ frontend/src/
   - `'use cache'` 함수·컴포넌트를 요청 시점 API(`params`, `searchParams`, `connection()`) 없이 호출하면 빌드 때 실행되어 정적 셸에 들어간다(= 빌드 중 백엔드 호출). 반드시 요청 시점 API를 거친 뒤 호출한다.
 - **관리자 페이지**: 클라이언트 컴포넌트, 브라우저에서 `/api/v1` 직접 호출.
 - 화면 접근 제어는 `AdminAuthGuard`(클라이언트)가 하는 이동 편의용이다. **실제 권한 검증은 Spring Security가 담당한다.** 자세한 내용은 '관리자 인증'.
-- 관리자가 글을 저장·수정·삭제해도 공개 페이지는 데이터 캐시 주기에 따라 최대 60초 후 반영된다(본문이 바뀌면 `MarkdownRenderer`의 캐시 키도 바뀐다). 즉시 반영(on-demand revalidate)은 M5 이후 검토한다.
+- 관리자가 글을 저장·수정·삭제해도 공개 페이지는 바로 바뀌지 않는다(본문이 바뀌면 `MarkdownRenderer`의 캐시 키도 바뀐다). 즉시 반영(on-demand revalidate)은 M5 이후 검토한다.
+  - 데이터 캐시는 stale-while-revalidate다: `revalidate` 60초가 지난 뒤 첫 요청은 이전 내용을 받으면서 백그라운드 갱신을 시작하고, 그다음 요청부터 새 내용을 받는다. `expire`를 정하지 않아(만료 없음) 요청이 없으면 갱신도 없으므로 반영 지연에 상한이 없다.
+  - 사이트 안 링크 이동은 클라이언트 캐시(`stale`, 기본 5분)를 먼저 쓰므로 더 늦게 보일 수 있다. 새로고침은 이 캐시를 거치지 않는다.
 
 ### 빌드 시 API 의존 제거
 CI에서 프론트 이미지를 빌드할 때는 백엔드가 없다. `next build`가 데이터 fetch를 하는 페이지를 미리 렌더링하면 빌드가 실패한다.
@@ -141,19 +145,76 @@ CI에서 프론트 이미지를 빌드할 때는 백엔드가 없다. `next buil
   - 400은 Zod가 같은 규칙으로 먼저 막으므로 거의 나오지 않는다. 필드별 서버 오류 표시는 하지 않고 위 일반 문구로 둔다.
 
 **화면 확인** (백엔드 `local` 프로필 + Postgres + 관리자 계정 환경변수로 `next dev`를 띄워 DevTools로 본다. 완료 조건의 확인 수단이다)
-1. 로그아웃 상태에서 `/admin` 접근 → `/admin/login?next=%2Fadmin`으로 이동 (`Network`에 `auth/me` 401 → `auth/refresh` 401)
-2. 잘못된 비밀번호 → "아이디 또는 비밀번호가 올바르지 않습니다.", 이동·새로고침 없음. 올바른 값 → `/admin` (`next`가 있으면 그 경로)
+1. 로그아웃 상태에서 `/admin/posts` 접근 → `/admin/login?next=%2Fadmin%2Fposts`로 이동 (`Network`에 `auth/me` 401 → `auth/refresh` 401)
+2. 잘못된 비밀번호 → "아이디 또는 비밀번호가 올바르지 않습니다.", 이동·새로고침 없음. 올바른 값 → `/admin`(→ `/admin/posts`) (`next`가 있으면 그 경로)
 3. `XSRF-TOKEN` 쿠키를 지우고 로그인 → `auth/csrf` 호출이 로그인 요청 앞에 나가고 로그인이 성공 (`403` 없음)
 4. 로그인한 뒤 `access_token` 쿠키만 지우고 `/admin` 새로고침 → `auth/me` 401 → `auth/refresh` 204 → `auth/me` 200으로 화면 표시 (로그인 화면으로 가지 않음)
-5. `access_token`·`refresh_token`을 모두 지우고 `/admin` 새로고침 → `/admin/login?next=%2Fadmin`
-6. 로그아웃 버튼 → `/admin/login`, 두 쿠키 삭제, 다시 `/admin` 접근 시 1번과 같음
-7. `/admin/login?next=//evil.com`, `?next=https://evil.com`, `?next=//evil.com&next=/admin/posts`(첫 값이 잘못됨)로 로그인 → `/admin`으로 이동. `?next=/admin/posts&next=//evil.com`(첫 값이 유효)은 `/admin/posts`
+5. `access_token`·`refresh_token`을 모두 지우고 `/admin/posts` 새로고침 → `/admin/login?next=%2Fadmin%2Fposts`
+6. 로그아웃 버튼 → `/admin/login`, 두 쿠키 삭제, 다시 `/admin` 접근 시 `/admin/login?next=%2Fadmin` (`Network`는 1번과 같음)
+7. `/admin/login?next=//evil.com`, `?next=https://evil.com`, `?next=//evil.com&next=/admin/posts`(첫 값이 잘못됨)로 로그인 → `/admin`(→ `/admin/posts`)으로 이동. `?next=/admin/posts&next=//evil.com`(첫 값이 유효)은 `/admin/posts`
 8. `.env.local` 없이 `API_INTERNAL_URL`을 비운 채 `npm run build`와 `npx next typegen` 성공 (CI와 같은 조건)
-- 동시 요청이 재발급을 한 번만 보내는 것은 `singleFlight` 단위 테스트로 본다 (화면에서는 재현하기 어렵다. #76의 글 목록처럼 한 화면이 API를 여럿 부르게 되면 4번을 그 화면에서 다시 본다).
+- 동시 요청이 재발급을 한 번만 보내는 것은 `singleFlight` 단위 테스트로 본다 (화면에서는 재현하기 어렵다. 관리자 글 목록은 가드의 `auth/me`가 끝난 뒤 목록을 부르므로 요청이 겹치지 않는다. 4번은 '관리자 글 목록'의 화면 확인에서 `/admin/posts`로 다시 본다).
 
 **로그아웃**
-- 위치는 관리자 레이아웃의 메뉴 영역이다 (#76이 만든다). #75는 `logout()`(`lib/api/auth.ts`, `POST /auth/logout`)과 `/admin` 임시 화면의 로그아웃 버튼까지 만든다. 성공하면 `window.location.assign("/admin/login")`로 이동한다 (전체 새로고침으로 화면의 인증 상태를 모두 버린다).
-- 로그아웃은 서버가 인증 없이 받고 쿠키가 없어도 `204`라(8-3) 401 처리는 필요 없다. 실패(네트워크, 5xx, 429)하면 이동하지 않고 버튼이 그대로 남아 다시 누를 수 있다. 오류 문구 표시는 #76에서 레이아웃과 함께 정한다.
+- 위치는 관리자 레이아웃의 메뉴 영역이다 ('관리자 글 목록'). `LogoutButton`이 `logout()`(`lib/api/auth.ts`, `POST /auth/logout`)을 부르고, 성공하면 `window.location.assign("/admin/login")`로 이동한다 (전체 새로고침으로 화면의 인증 상태를 모두 버린다).
+- 로그아웃은 서버가 인증 없이 받고 쿠키가 없어도 `204`라(8-3) 401 처리는 필요 없다. 실패(네트워크, 5xx, 429)하면 이동하지 않고 버튼 옆에 "로그아웃하지 못했습니다. 다시 시도해 주세요."를 보여 준다 (`role="alert"`). 버튼은 요청 중에만 막고 실패 뒤 다시 누를 수 있다. 다시 누르면 문구를 지운다.
+
+### 관리자 글 목록 (`/admin/posts`)
+**레이아웃** (`admin/(dashboard)/layout.tsx`, 서버 컴포넌트)
+- `AdminAuthGuard` 안에 헤더와 `children`을 둔다. 헤더도 인증 확인 뒤에만 보인다.
+- 헤더: 메뉴 링크 "글"(`/admin/posts`), "카테고리"(`/admin/categories`, 화면은 #78)와 `LogoutButton`('로그아웃'). 현재 메뉴 강조는 하지 않는다 (메뉴가 둘이고, 강조하려면 `usePathname` 때문에 헤더가 클라이언트 컴포넌트가 된다).
+- `/admin`(`page.tsx`)은 `redirect("/admin/posts")`만 한다. 로그인 후 기본 이동 경로(`parseNextParam`의 `/admin`)는 그대로 두고 여기서 넘긴다. 이 `redirect`는 `children` 자리에서 렌더링될 때 동작하는데(응답은 200이고 RSC 페이로드로 이동한다) 가드가 인증 전에 `children`을 그리지 않으므로, 로그아웃 상태의 `/admin`은 가드의 401 처리로 `/admin/login?next=%2Fadmin`으로 간다. 로그인 뒤 `/admin`으로 돌아와 `/admin/posts`로 넘어가므로 결과는 같아, `next.config.ts` `redirects()`로 렌더링 전에 넘기지 않는다.
+
+**URL** (`/admin/posts?status=S&page=N`)
+- `page`: 공개 목록('글 목록 페이지')과 같은 규칙이다. `parsePageParam`으로 해석하고 1부터 세며 API에는 `page - 1`, 첫 페이지 링크는 `page`를 뺀다. 크기는 API 기본값(10).
+- `status`: `lib/post-status.ts`의 순수 함수 `parseStatusParam(value: string | string[] | undefined)`가 해석한다. 없으면 전체(`undefined`), 정확히 `DRAFT`·`PUBLISHED`면 그 값, 그 외(`?status=`, `draft`, 앞뒤 공백, 없는 값, 같은 키 여러 개)는 잘못된 값(`null`)이다.
+  - API(8-4)보다 엄격한 이유는 `page`와 같다: 화면 링크는 정해진 값만 만들고, 사용자가 고친 URL은 API를 부르기 전에 거른다.
+- 링크 주소는 `status`(있을 때), `page`(2 이상일 때) 순서의 쿼리로 만든다 (`/admin/posts?status=DRAFT&page=2`). `Pagination`의 `pageHref`도 이 규칙으로 현재 `status`를 유지한다.
+- 잘못된 `page`·`status`는 API를 부르지 않고 "잘못된 주소입니다."와 "글 목록으로"(`/admin/posts`) 링크를 보여 준다. `notFound()`를 쓰지 않는다: 관리자 화면은 색인 대상이 아니고, 관리자 레이아웃 안에서 바로 목록으로 돌아갈 수 있게 한다.
+
+**구성**
+- `posts/page.tsx`(서버 컴포넌트): `Suspense`(fallback "불러오는 중...") 안의 비동기 컴포넌트가 `searchParams`를 읽어 위 두 함수로 해석하고, 유효하면 `AdminPostList`(클라이언트, `components/admin/`)에 `page`, `status`를 넘긴다. 공개 목록과 같은 해석 함수를 같은 입력 형태로 쓰기 위해서다 (`useSearchParams`는 `URLSearchParams`라 형태가 다르다). 데이터는 서버에서 부르지 않는다 ('렌더링 전략').
+- `AdminPostList`는 `useEffect`에서 `getAdminPosts({ page: page - 1, status })`를 부르고, `page`·`status`가 바뀌면 다시 부른다. 앞선 요청의 응답이 늦게 오면 effect 정리 함수에서 표시한 값으로 버린다. 화면 하나라 데이터 패칭 라이브러리(SWR, TanStack Query)는 쓰지 않는다.
+- `lib/api/admin-posts.ts`(`client.ts` 사용, 타입은 `api.d.ts`의 `PageResponseAdminPostSummaryResponse`)
+  - `getAdminPosts({ page, status })`: `GET /admin/posts?page=…&status=…` (`status`가 없으면 넣지 않는다)
+  - `deletePost(id)`: `DELETE /admin/posts/{id}`
+- `useEffect` 안의 오류는 Next 오류 화면으로 가지 않으므로 네트워크 오류도 아래 표대로 화면에서 다룬다 ('에러 처리'의 "그대로 던진다"는 서버 컴포넌트 기준).
+
+**화면**
+- 제목 "글"과 "새 글" 링크(`/admin/posts/new`, 화면은 #77). 그 아래 안내 한 줄: "저장·삭제한 내용은 1분이 지난 뒤 공개 페이지를 열면 갱신되며, 한 번 더 새로고침해야 보일 수 있습니다." ('렌더링 전략'의 반영 지연. 방문이 없으면 갱신되지 않는 것까지는 적지 않는다: 관리자는 보통 직접 열어 확인한다)
+- 상태 필터: 링크 "전체"·"작성 중"·"발행됨"(`/admin/posts`, `?status=DRAFT`, `?status=PUBLISHED`, 바꾸면 첫 페이지). 현재 필터는 `aria-current="page"`로 표시한다.
+- 표 열: 제목(`/admin/posts/{id}/edit` 링크, 화면은 #77), 상태(`DRAFT` "작성 중", `PUBLISHED` "발행됨"), 카테고리(이름, 없으면 "-"), 발행일(`formatDate`, `publishedAt`이 `null`이면 "-"), 수정일(`formatDate(updatedAt)`), 삭제 버튼. 순서는 API 정렬(`id` 내림차순) 그대로다.
+- `Pagination`은 공개 목록과 같은 컴포넌트에 위 링크 규칙의 `pageHref`를 넘긴다.
+- 상태별 표시 (제목·필터·안내는 항상 보인다)
+  | 상태 | 화면 |
+  |---|---|
+  | 불러오는 중 (처음, `page`·`status` 변경, 삭제 뒤 다시 불러올 때 모두) | "불러오는 중..." (이전 표는 지운다. 그래서 다시 불러오는 동안에는 삭제 버튼이 없다) |
+  | 첫 페이지 `content`가 빔 | "글이 없습니다." |
+  | 2페이지 이상인데 `content`가 빔 | "이 페이지에는 글이 없습니다."와 "첫 페이지로" 링크(현재 `status` 유지) |
+  | `401` | `client.ts`가 로그인 화면으로 이동시키므로 "불러오는 중..."을 유지한다 (`AdminAuthGuard`와 같다) |
+  | 그 외 `ApiError`(400, 403, 429, 5xx)·네트워크 오류 | "글 목록을 불러오지 못했습니다. 새로고침해 주세요." |
+
+**삭제**
+- 버튼을 누르면 `window.confirm("\"{제목}\" 글을 삭제할까요? 되돌릴 수 없습니다.")`로 묻고, 취소하면 요청하지 않는다. 관리자 1명이라 확인 모달 컴포넌트를 따로 만들지 않는다.
+- 요청 중에는 모든 삭제 버튼을 막아 중복 요청을 막는다.
+  | 결과 | 화면 |
+  |---|---|
+  | `204` | 현재 `page`·`status`로 목록을 다시 불러온다 |
+  | `404` (`POST_NOT_FOUND`, 다른 탭 등에서 이미 삭제) | 바라던 상태라 문구 없이 목록을 다시 불러온다 |
+  | `401` | `client.ts`가 로그인 화면으로 이동시킨다 (문구 없음) |
+  | 그 외 `ApiError`(403, 429, 5xx, csrf 호출 실패)·네트워크 오류 | `window.alert("삭제하지 못했습니다. 잠시 후 다시 시도해 주세요.")`, 목록은 그대로 둔다 |
+- 다시 불러오기(`204`·`404` 뒤)의 표시와 실패는 위 상태별 표를 따른다 (실패하면 "글 목록을 불러오지 못했습니다. 새로고침해 주세요.").
+- 마지막 페이지의 마지막 글을 지우면 다시 불러온 페이지가 비어 "이 페이지에는 글이 없습니다." 화면이 된다. 앞 페이지로 자동 이동하지 않는다.
+
+**화면 확인** ('관리자 인증'의 화면 확인과 같은 환경. local 프로필은 시작할 때 글이 없으면 시드 글을 넣으므로, 1번 전에 시드 글을 모두 `DELETE /api/v1/admin/posts/{id}`로 지워 글이 없는 상태를 만들고, 1번을 볼 때까지 백엔드를 재시작하지 않는다. 그 뒤 글을 DRAFT·PUBLISHED를 섞어 11개 이상 `POST /api/v1/admin/posts`로 만든다. "불러오는 중..."과 버튼 막기는 DevTools `Network` 스로틀링(Slow 4G 등)으로 본다. 완료 조건의 확인 수단이다)
+1. 로그인 후 `/admin` → `/admin/posts`. 헤더의 "글"·"카테고리"·로그아웃, 제목·필터·공개 반영 안내 문구, "글이 없습니다."가 보인다. 로그아웃 상태의 `/admin` → `/admin/login?next=%2Fadmin`, 로그인하면 `/admin/posts`
+2. 목록이 `id` 내림차순 10개, "다음"으로 `?page=2`. 필터 "작성 중"·"발행됨"이 그 상태만 보이고 `page`가 빠진다. 2페이지에서 "이전"·"다음" 링크가 `status`를 유지한다. 발행한 적 없는 DRAFT의 발행일은 "-"
+3. `?page=0`, `?page=abc`, `?status=draft`, `?status=`, `?status=DRAFT&status=PUBLISHED` → "잘못된 주소입니다.", `Network`에 `admin/posts` 요청 없음. `?page=999` → "이 페이지에는 글이 없습니다."와 "첫 페이지로"(`/admin/posts`), `?status=DRAFT&page=999`의 "첫 페이지로"는 `/admin/posts?status=DRAFT`
+4. confirm 문구에 그 글의 제목이 들어간다. 삭제 취소 → 요청 없음. 확인 → `DELETE` `204` 뒤 목록 다시 불러옴 (스로틀링 시 `DELETE` 중 모든 삭제 버튼이 막히고, 다시 불러오는 동안 "불러오는 중..."). 다른 탭에서 먼저 지운 글을 삭제 → `404`, 문구 없이 목록 갱신. DevTools로 `admin/posts/*` 요청을 막고 삭제 → alert. `admin/posts?*`(목록 조회)만 막고 삭제 → `204` 뒤 "글 목록을 불러오지 못했습니다. 새로고침해 주세요."
+5. DevTools로 `admin/posts?*` 요청을 막고 새로고침 → "글 목록을 불러오지 못했습니다. 새로고침해 주세요." 스로틀링 시 필터·페이지 링크로 이동하면 응답 전까지 이전 표 대신 "불러오는 중..."
+6. `access_token`만 지우고 `/admin/posts` 새로고침 → `auth/me` 401 → `auth/refresh` 204 → `auth/me` 200 → `admin/posts` 200
+7. 스로틀링 시 로그아웃 요청 중 버튼이 막힌다. DevTools로 `auth/logout`을 막고 로그아웃 → 오류 문구, 막기를 풀고 다시 누르면 문구가 지워지고 `/admin/login`
+8. `.env.local` 없이 `npm run build`와 `npx next typegen` 성공 ('관리자 인증' 8번과 같다)
 
 ### 날짜 표시
 - KST `YYYY.MM.DD` (`2026.10.11`). 내장 `Intl.DateTimeFormat('ko-KR', { timeZone: 'Asia/Seoul', year: 'numeric', month: '2-digit', day: '2-digit' })`의 `formatToParts`로 조립한다 (`timeZone`을 명시해 서버 시간대와 무관하게 동작).
@@ -172,7 +233,7 @@ CI에서 프론트 이미지를 빌드할 때는 백엔드가 없다. `next buil
 - `PostCard` 표시 항목: 제목(`/posts/{slug}` 링크), 요약(있을 때), 카테고리 이름(있을 때, 텍스트만. 카테고리 페이지는 M4), 발행일(`formatDate`).
   - 썸네일은 M1에서 표시하지 않는다 (업로드는 M6이고, 외부 URL은 `next/image` 허용 도메인 설정이 필요하다).
   - 태그는 M4 전까지 항상 `[]`이므로 표시하지 않는다.
-- 페이지 이동(`Pagination`): "이전"·"다음" 링크와 현재 위치(`2 / 3`)만 둔다. "이전"은 `page > 1`, "다음"은 `hasNext`일 때 보이고, 전체가 한 페이지 이내면 영역을 숨긴다. 페이지 번호 목록은 글이 많아지면 검토한다.
+- 페이지 이동(`Pagination`): "이전"·"다음" 링크와 현재 위치(`2 / 3`)만 둔다. 링크 주소는 `pageHref(page)` prop으로 받는다 (이 페이지는 위의 `/`·`/?page=N` 규칙, 관리자 목록은 '관리자 글 목록'). "이전"은 `page > 1`, "다음"은 `hasNext`일 때 보이고, 전체가 한 페이지 이내면 영역을 숨긴다. 페이지 번호 목록은 글이 많아지면 검토한다.
 - 글이 하나도 없으면(첫 페이지 `content`가 빔) "아직 작성된 글이 없습니다." 문구를 보여 준다.
 - 레이아웃: `app/page.tsx`를 `app/(public)/page.tsx`로 옮기고, `(public)/layout.tsx`에 블로그 이름(`/` 링크) 헤더를 둔다. 푸터는 넣을 내용(RSS 링크 등)이 생기는 M5에서 추가한다.
 
@@ -208,14 +269,14 @@ CI에서 프론트 이미지를 빌드할 때는 백엔드가 없다. `next buil
 - 확인용 데이터: `LocalDataInitializer`의 시드 글에 raw HTML(`<script>`, `<img onerror>`)과 `javascript:` 링크, 언어 없는·모르는 언어 코드 블록을 넣어, 로컬에서 표·체크리스트·하이라이팅과 함께 안전하게 표시되는지 본다.
 - 캐시(`'use cache'` + `cacheLife('max')`, 정의는 '렌더링 전략')를 두는 이유
   - 상세 페이지는 매 요청 렌더링되므로('렌더링 전략'), 캐시하지 않으면 요청마다 Shiki가 실행된다. 또 Shiki는 토큰화할 때 `Date.now()`를 불러, 캐시 밖에서 실행되면 Next가 요청마다 `encountered the unstable value Date.now()` 로그를 남긴다. `connection()`으로 요청 시점 렌더링을 확정하면 로그는 없어지지만 요청마다 Shiki가 실행된다.
-  - 결과가 인자 `content`에만 달려 있고 인자가 캐시 키가 되므로, 글을 고치면 새 키가 된다. 같은 본문을 다시 하이라이팅할 이유가 없어 가장 긴 프로필(`max`)을 쓴다. 글 수정 반영 주기는 `getPost`의 60초가 정한다.
+  - 결과가 인자 `content`에만 달려 있고 인자가 캐시 키가 되므로, 글을 고치면 새 키가 된다. 같은 본문을 다시 하이라이팅할 이유가 없어 가장 긴 프로필(`max`)을 쓴다. 글 수정 반영은 `getPost`의 데이터 캐시('렌더링 전략'의 반영 지연)를 따른다.
 - `MarkdownRenderer`는 async 서버 컴포넌트라 단위 테스트하지 않는다. 렌더링 결과는 글 상세 페이지에서 시드 글로 확인한다.
 
 ### 프론트엔드 테스트
-- Vitest로 `lib/`의 로직이 있는 순수 함수만 단위 테스트한다 (`date.ts`, `errors.ts`의 파싱 함수, `pagination.ts`, `slug.ts`, `cookie.ts`, `next-path.ts`, `single-flight.ts`).
+- Vitest로 `lib/`의 로직이 있는 순수 함수만 단위 테스트한다 (`date.ts`, `errors.ts`의 파싱 함수, `pagination.ts`, `post-status.ts`, `slug.ts`, `cookie.ts`, `next-path.ts`, `single-flight.ts`).
   - `async` 서버 컴포넌트는 Vitest·Jest 모두 단위 테스트를 지원하지 않으므로 단위 테스트하지 않는다.
   - `server.ts`는 `server-only`가 테스트 환경에서 import 시 오류를 던지므로 단위 테스트하지 않는다 (실제 호출은 화면에서 확인).
-  - `client.ts`와 `auth.ts`(브라우저 전역·`fetch`에 기대는 파일), `loginSchema`(라이브러리 규칙을 그대로 선언)는 단위 테스트하지 않는다. 흐름은 '관리자 인증'의 화면 확인으로 본다.
+  - `client.ts`와 `auth.ts`·`admin-posts.ts`(브라우저 전역·`fetch`에 기대는 파일), `loginSchema`(라이브러리 규칙을 그대로 선언)는 단위 테스트하지 않는다. 흐름은 '관리자 인증'·'관리자 글 목록'의 화면 확인으로 본다.
 - 최소 구성: `vitest`, `vitest.config.mts`(`resolve: { tsconfigPaths: true }`로 `@/` 별칭 해석, Vite 내장 기능이라 `vite-tsconfig-paths` 플러그인은 쓰지 않는다), `"test": "vitest run"`. React Testing Library·jsdom은 컴포넌트 테스트가 필요해질 때 추가한다.
 - `vitest`는 정확한 버전으로 고정한다(`^` 없음). Vitest는 메이저가 7~9개월마다 나와 깨지는 변경이 있으므로, 메이저 업그레이드는 별도 이슈로 한다.
 

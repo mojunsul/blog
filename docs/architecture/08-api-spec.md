@@ -326,7 +326,7 @@ GET /api/v1/admin/posts?page=0&size=10&status=DRAFT
   - 수정의 flush에서 `ObjectOptimisticLockingFailureException`(UPDATE가 0행: `findWithCategoryById` 뒤 flush 전에 다른 요청이 그 글을 지움)이 나오면 `404` (`POST_NOT_FOUND`)로 바꾼다.
   - 수정은 글을 `PostRepository.findWithCategoryById`(단건 조회와 같은 메서드)로 읽는다. 응답이 `category`를 쓰므로 카테고리가 바뀌지 않는 경우에도 추가 쿼리가 나가지 않는다.
 - **관리자 행위 로그** (5장): 성공한 뒤에만 `PostService`가 `INFO`로 남긴다. 작성·수정은 `id`와 `slug`, 삭제는 `id`만 넣는다. `title`은 사용자 입력이라 줄바꿈 등으로 로그 줄을 위조할 수 있어 넣지 않는다 (카테고리 `name`과 같다). slug는 패턴 검증을 통과한 값이다. 실패(`404`·`409`)는 `GlobalExceptionHandler`의 `WARN`이 기록이다.
-- 공개 API(`/api/v1/posts`)는 변경 즉시 바뀐 DB 값을 돌려준다. 프론트의 캐시 무효화는 관리자 화면 이슈에서 다룬다.
+- 공개 API(`/api/v1/posts`)는 변경 즉시 바뀐 DB 값을 돌려준다. 공개 페이지 반영 지연(프론트 데이터 캐시의 stale-while-revalidate, 상한 없음)과 관리자 화면의 안내는 11장 '렌더링 전략'·'관리자 글 목록'.
 
 #### POST `/api/v1/admin/categories`
 요청 (`CategoryRequest` record, `@Valid @RequestBody`)
