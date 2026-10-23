@@ -150,7 +150,7 @@ CI에서 프론트 이미지를 빌드할 때는 백엔드가 없다. `next buil
 3. `XSRF-TOKEN` 쿠키를 지우고 로그인 → `auth/csrf` 호출이 로그인 요청 앞에 나가고 로그인이 성공 (`403` 없음)
 4. 로그인한 뒤 `access_token` 쿠키만 지우고 `/admin` 새로고침 → `auth/me` 401 → `auth/refresh` 204 → `auth/me` 200으로 화면 표시 (로그인 화면으로 가지 않음)
 5. `access_token`·`refresh_token`을 모두 지우고 `/admin/posts` 새로고침 → `/admin/login?next=%2Fadmin%2Fposts`
-6. 로그아웃 버튼 → `/admin/login`, 두 쿠키 삭제, 다시 `/admin` 접근 시 1번과 같음
+6. 로그아웃 버튼 → `/admin/login`, 두 쿠키 삭제, 다시 `/admin` 접근 시 `/admin/login?next=%2Fadmin` (`Network`는 1번과 같음)
 7. `/admin/login?next=//evil.com`, `?next=https://evil.com`, `?next=//evil.com&next=/admin/posts`(첫 값이 잘못됨)로 로그인 → `/admin`(→ `/admin/posts`)으로 이동. `?next=/admin/posts&next=//evil.com`(첫 값이 유효)은 `/admin/posts`
 8. `.env.local` 없이 `API_INTERNAL_URL`을 비운 채 `npm run build`와 `npx next typegen` 성공 (CI와 같은 조건)
 - 동시 요청이 재발급을 한 번만 보내는 것은 `singleFlight` 단위 테스트로 본다 (화면에서는 재현하기 어렵다. 관리자 글 목록은 가드의 `auth/me`가 끝난 뒤 목록을 부르므로 요청이 겹치지 않는다. 4번은 '관리자 글 목록'의 화면 확인에서 `/admin/posts`로 다시 본다).
@@ -163,7 +163,7 @@ CI에서 프론트 이미지를 빌드할 때는 백엔드가 없다. `next buil
 **레이아웃** (`admin/(dashboard)/layout.tsx`, 서버 컴포넌트)
 - `AdminAuthGuard` 안에 헤더와 `children`을 둔다. 헤더도 인증 확인 뒤에만 보인다.
 - 헤더: 메뉴 링크 "글"(`/admin/posts`), "카테고리"(`/admin/categories`, 화면은 #78)와 `LogoutButton`('로그아웃'). 현재 메뉴 강조는 하지 않는다 (메뉴가 둘이고, 강조하려면 `usePathname` 때문에 헤더가 클라이언트 컴포넌트가 된다).
-- `/admin`(`page.tsx`)은 `redirect("/admin/posts")`만 한다. 로그인 후 기본 이동 경로(`parseNextParam`의 `/admin`)는 그대로 두고 여기서 넘긴다. 리다이렉트가 가드보다 먼저라 로그아웃 상태의 `/admin`은 `/admin/login?next=%2Fadmin%2Fposts`로 간다.
+- `/admin`(`page.tsx`)은 `redirect("/admin/posts")`만 한다. 로그인 후 기본 이동 경로(`parseNextParam`의 `/admin`)는 그대로 두고 여기서 넘긴다. 이 `redirect`는 `children` 자리에서 렌더링될 때 동작하는데(응답은 200이고 RSC 페이로드로 이동한다) 가드가 인증 전에 `children`을 그리지 않으므로, 로그아웃 상태의 `/admin`은 가드의 401 처리로 `/admin/login?next=%2Fadmin`으로 간다. 로그인 뒤 `/admin`으로 돌아와 `/admin/posts`로 넘어가므로 결과는 같아, `next.config.ts` `redirects()`로 렌더링 전에 넘기지 않는다.
 
 **URL** (`/admin/posts?status=S&page=N`)
 - `page`: 공개 목록('글 목록 페이지')과 같은 규칙이다. `parsePageParam`으로 해석하고 1부터 세며 API에는 `page - 1`, 첫 페이지 링크는 `page`를 뺀다. 크기는 API 기본값(10).
@@ -207,7 +207,7 @@ CI에서 프론트 이미지를 빌드할 때는 백엔드가 없다. `next buil
 - 마지막 페이지의 마지막 글을 지우면 다시 불러온 페이지가 비어 "이 페이지에는 글이 없습니다." 화면이 된다. 앞 페이지로 자동 이동하지 않는다.
 
 **화면 확인** ('관리자 인증'의 화면 확인과 같은 환경. local 프로필은 시작할 때 글이 없으면 시드 글을 넣으므로, 1번 전에 시드 글을 모두 `DELETE /api/v1/admin/posts/{id}`로 지워 글이 없는 상태를 만들고, 1번을 볼 때까지 백엔드를 재시작하지 않는다. 그 뒤 글을 DRAFT·PUBLISHED를 섞어 11개 이상 `POST /api/v1/admin/posts`로 만든다. "불러오는 중..."과 버튼 막기는 DevTools `Network` 스로틀링(Slow 4G 등)으로 본다. 완료 조건의 확인 수단이다)
-1. 로그인 후 `/admin` → `/admin/posts`. 헤더의 "글"·"카테고리"·로그아웃, 제목·필터·공개 반영 안내 문구, "글이 없습니다."가 보인다. 로그아웃 상태의 `/admin` → `/admin/login?next=%2Fadmin%2Fposts`
+1. 로그인 후 `/admin` → `/admin/posts`. 헤더의 "글"·"카테고리"·로그아웃, 제목·필터·공개 반영 안내 문구, "글이 없습니다."가 보인다. 로그아웃 상태의 `/admin` → `/admin/login?next=%2Fadmin`, 로그인하면 `/admin/posts`
 2. 목록이 `id` 내림차순 10개, "다음"으로 `?page=2`. 필터 "작성 중"·"발행됨"이 그 상태만 보이고 `page`가 빠진다. 2페이지에서 "이전"·"다음" 링크가 `status`를 유지한다. 발행한 적 없는 DRAFT의 발행일은 "-"
 3. `?page=0`, `?page=abc`, `?status=draft`, `?status=`, `?status=DRAFT&status=PUBLISHED` → "잘못된 주소입니다.", `Network`에 `admin/posts` 요청 없음. `?page=999` → "이 페이지에는 글이 없습니다."와 "첫 페이지로"(`/admin/posts`), `?status=DRAFT&page=999`의 "첫 페이지로"는 `/admin/posts?status=DRAFT`
 4. confirm 문구에 그 글의 제목이 들어간다. 삭제 취소 → 요청 없음. 확인 → `DELETE` `204` 뒤 목록 다시 불러옴 (스로틀링 시 `DELETE` 중 모든 삭제 버튼이 막히고, 다시 불러오는 동안 "불러오는 중..."). 다른 탭에서 먼저 지운 글을 삭제 → `404`, 문구 없이 목록 갱신. DevTools로 `admin/posts/*` 요청을 막고 삭제 → alert. `admin/posts?*`(목록 조회)만 막고 삭제 → `204` 뒤 "글 목록을 불러오지 못했습니다. 새로고침해 주세요."

@@ -120,3 +120,4 @@
   - 프론트 `관리자 글 목록`(11장): 관리자 레이아웃 메뉴("글"·"카테고리")·로그아웃, `/admin` → `/admin/posts` redirect, URL `?status=&page=`(`page`는 공개 목록과 같은 규칙, `status`는 `parseStatusParam`으로 `DRAFT`·`PUBLISHED`만), 잘못된 값은 API 호출 없이 "잘못된 주소입니다.", 클라이언트 `AdminPostList`·`lib/api/admin-posts.ts`, 상태별 문구, `window.confirm` 삭제와 결과별 처리(`404`는 목록 갱신), 다시 불러오는 동안에도 "불러오는 중...", 공개 반영 지연 안내, 화면 확인(빈 목록은 local 시드 글을 API로 지운 뒤, 로딩·버튼 막기·"첫 페이지로" 포함)
   - 로그아웃 실패 문구, `Pagination`의 링크 주소를 `pageHref` prop으로 받음, '관리자 인증' 화면 확인의 `next` 값을 `/admin/posts` 기준으로 수정 (11장)
   - 공개 반영 지연을 stale-while-revalidate 동작(60초 뒤 첫 요청이 갱신 시작, `expire` 없음이라 상한 없음, 클라이언트 캐시 `stale` 5분)으로 정정 (11장 '렌더링 전략'), 8-4는 그 항목을 가리킨다
+  - 로그아웃 상태의 `/admin`은 가드가 `redirect`보다 먼저라 `/admin/login?next=%2Fadmin`으로 간다고 정정 ('관리자 글 목록' 레이아웃·화면 확인 1번, '관리자 인증' 화면 확인 6번) (11장)
