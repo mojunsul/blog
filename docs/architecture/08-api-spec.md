@@ -299,7 +299,7 @@ GET /api/v1/admin/posts?page=0&size=10&status=DRAFT
 #### PUT `/api/v1/admin/posts/{id}`
 - 본문은 작성과 같은 `PostRequest` (전체 교체, 7장). `200` + 수정된 `AdminPostDetailResponse` (단건 조회 응답과 같은 DTO).
 - 보낸 값으로 `title`, `slug`, `summary`, `content`, `thumbnailUrl`, `category`, `status`를 모두 바꾼다. `summary`·`thumbnailUrl`·`categoryId`를 생략하거나 `null`로 보내면 그 값이 지워진다(카테고리 없는 글). 응답의 `tags`는 M4 전까지 `[]`다.
-- **slug 변경을 허용한다.** 자기 자신과 같은 slug로 보내는 것은 중복이 아니다 (다른 값만 바꾸는 경우). 다른 글이 쓰는 slug면 `409` (`DUPLICATE_SLUG`). PUBLISHED 글의 slug를 바꾸면 기존 `/posts/{slug}` 주소는 곧바로 `404`가 된다 (리다이렉트·이전 slug 보관 없음, 카테고리 slug와 같다. 개인 블로그라 외부 링크가 거의 없다). 바꿀 때의 경고는 관리자 화면 이슈에서 다룬다.
+- **slug 변경을 허용한다.** 자기 자신과 같은 slug로 보내는 것은 중복이 아니다 (다른 값만 바꾸는 경우). 다른 글이 쓰는 slug면 `409` (`DUPLICATE_SLUG`). PUBLISHED 글의 slug를 바꾸면 기존 `/posts/{slug}` 주소는 곧바로 `404`가 된다 (리다이렉트·이전 slug 보관 없음, 카테고리 slug와 같다. 개인 블로그라 외부 링크가 거의 없다). 바꿀 때의 확인 창은 11장 '관리자 글 작성·수정'.
 - 같은 내용으로 `PUT`하면 변경 감지에 걸리지 않아 `updatedAt`도 그대로다.
 - 없는 `id`: `404` (`POST_NOT_FOUND`). 본문의 `categoryId`가 없는 카테고리면 `404` (`CATEGORY_NOT_FOUND`).
 
