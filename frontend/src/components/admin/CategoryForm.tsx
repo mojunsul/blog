@@ -12,6 +12,7 @@ import type { components } from "@/types/api";
 type Category = components["schemas"]["CategoryResponse"];
 
 const EMPTY_VALUES: CategoryValues = { name: "", slug: "" };
+const FORM_FIELDS = Object.keys(EMPTY_VALUES) as (keyof CategoryValues)[];
 const CATEGORY_DELETED_MESSAGE = "카테고리가 삭제되어 저장하지 못했습니다.";
 const SAVE_FAILURE_MESSAGE = "저장하지 못했습니다. 잠시 후 다시 시도해 주세요.";
 const INPUT_CLASS = "rounded border border-zinc-300 px-3 py-2 dark:border-zinc-700 dark:bg-transparent";
@@ -21,7 +22,7 @@ function hasCode(error: unknown, status: number, code: string): error is ApiErro
 }
 
 function isFormField(field: string): field is keyof CategoryValues {
-  return field in EMPTY_VALUES;
+  return (FORM_FIELDS as string[]).includes(field);
 }
 
 // 모드가 바뀔 때마다 AdminCategoryManager가 key로 다시 마운트해, 입력값·오류를 따로 초기화하지 않는다.
