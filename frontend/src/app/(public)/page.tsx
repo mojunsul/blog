@@ -6,6 +6,9 @@ import { PostList } from "@/components/post/PostList";
 import { getPosts } from "@/lib/api/posts";
 import { parsePageParam } from "@/lib/pagination";
 
+// 첫 페이지는 파라미터 없는 /로 연결해 같은 내용이 여러 URL로 색인되지 않게 한다.
+const pageHref = (page: number) => (page === 1 ? "/" : `/?page=${page}`);
+
 export default function HomePage({ searchParams }: PageProps<"/">) {
   return (
     <Suspense fallback={<p>불러오는 중...</p>}>
@@ -25,7 +28,7 @@ async function Posts({ searchParams }: { searchParams: PageProps<"/">["searchPar
   return (
     <>
       <PostList posts={posts.content} />
-      <Pagination page={page} totalPages={posts.totalPages} hasNext={posts.hasNext} />
+      <Pagination page={page} totalPages={posts.totalPages} hasNext={posts.hasNext} pageHref={pageHref} />
     </>
   );
 }
