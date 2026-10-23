@@ -126,3 +126,4 @@
   - 프론트 `관리자 글 작성·수정`(11장): `PostForm`이 카테고리(`GET /categories`, 새 `lib/api/admin-categories.ts`)와 글을 불러와 폼을 채움, 수정 경로 `id`는 `parsePostIdParam`으로 숫자만 통과, 입력 항목(태그는 M4), `postSchema`(서버 규칙·메시지와 같음, slug는 `lib/slug.ts`의 `SLUG_PATTERN`·`MAX_SLUG_LENGTH` 공유), 저장 결과별 화면(`400` `errors`·`409`·`404`를 필드·폼 오류로), 발행된 글의 slug 변경 confirm, `beforeunload` 이탈 경고(앱 안 클라이언트 이동은 경고하지 않음), 화면 확인 목록
   - 미리보기(`MarkdownPreview`)는 브라우저에서 react-markdown 동기 `Markdown` + `remarkGfm`로 렌더링하고 코드 하이라이팅은 하지 않음, raw HTML 금지 유지 (11장, 10-4)
   - 8-4 `PUT`의 slug 변경 경고 위치를 11장 '관리자 글 작성·수정'으로 연결
+  - 설계 검증 반영(11장): 불러오기는 `Promise.allSettled` 후 `401` > 글 `404` > 그 외 순으로 판정, 목록에 없는 `categoryId`는 초기값 `""`, 미리보기 중 본문 오류는 "작성"으로 전환하고 포커스, 화면 확인에 `postSchema` 길이·제어 문자·NUL 경계 추가

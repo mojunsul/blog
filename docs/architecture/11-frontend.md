@@ -223,17 +223,17 @@ CI에서 프론트 이미지를 빌드할 때는 백엔드가 없다. `next buil
 - `posts/new/page.tsx`(서버 컴포넌트): 제목 "새 글"과 `PostForm`(클라이언트, `components/admin/`)을 둔다.
 - `posts/[id]/edit/page.tsx`(서버 컴포넌트): 제목 "글 수정"과, '관리자 글 목록'처럼 `Suspense`(fallback "불러오는 중...") 안의 비동기 컴포넌트가 `params`를 읽는다. `lib/post-id.ts`의 순수 함수 `parsePostIdParam(value: string): number | null`로 해석해 유효하면 `PostForm`에 `id`를 넘기고, `null`이면 API를 부르지 않고 "잘못된 주소입니다."와 "글 목록으로"(`/admin/posts`) 링크를 보여 준다 ('관리자 글 목록'과 같은 이유로 `notFound()`를 쓰지 않는다).
   - `parsePostIdParam`: `^[1-9][0-9]*$`에 맞고 `Number.isSafeInteger`인 값이면 그 수, 그 외(`0`, 앞에 `0`이 붙은 값, 음수, 소수, 문자, `2^53` 이상)는 `null`. 값이 API 경로에 그대로 들어가므로 숫자만 통과시킨다 ('글 상세 페이지'의 slug 검사와 같은 이유). `2^53` 이상은 Long 범위 안이라도 JS 수로 정확히 표현되지 않고 글 수로 닿을 수 없는 값이라 잘못된 주소로 본다.
-- `PostForm({ id?: number })`: 마운트 때 카테고리 목록과, `id`가 있으면 글을 함께(`Promise.all`) 불러온 뒤 폼을 그린다. 불러오는 동안·실패는 아래 '불러오기' 표를 따른다. 성공하면 `reset(글에서 만든 값)`(새 글은 기본값)으로 폼의 기준값을 정하고, 이 기준값이 이탈 경고의 `isDirty` 기준이 된다. 데이터 패칭 라이브러리는 쓰지 않는다 ('관리자 글 목록'과 같다).
+- `PostForm({ id?: number })`: 마운트 때 카테고리 목록과, `id`가 있으면 글을 함께(`Promise.allSettled`) 불러온 뒤 폼을 그린다. 불러오는 동안·실패는 아래 '불러오기' 표를 따른다. 두 요청이 모두 끝난 뒤 판정해, 응답 순서와 상관없이 결과가 같다. 성공하면 `reset(글에서 만든 값)`(새 글은 기본값)으로 폼의 기준값을 정하고, 이 기준값이 이탈 경고의 `isDirty` 기준이 된다. 데이터 패칭 라이브러리는 쓰지 않는다 ('관리자 글 목록'과 같다).
 - API (`client.ts` 사용, 타입은 `api.d.ts`의 `PostRequest`·`AdminPostDetailResponse`·`PostCreateResponse`·`CategoryResponse`)
   - `lib/api/admin-posts.ts`에 더한다: `getAdminPost(id)`(`GET /admin/posts/{id}`), `createPost(body)`(`POST /admin/posts`), `updatePost(id, body)`(`PUT /admin/posts/{id}`)
   - `lib/api/admin-categories.ts`(새 파일): `getCategories()`(`GET /categories`, 공개 API를 브라우저에서 부른다). 관리자 카테고리 화면(#78)도 이 파일에 생성·수정·삭제를 더한다. 서버 컴포넌트용 `posts.ts`는 `'use cache'`(60초)라 쓰지 않는다: 방금 만든 카테고리가 폼에 늦게 보인다.
 
-**불러오기** (폼 대신 보이는 문구, 제목은 항상 보인다)
+**불러오기** (폼 대신 보이는 문구, 제목은 항상 보인다. 두 요청의 실패가 겹치면 표의 위쪽 행이 우선한다: `401` > 글 `404` > 그 외)
 | 상태 | 화면 |
 |---|---|
 | 불러오는 중 | "불러오는 중..." |
-| 글 `404` (`POST_NOT_FOUND`) | "글을 찾을 수 없습니다."와 "글 목록으로"(`/admin/posts`) 링크 |
-| `401` | `client.ts`가 로그인 화면으로 이동시키므로 "불러오는 중..."을 유지한다 ('관리자 글 목록'과 같다) |
+| `401` (글·카테고리 중 하나라도) | `client.ts`가 로그인 화면으로 이동시키므로 "불러오는 중..."을 유지한다 ('관리자 글 목록'과 같다) |
+| 글 `404` (`POST_NOT_FOUND`) | "글을 찾을 수 없습니다."와 "글 목록으로"(`/admin/posts`) 링크 (카테고리 요청이 실패해도 같다) |
 | 그 외 `ApiError`(400, 403, 429, 5xx)·네트워크 오류 (글·카테고리 중 하나라도) | "글을 불러오지 못했습니다. 새로고침해 주세요." |
 
 **입력 항목** (순서대로)
@@ -241,12 +241,12 @@ CI에서 프론트 이미지를 빌드할 때는 백엔드가 없다. `next buil
 |---|---|---|
 | 제목 | `input` | `title` |
 | slug | `input`, 아래 안내 "영문 소문자·숫자·하이픈만 쓸 수 있습니다. 공개 주소 /posts/{slug}가 됩니다." | `slug` |
-| 카테고리 | `select`, 첫 항목 "카테고리 없음"(값 `""`), 이어서 목록 API 순서대로 "{name} ({slug})" (`name`은 중복될 수 있어 slug를 함께 보인다, 6장) | `categoryId`, `null`이면 `""` |
+| 카테고리 | `select`, 첫 항목 "카테고리 없음"(값 `""`), 이어서 목록 API 순서대로 "{name} ({slug})" (`name`은 중복될 수 있어 slug를 함께 보인다, 6장) | `categoryId`, `null`이거나 카테고리 목록에 없으면 `""` |
 | 상태 | 라디오 "작성 중"(`DRAFT`)·"발행됨"(`PUBLISHED`), 새 글 기본값 `DRAFT` | `status` |
 | 요약 | `textarea` | `summary`, `null`이면 `""` |
 | 썸네일 URL | `input` | `thumbnailUrl`, `null`이면 `""` |
 | 본문 | "작성"·"미리보기" 전환 버튼과 `textarea` | `content` |
-- 불러온 글의 `categoryId`가 카테고리 목록에 없으면(두 요청 사이에 카테고리가 삭제됨) 선택이 "카테고리 없음"으로 보이고 그대로 저장하면 카테고리 없는 글이 된다. 카테고리 삭제가 글의 카테고리를 `NULL`로 만드므로(6장) 결과가 같아 따로 다루지 않는다.
+- 불러온 글의 `categoryId`가 카테고리 목록에 없으면(두 요청 사이에 카테고리가 삭제됨) 위 초기값 규칙으로 `""`이 되어 선택이 "카테고리 없음"으로 보이고, 그대로 저장하면 카테고리 없는 글이 된다. 목록에 없는 id를 그대로 두지 않는 이유: 맞는 `option`이 없는 `select`는 빈 칸으로 보이고, 저장하면 그 id가 전송되어 `404 CATEGORY_NOT_FOUND`가 된다. 카테고리 삭제가 글의 카테고리를 `NULL`로 만드므로(6장) 결과가 같아 따로 다루지 않는다.
 - 태그 입력은 두지 않는다. M2의 `PostRequest`에 `tags`가 없다 (8-4, M4에서 추가).
 - 폼 아래 "저장" 버튼 하나. 저장할 상태는 위 라디오가 정한다.
 
@@ -263,7 +263,7 @@ CI에서 프론트 이미지를 빌드할 때는 백엔드가 없다. `next buil
 - slug 규칙은 `lib/slug.ts`가 `SLUG_PATTERN`·`MAX_SLUG_LENGTH`를 export해 `isValidSlug`와 스키마가 같은 상수를 쓴다. 스키마가 `isValidSlug` 하나로 검사하지 않는 이유: 필드 오류를 빈 값·길이·형식으로 나눠 서버와 같은 문구로 보인다.
 - 길이는 JS 문자열 길이(UTF-16)로 세어 서버(Java 문자 수)와 같다. 공백 판정(`trim()`·`\s`)은 JS가 NBSP 등 유니코드 공백까지 포함해 Java(`strip()`·`\s`)와 조금 다를 수 있다 (`loginSchema`와 같다). 서버 검증이 최종이다.
 - 요청 본문: 스키마를 통과한 값(앞뒤 공백을 지운 `title`·`summary`·`thumbnailUrl`)을 보낸다. `summary`·`thumbnailUrl`의 `""`는 그대로 보내 서버가 `null`로 바꾼다 (8-4). `categoryId`는 `""`면 넣지 않고(수정에서는 카테고리가 지워진다, 8-4 `PUT`), 그 외는 `Number`로 바꾼다.
-- `postSchema`는 `loginSchema`와 같은 이유(라이브러리 규칙을 그대로 선언)로 단위 테스트하지 않고 아래 화면 확인으로 본다.
+- `postSchema`는 `loginSchema`와 같은 이유(라이브러리 규칙을 그대로 선언)로 단위 테스트하지 않고 아래 화면 확인 2번으로 표의 규칙을 모두 본다.
 
 **미리보기** (`MarkdownPreview`, 클라이언트 컴포넌트)
 - `MarkdownRenderer`는 Shiki를 쓰는 async 서버 컴포넌트라 폼에서 쓸 수 없다. 미리보기는 브라우저에서 react-markdown의 동기 `Markdown`으로 렌더링하고 **코드 하이라이팅은 하지 않는다** (코드 블록은 글자만).
@@ -277,6 +277,8 @@ CI에서 프론트 이미지를 빌드할 때는 백엔드가 없다. `next buil
 - 제출하면 Zod 검증 → (수정이고, 불러온 글이 `PUBLISHED`이고, slug를 바꿨으면) `window.confirm("slug를 바꾸면 기존 주소 /posts/{불러온 slug}는 더 이상 열리지 않습니다. 저장할까요?")`, 취소하면 요청하지 않는다 (8-4 `PUT` slug 변경, 리다이렉트 없음) → 새 글은 `createPost`, 수정은 `updatePost`.
 - 요청 중에는 "저장" 버튼을 막는다.
 - 제출할 때 이전 폼 오류 문구를 지운다. 필드 오류는 `setError`로 각 필드 아래에, 폼 오류는 "저장" 버튼 위에 `role="alert"`로 보인다. 입력값은 그대로 둔다.
+- 포커스: Zod 오류는 React Hook Form 기본값(`shouldFocusError`)대로 첫 오류 필드로 간다. 서버 응답의 필드 오류는 포커스를 옮기지 않는다.
+- 미리보기 중 본문 오류(Zod, 서버 `400`의 `content`)가 나면 "작성"으로 전환해 `textarea`와 그 아래 문구가 보이게 한다. 첫 오류 필드가 본문인 Zod 오류는 전환 렌더링이 끝난 뒤(`useEffect`) `setFocus("content")`를 부른다: 숨은 요소는 포커스를 받지 못해 `shouldFocusError`만으로는 본문에 포커스가 가지 않는다.
   | 결과 | 화면 |
   |---|---|
   | `201`(작성)·`200`(수정) | `router.push("/admin/posts")` (목록의 공개 반영 안내가 보인다) |
@@ -296,13 +298,13 @@ CI에서 프론트 이미지를 빌드할 때는 백엔드가 없다. `next buil
 
 **화면 확인** ('관리자 글 목록'의 화면 확인과 같은 환경. 완료 조건의 확인 수단이다)
 1. 목록의 "새 글" → `/admin/posts/new`. 카테고리 선택에 "카테고리 없음"과 "{name} ({slug})" 항목, 상태 기본값 "작성 중". 값을 채워 저장 → `POST` `201` 뒤 `/admin/posts`, 목록 맨 위에 그 글
-2. 빈 폼 저장 → 제목·slug·본문 아래 필수 문구, `Network`에 `POST` 없음. 공백만 있는 제목·본문, `My Slug`, 201자 slug, `ftp://a`·`https://a b` 썸네일 → 각 문구. 앞뒤 공백이 있는 제목은 지운 값으로 저장된다
+2. 빈 폼 저장 → 제목·slug·본문 아래 필수 문구, `Network`에 `POST` 없음. 공백만 있는 제목·본문, `My Slug`, 201자 slug, `ftp://a`·`https://a b` 썸네일 → 각 문구. 길이 경계: 201자 제목, 501자 요약, 100,001자 본문, 501자 썸네일 URL → 각 길이 문구 (200·500·100,000·500자는 통과). 제어 문자·NUL: DevTools 콘솔에서 제목에 `\t`, 요약·본문에 `\u0000`이 든 값을 넣고(네이티브 `value` setter로 넣은 뒤 `input` 이벤트 발송) 저장 → 각 문구. 앞뒤 공백이 있는 제목은 지운 값으로 저장된다
 3. 이미 있는 slug로 저장 → slug 아래 "이미 사용 중인 slug입니다.", 입력 유지. 폼을 연 뒤 그 카테고리를 `DELETE /api/v1/admin/categories/{id}`로 지우고 그 카테고리로 저장 → 카테고리 아래 "카테고리를 찾을 수 없습니다."
-4. 목록의 제목 링크 → `/admin/posts/{id}/edit`에 값이 채워진다 (카테고리 없는 글은 "카테고리 없음", `null`인 요약·썸네일은 빈 칸). 수정 후 저장 → `PUT` `200` 뒤 목록의 수정일 반영. 카테고리를 "카테고리 없음"으로 저장 → 목록의 카테고리 "-"
+4. 목록의 제목 링크 → `/admin/posts/{id}/edit`에 값이 채워진다 (카테고리 없는 글은 "카테고리 없음", `null`인 요약·썸네일은 빈 칸). 수정 후 저장 → `PUT` `200` 뒤 목록의 수정일 반영. 카테고리를 "카테고리 없음"으로 저장 → 목록의 카테고리 "-". 카테고리 있는 글의 수정 화면에서 DevTools Local Overrides로 `GET /categories` 응답에서 그 카테고리를 빼고 새로고침 → "카테고리 없음"으로 보이고, 그대로 저장 → `PUT` 본문에 `categoryId` 없음, `200`
 5. `PUBLISHED` 글의 slug를 바꿔 저장 → confirm에 불러온 slug, 취소 → 요청 없음, 확인 → 저장. `DRAFT` 글의 slug 변경은 confirm 없음
-6. `/admin/posts/abc/edit`, `/0/edit`, `/01/edit`, `/9007199254740992/edit` → "잘못된 주소입니다.", `Network`에 `admin/posts/` 요청 없음. 없는 id(`/999999/edit`) → "글을 찾을 수 없습니다."와 "글 목록으로". DevTools로 `categories` 요청을 막고 새로고침 → "글을 불러오지 못했습니다. 새로고침해 주세요."
+6. `/admin/posts/abc/edit`, `/0/edit`, `/01/edit`, `/9007199254740992/edit` → "잘못된 주소입니다.", `Network`에 `admin/posts/` 요청 없음. 없는 id(`/999999/edit`) → "글을 찾을 수 없습니다."와 "글 목록으로". DevTools로 `categories` 요청을 막고 새로고침 → "글을 불러오지 못했습니다. 새로고침해 주세요." `categories` 요청을 막은 채 없는 id → "글을 찾을 수 없습니다."
 7. 수정 화면을 연 뒤 그 글을 `DELETE`로 지우고 저장 → "글이 삭제되어 저장하지 못했습니다." DevTools로 `admin/posts*` 요청을 막고 저장 → "저장하지 못했습니다. 잠시 후 다시 시도해 주세요.", 입력 유지. 스로틀링 시 요청 중 "저장" 버튼이 막힌다
-8. 표·체크리스트·코드 블록·`<script>`·`<img onerror>`·`[x](javascript:alert(1))`가 든 본문 → "미리보기"에서 표·체크리스트가 보이고, raw HTML은 글자로 보이며 스크립트가 실행되지 않고, `javascript:` 링크의 `href`가 비어 있다 (DOM으로 확인). "작성"으로 돌아오면 입력이 남아 있다. 공백뿐인 본문 → "미리 볼 내용이 없습니다."
+8. 표·체크리스트·코드 블록·`<script>`·`<img onerror>`·`[x](javascript:alert(1))`가 든 본문 → "미리보기"에서 표·체크리스트가 보이고, raw HTML은 글자로 보이며 스크립트가 실행되지 않고, `javascript:` 링크의 `href`가 비어 있다 (DOM으로 확인). "작성"으로 돌아오면 입력이 남아 있다. 공백뿐인 본문 → "미리 볼 내용이 없습니다." 다른 항목을 채우고 본문을 비운 채 "미리보기" 상태에서 저장 → "작성"으로 바뀌고 본문 아래 "본문을 입력하세요", 포커스가 본문 `textarea`
 9. 값을 바꾼 뒤 새로고침 → 브라우저 확인 창, 바꾸지 않았으면 확인 창 없음. 수정 화면에서 값을 바꾼 뒤 `access_token`·`refresh_token`을 지우고 저장 → 확인 창, 떠나기 → `/admin/login?next=%2Fadmin%2Fposts%2F{id}%2Fedit`
 10. `.env.local` 없이 `npm run build`와 `npx next typegen` 성공 ('관리자 인증' 8번과 같다)
 
