@@ -69,7 +69,9 @@ frontend/src/
   - `'use cache'` 함수·컴포넌트를 요청 시점 API(`params`, `searchParams`, `connection()`) 없이 호출하면 빌드 때 실행되어 정적 셸에 들어간다(= 빌드 중 백엔드 호출). 반드시 요청 시점 API를 거친 뒤 호출한다.
 - **관리자 페이지**: 클라이언트 컴포넌트, 브라우저에서 `/api/v1` 직접 호출.
 - 화면 접근 제어는 `AdminAuthGuard`(클라이언트)가 하는 이동 편의용이다. **실제 권한 검증은 Spring Security가 담당한다.** 자세한 내용은 '관리자 인증'.
-- 관리자가 글을 저장·수정·삭제해도 공개 페이지는 데이터 캐시 주기에 따라 최대 60초 후 반영된다(본문이 바뀌면 `MarkdownRenderer`의 캐시 키도 바뀐다). 즉시 반영(on-demand revalidate)은 M5 이후 검토한다.
+- 관리자가 글을 저장·수정·삭제해도 공개 페이지는 바로 바뀌지 않는다(본문이 바뀌면 `MarkdownRenderer`의 캐시 키도 바뀐다). 즉시 반영(on-demand revalidate)은 M5 이후 검토한다.
+  - 데이터 캐시는 stale-while-revalidate다: `revalidate` 60초가 지난 뒤 첫 요청은 이전 내용을 받으면서 백그라운드 갱신을 시작하고, 그다음 요청부터 새 내용을 받는다. `expire`를 정하지 않아(만료 없음) 요청이 없으면 갱신도 없으므로 반영 지연에 상한이 없다.
+  - 사이트 안 링크 이동은 클라이언트 캐시(`stale`, 기본 5분)를 먼저 쓰므로 더 늦게 보일 수 있다. 새로고침은 이 캐시를 거치지 않는다.
 
 ### 빌드 시 API 의존 제거
 CI에서 프론트 이미지를 빌드할 때는 백엔드가 없다. `next build`가 데이터 fetch를 하는 페이지를 미리 렌더링하면 빌드가 실패한다.
@@ -144,12 +146,12 @@ CI에서 프론트 이미지를 빌드할 때는 백엔드가 없다. `next buil
 
 **화면 확인** (백엔드 `local` 프로필 + Postgres + 관리자 계정 환경변수로 `next dev`를 띄워 DevTools로 본다. 완료 조건의 확인 수단이다)
 1. 로그아웃 상태에서 `/admin/posts` 접근 → `/admin/login?next=%2Fadmin%2Fposts`로 이동 (`Network`에 `auth/me` 401 → `auth/refresh` 401)
-2. 잘못된 비밀번호 → "아이디 또는 비밀번호가 올바르지 않습니다.", 이동·새로고침 없음. 올바른 값 → `/admin` (`next`가 있으면 그 경로)
+2. 잘못된 비밀번호 → "아이디 또는 비밀번호가 올바르지 않습니다.", 이동·새로고침 없음. 올바른 값 → `/admin`(→ `/admin/posts`) (`next`가 있으면 그 경로)
 3. `XSRF-TOKEN` 쿠키를 지우고 로그인 → `auth/csrf` 호출이 로그인 요청 앞에 나가고 로그인이 성공 (`403` 없음)
 4. 로그인한 뒤 `access_token` 쿠키만 지우고 `/admin` 새로고침 → `auth/me` 401 → `auth/refresh` 204 → `auth/me` 200으로 화면 표시 (로그인 화면으로 가지 않음)
 5. `access_token`·`refresh_token`을 모두 지우고 `/admin/posts` 새로고침 → `/admin/login?next=%2Fadmin%2Fposts`
 6. 로그아웃 버튼 → `/admin/login`, 두 쿠키 삭제, 다시 `/admin` 접근 시 1번과 같음
-7. `/admin/login?next=//evil.com`, `?next=https://evil.com`, `?next=//evil.com&next=/admin/posts`(첫 값이 잘못됨)로 로그인 → `/admin`으로 이동. `?next=/admin/posts&next=//evil.com`(첫 값이 유효)은 `/admin/posts`
+7. `/admin/login?next=//evil.com`, `?next=https://evil.com`, `?next=//evil.com&next=/admin/posts`(첫 값이 잘못됨)로 로그인 → `/admin`(→ `/admin/posts`)으로 이동. `?next=/admin/posts&next=//evil.com`(첫 값이 유효)은 `/admin/posts`
 8. `.env.local` 없이 `API_INTERNAL_URL`을 비운 채 `npm run build`와 `npx next typegen` 성공 (CI와 같은 조건)
 - 동시 요청이 재발급을 한 번만 보내는 것은 `singleFlight` 단위 테스트로 본다 (화면에서는 재현하기 어렵다. 관리자 글 목록은 가드의 `auth/me`가 끝난 뒤 목록을 부르므로 요청이 겹치지 않는다. 4번은 '관리자 글 목록'의 화면 확인에서 `/admin/posts`로 다시 본다).
 
@@ -179,14 +181,14 @@ CI에서 프론트 이미지를 빌드할 때는 백엔드가 없다. `next buil
 - `useEffect` 안의 오류는 Next 오류 화면으로 가지 않으므로 네트워크 오류도 아래 표대로 화면에서 다룬다 ('에러 처리'의 "그대로 던진다"는 서버 컴포넌트 기준).
 
 **화면**
-- 제목 "글"과 "새 글" 링크(`/admin/posts/new`, 화면은 #77). 그 아래 안내 한 줄: "저장·삭제한 내용은 공개 페이지에 최대 1분 뒤 반영됩니다." ('렌더링 전략'의 데이터 캐시 주기)
+- 제목 "글"과 "새 글" 링크(`/admin/posts/new`, 화면은 #77). 그 아래 안내 한 줄: "저장·삭제한 내용은 1분이 지난 뒤 공개 페이지를 열면 갱신되며, 한 번 더 새로고침해야 보일 수 있습니다." ('렌더링 전략'의 반영 지연. 방문이 없으면 갱신되지 않는 것까지는 적지 않는다: 관리자는 보통 직접 열어 확인한다)
 - 상태 필터: 링크 "전체"·"작성 중"·"발행됨"(`/admin/posts`, `?status=DRAFT`, `?status=PUBLISHED`, 바꾸면 첫 페이지). 현재 필터는 `aria-current="page"`로 표시한다.
 - 표 열: 제목(`/admin/posts/{id}/edit` 링크, 화면은 #77), 상태(`DRAFT` "작성 중", `PUBLISHED` "발행됨"), 카테고리(이름, 없으면 "-"), 발행일(`formatDate`, `publishedAt`이 `null`이면 "-"), 수정일(`formatDate(updatedAt)`), 삭제 버튼. 순서는 API 정렬(`id` 내림차순) 그대로다.
 - `Pagination`은 공개 목록과 같은 컴포넌트에 위 링크 규칙의 `pageHref`를 넘긴다.
 - 상태별 표시 (제목·필터·안내는 항상 보인다)
   | 상태 | 화면 |
   |---|---|
-  | 불러오는 중 | "불러오는 중..." |
+  | 불러오는 중 (처음, `page`·`status` 변경, 삭제 뒤 다시 불러올 때 모두) | "불러오는 중..." (이전 표는 지운다. 그래서 다시 불러오는 동안에는 삭제 버튼이 없다) |
   | 첫 페이지 `content`가 빔 | "글이 없습니다." |
   | 2페이지 이상인데 `content`가 빔 | "이 페이지에는 글이 없습니다."와 "첫 페이지로" 링크(현재 `status` 유지) |
   | `401` | `client.ts`가 로그인 화면으로 이동시키므로 "불러오는 중..."을 유지한다 (`AdminAuthGuard`와 같다) |
@@ -201,16 +203,17 @@ CI에서 프론트 이미지를 빌드할 때는 백엔드가 없다. `next buil
   | `404` (`POST_NOT_FOUND`, 다른 탭 등에서 이미 삭제) | 바라던 상태라 문구 없이 목록을 다시 불러온다 |
   | `401` | `client.ts`가 로그인 화면으로 이동시킨다 (문구 없음) |
   | 그 외 `ApiError`(403, 429, 5xx, csrf 호출 실패)·네트워크 오류 | `window.alert("삭제하지 못했습니다. 잠시 후 다시 시도해 주세요.")`, 목록은 그대로 둔다 |
+- 다시 불러오기(`204`·`404` 뒤)의 표시와 실패는 위 상태별 표를 따른다 (실패하면 "글 목록을 불러오지 못했습니다. 새로고침해 주세요.").
 - 마지막 페이지의 마지막 글을 지우면 다시 불러온 페이지가 비어 "이 페이지에는 글이 없습니다." 화면이 된다. 앞 페이지로 자동 이동하지 않는다.
 
-**화면 확인** ('관리자 인증'의 화면 확인과 같은 환경. 글은 DRAFT·PUBLISHED를 섞어 11개 이상 `POST /api/v1/admin/posts`로 만든다. 완료 조건의 확인 수단이다)
-1. 로그인 후 `/admin` → `/admin/posts`. 헤더의 "글"·"카테고리"·로그아웃이 보인다. 로그아웃 상태의 `/admin` → `/admin/login?next=%2Fadmin%2Fposts`
+**화면 확인** ('관리자 인증'의 화면 확인과 같은 환경. 1번은 글이 없는 DB에서 보고, 그 뒤 글을 DRAFT·PUBLISHED를 섞어 11개 이상 `POST /api/v1/admin/posts`로 만든다. "불러오는 중..."과 버튼 막기는 DevTools `Network` 스로틀링(Slow 4G 등)으로 본다. 완료 조건의 확인 수단이다)
+1. 로그인 후 `/admin` → `/admin/posts`. 헤더의 "글"·"카테고리"·로그아웃, 제목·필터·공개 반영 안내 문구, "글이 없습니다."가 보인다. 로그아웃 상태의 `/admin` → `/admin/login?next=%2Fadmin%2Fposts`
 2. 목록이 `id` 내림차순 10개, "다음"으로 `?page=2`. 필터 "작성 중"·"발행됨"이 그 상태만 보이고 `page`가 빠진다. 2페이지에서 "이전"·"다음" 링크가 `status`를 유지한다. 발행한 적 없는 DRAFT의 발행일은 "-"
-3. `?page=0`, `?page=abc`, `?status=draft`, `?status=`, `?status=DRAFT&status=PUBLISHED` → "잘못된 주소입니다.", `Network`에 `admin/posts` 요청 없음. `?page=999` → "이 페이지에는 글이 없습니다."
-4. 삭제 취소 → 요청 없음. 확인 → `DELETE` `204` 뒤 목록 다시 불러옴. 다른 탭에서 먼저 지운 글을 삭제 → `404`, 문구 없이 목록 갱신. DevTools로 `admin/posts/*` 요청을 막고 삭제 → alert
-5. DevTools로 `admin/posts?*` 요청을 막고 새로고침 → "글 목록을 불러오지 못했습니다. 새로고침해 주세요."
+3. `?page=0`, `?page=abc`, `?status=draft`, `?status=`, `?status=DRAFT&status=PUBLISHED` → "잘못된 주소입니다.", `Network`에 `admin/posts` 요청 없음. `?page=999` → "이 페이지에는 글이 없습니다."와 "첫 페이지로"(`/admin/posts`), `?status=DRAFT&page=999`의 "첫 페이지로"는 `/admin/posts?status=DRAFT`
+4. confirm 문구에 그 글의 제목이 들어간다. 삭제 취소 → 요청 없음. 확인 → `DELETE` `204` 뒤 목록 다시 불러옴 (스로틀링 시 `DELETE` 중 모든 삭제 버튼이 막히고, 다시 불러오는 동안 "불러오는 중..."). 다른 탭에서 먼저 지운 글을 삭제 → `404`, 문구 없이 목록 갱신. DevTools로 `admin/posts/*` 요청을 막고 삭제 → alert. `admin/posts?*`(목록 조회)만 막고 삭제 → `204` 뒤 "글 목록을 불러오지 못했습니다. 새로고침해 주세요."
+5. DevTools로 `admin/posts?*` 요청을 막고 새로고침 → "글 목록을 불러오지 못했습니다. 새로고침해 주세요." 스로틀링 시 필터·페이지 링크로 이동하면 응답 전까지 이전 표 대신 "불러오는 중..."
 6. `access_token`만 지우고 `/admin/posts` 새로고침 → `auth/me` 401 → `auth/refresh` 204 → `auth/me` 200 → `admin/posts` 200
-7. DevTools로 `auth/logout`을 막고 로그아웃 → 오류 문구, 막기를 풀고 다시 누르면 문구가 지워지고 `/admin/login`
+7. 스로틀링 시 로그아웃 요청 중 버튼이 막힌다. DevTools로 `auth/logout`을 막고 로그아웃 → 오류 문구, 막기를 풀고 다시 누르면 문구가 지워지고 `/admin/login`
 8. `.env.local` 없이 `npm run build`와 `npx next typegen` 성공 ('관리자 인증' 8번과 같다)
 
 ### 날짜 표시
@@ -266,7 +269,7 @@ CI에서 프론트 이미지를 빌드할 때는 백엔드가 없다. `next buil
 - 확인용 데이터: `LocalDataInitializer`의 시드 글에 raw HTML(`<script>`, `<img onerror>`)과 `javascript:` 링크, 언어 없는·모르는 언어 코드 블록을 넣어, 로컬에서 표·체크리스트·하이라이팅과 함께 안전하게 표시되는지 본다.
 - 캐시(`'use cache'` + `cacheLife('max')`, 정의는 '렌더링 전략')를 두는 이유
   - 상세 페이지는 매 요청 렌더링되므로('렌더링 전략'), 캐시하지 않으면 요청마다 Shiki가 실행된다. 또 Shiki는 토큰화할 때 `Date.now()`를 불러, 캐시 밖에서 실행되면 Next가 요청마다 `encountered the unstable value Date.now()` 로그를 남긴다. `connection()`으로 요청 시점 렌더링을 확정하면 로그는 없어지지만 요청마다 Shiki가 실행된다.
-  - 결과가 인자 `content`에만 달려 있고 인자가 캐시 키가 되므로, 글을 고치면 새 키가 된다. 같은 본문을 다시 하이라이팅할 이유가 없어 가장 긴 프로필(`max`)을 쓴다. 글 수정 반영 주기는 `getPost`의 60초가 정한다.
+  - 결과가 인자 `content`에만 달려 있고 인자가 캐시 키가 되므로, 글을 고치면 새 키가 된다. 같은 본문을 다시 하이라이팅할 이유가 없어 가장 긴 프로필(`max`)을 쓴다. 글 수정 반영은 `getPost`의 데이터 캐시('렌더링 전략'의 반영 지연)를 따른다.
 - `MarkdownRenderer`는 async 서버 컴포넌트라 단위 테스트하지 않는다. 렌더링 결과는 글 상세 페이지에서 시드 글로 확인한다.
 
 ### 프론트엔드 테스트

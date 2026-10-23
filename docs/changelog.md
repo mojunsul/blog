@@ -117,6 +117,6 @@
   - 설계 검증 반영: `next` 쿼리 같은 키 여러 개는 첫 값만 검사, `GET /auth/csrf` 실패(비2xx·쿠키 없음·네트워크)는 원래 요청을 보내지 않고 오류로 던짐, `rewrites`의 `API_INTERNAL_URL` 검사는 개발 분기 안에서만 하고 `.env.local` 없는 빌드를 확인 수단에 추가 (11장)
 
 - **v2.23**
-  - 프론트 `관리자 글 목록`(11장): 관리자 레이아웃 메뉴("글"·"카테고리")·로그아웃, `/admin` → `/admin/posts` redirect, URL `?status=&page=`(`page`는 공개 목록과 같은 규칙, `status`는 `parseStatusParam`으로 `DRAFT`·`PUBLISHED`만), 잘못된 값은 API 호출 없이 "잘못된 주소입니다.", 클라이언트 `AdminPostList`·`lib/api/admin-posts.ts`, 상태별 문구, `window.confirm` 삭제와 결과별 처리(`404`는 목록 갱신), 공개 반영 지연(최대 1분) 안내, 화면 확인
+  - 프론트 `관리자 글 목록`(11장): 관리자 레이아웃 메뉴("글"·"카테고리")·로그아웃, `/admin` → `/admin/posts` redirect, URL `?status=&page=`(`page`는 공개 목록과 같은 규칙, `status`는 `parseStatusParam`으로 `DRAFT`·`PUBLISHED`만), 잘못된 값은 API 호출 없이 "잘못된 주소입니다.", 클라이언트 `AdminPostList`·`lib/api/admin-posts.ts`, 상태별 문구, `window.confirm` 삭제와 결과별 처리(`404`는 목록 갱신), 다시 불러오는 동안에도 "불러오는 중...", 공개 반영 지연 안내, 화면 확인(빈 목록·로딩·버튼 막기·"첫 페이지로" 포함)
   - 로그아웃 실패 문구, `Pagination`의 링크 주소를 `pageHref` prop으로 받음, '관리자 인증' 화면 확인의 `next` 값을 `/admin/posts` 기준으로 수정 (11장)
-  - 글 변경 후 공개 반영은 11장 '렌더링 전략'의 캐시 주기를 따른다고 명시 (8-4)
+  - 공개 반영 지연을 stale-while-revalidate 동작(60초 뒤 첫 요청이 갱신 시작, `expire` 없음이라 상한 없음, 클라이언트 캐시 `stale` 5분)으로 정정 (11장 '렌더링 전략'), 8-4는 그 항목을 가리킨다
