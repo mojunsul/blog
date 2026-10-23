@@ -34,7 +34,7 @@ frontend/src/
 │  ├ ui/            # Button, Input 등 공통
 │  ├ post/          # PostCard, PostList, Pagination, TagBadge(M4)
 │  ├ markdown/      # MarkdownRenderer (서버 컴포넌트)
-│  └ admin/         # LoginForm, AdminAuthGuard, LogoutButton, AdminPostList, PostForm, MarkdownPreview
+│  └ admin/         # LoginForm, AdminAuthGuard, LogoutButton, AdminPostList, PostForm, MarkdownPreview, AdminCategoryManager, CategoryForm
 ├ lib/
 │  ├ api/
 │  │  ├ server.ts   # 서버 컴포넌트용 fetch (API_INTERNAL_URL, server-only)
@@ -43,7 +43,7 @@ frontend/src/
 │  │  ├ posts.ts
 │  │  ├ auth.ts     # 브라우저용 login·logout·getMe (client.ts 사용)
 │  │  ├ admin-posts.ts # 브라우저용 관리자 글 API (getAdminPosts, getAdminPost, createPost, updatePost, deletePost, client.ts 사용)
-│  │  └ admin-categories.ts # 브라우저용 카테고리 API (getCategories, client.ts 사용)
+│  │  └ admin-categories.ts # 브라우저용 카테고리 API (getCategories, createCategory, updateCategory, deleteCategory, client.ts 사용)
 │  ├ cookie.ts      # 쿠키 문자열에서 값 읽기 (readCookie)
 │  ├ next-path.ts   # 로그인 후 이동 경로 해석 (parseNextParam)
 │  ├ single-flight.ts # 동시 호출을 한 번의 실행으로 합침 (singleFlight)
@@ -55,7 +55,8 @@ frontend/src/
 │  └ utils.ts
 ├ schemas/
 │  ├ auth.ts        # loginSchema - 서버 검증 규칙과 동일
-│  └ post.ts        # postSchema, categorySchema - 서버 검증 규칙과 동일
+│  ├ post.ts        # postSchema - 서버 검증 규칙과 동일
+│  └ category.ts    # categorySchema - 서버 검증 규칙과 동일
 ├ types/
 │  └ api.d.ts       # openapi-typescript 생성 파일 (직접 수정 금지)
 ```
@@ -311,6 +312,75 @@ CI에서 프론트 이미지를 빌드할 때는 백엔드가 없다. `next buil
 8. 표·체크리스트·코드 블록·`<script>`·`<img onerror>`·`[x](javascript:alert(1))`가 든 본문 → "미리보기"에서 표·체크리스트가 보이고, raw HTML은 글자로 보이며 스크립트가 실행되지 않고, `javascript:` 링크의 `href`가 비어 있다 (DOM으로 확인). "작성"으로 돌아오면 입력이 남아 있다. 공백뿐인 본문 → "미리 볼 내용이 없습니다." 다른 항목을 채우고 본문을 비운 채 "미리보기" 상태에서 저장 → "작성"으로 바뀌고 본문 아래 "본문을 입력하세요", 포커스가 본문 `textarea`
 9. 값을 바꾼 뒤 새로고침 → 브라우저 확인 창, 바꾸지 않았으면 확인 창 없음. 수정 화면에서 값을 바꾼 뒤 `access_token`·`refresh_token`을 지우고 저장 → 확인 창, 떠나기 → `/admin/login?next=%2Fadmin%2Fposts%2F{id}%2Fedit`
 10. `.env.local` 없이 `npm run build`와 `npx next typegen` 성공 ('관리자 인증' 8번과 같다)
+
+### 관리자 카테고리 (`/admin/categories`)
+**구성**
+- `categories/page.tsx`(서버 컴포넌트): 제목 "카테고리"와 `AdminCategoryManager`(클라이언트, `components/admin/`)만 둔다. 읽을 쿼리·경로 값이 없어 `Suspense`를 두지 않는다.
+- 한 화면에 폼과 목록을 함께 둔다: 위에 `CategoryForm`(생성·수정 공용, 클라이언트), 아래에 목록 표. 입력이 두 칸뿐이고 단건 조회 API가 없어(8-4) 글처럼 작성·수정 경로를 나누지 않는다. 행마다 입력칸을 펼치는 인라인 편집도 하지 않는다: 폼이 하나여야 검증·오류 표시가 한 곳에 모인다.
+- `AdminCategoryManager`가 목록과 "수정 중인 카테고리"(`null`이면 생성 모드)를 상태로 갖고 폼에 넘긴다. 목록은 마운트 때와 저장·삭제 뒤 `getCategories()`로 다시 불러온다. 늦게 온 이전 응답은 버리고, 데이터 패칭 라이브러리는 쓰지 않는다 ('관리자 글 목록'과 같다).
+- API: `lib/api/admin-categories.ts`에 더한다 (`client.ts` 사용, 타입은 `api.d.ts`의 `CategoryRequest`·`AdminCategoryResponse`): `createCategory(body)`(`POST /admin/categories`), `updateCategory(id, body)`(`PUT /admin/categories/{id}`), `deleteCategory(id)`(`DELETE /admin/categories/{id}`). 저장 응답은 쓰지 않고 목록을 다시 불러온다 (`postCount`가 없다, 8-4).
+
+**화면**
+- 제목 아래 안내 한 줄: "변경한 내용은 1분이 지난 뒤 공개 페이지를 열면 갱신되며, 한 번 더 새로고침해야 보일 수 있습니다." ('관리자 글 목록'과 같은 문구. 공개 글 화면의 카테고리 이름은 `posts.ts` 캐시를 거친다, '렌더링 전략'. 즉시 반영은 하지 않는다)
+- 표 열: 이름, slug, 발행 글 수(`postCount`), 수정 버튼, 삭제 버튼. 순서는 API 정렬(`name` 오름차순, 8-1) 그대로다. `name`은 중복될 수 있어 slug 열로 구분한다 (6장). 열 이름을 "발행 글 수"로 하는 이유: `postCount`는 PUBLISHED만 세어(8-1) 작성 중 글이 빠진다.
+- 목록 상태별 표시 (제목·안내·폼은 항상 보인다)
+  | 상태 | 화면 |
+  |---|---|
+  | 불러오는 중 (처음, 저장·삭제 뒤 다시 불러올 때) | 표 자리에 "불러오는 중..." (이전 표는 지운다) |
+  | 빈 배열 | "카테고리가 없습니다." |
+  | `401` | `client.ts`가 로그인 화면으로 이동시키므로 "불러오는 중..."을 유지한다 |
+  | 그 외 `ApiError`(403, 429, 5xx)·네트워크 오류 | "카테고리 목록을 불러오지 못했습니다. 새로고침해 주세요." |
+
+**폼** (`CategoryForm`, react-hook-form + `zodResolver(categorySchema)`)
+- 항목: 이름(`input`), slug(`input`, 아래 안내 "영문 소문자·숫자·하이픈만 쓸 수 있습니다.").
+- 생성 모드: 제목 "새 카테고리", 빈 값, 버튼 "추가".
+- 행의 "수정"을 누르면 수정 모드: 제목 "카테고리 수정", 그 행의 `name`·`slug`로 `reset`하고 이전 폼 오류를 지운다. 버튼은 "저장"과 "취소"(생성 모드로 돌아가 빈 값으로 `reset`). 이름 입력에 포커스(`setFocus("name")`)를 옮긴다: 폼이 표 위에 있어 키보드 사용자가 찾아가지 않아도 되게. 수정 중 다른 행의 "수정"을 누르면 확인 없이 그 행으로 바꾼다 (잃는 입력이 두 칸뿐이다).
+- 이탈 경고(`beforeunload`)는 두지 않는다. 같은 이유로 입력이 두 칸뿐이다.
+- slug를 바꿔도 확인 창을 띄우지 않는다. 글과 달리 M2에는 카테고리 slug를 쓰는 공개 주소가 없다 (`/categories/{slug}`는 M4). M4 카테고리 페이지 이슈에서 다시 검토한다.
+
+**`categorySchema`** (`schemas/category.ts`, Zod) — 서버 규칙(8-4 `CategoryRequest`)과 같고, 메시지도 서버의 검증 메시지와 같다
+| 필드 | 규칙 | 메시지 |
+|---|---|---|
+| name | 앞뒤 공백 제거(`.trim()`) 후 1~50자, 제어 문자 금지(`/^\P{Cc}+$/u`) | "카테고리 이름을 입력하세요", "카테고리 이름은 50자 이하여야 합니다", "카테고리 이름에 제어 문자를 쓸 수 없습니다" |
+| slug | 빈 값 거절, 100자 이하, `SLUG_PATTERN`에 맞음. 공백을 지우지 않는다 (서버도 지우지 않는다) | "slug를 입력하세요", "slug는 100자 이하여야 합니다", "slug는 영문 소문자·숫자·하이픈만 쓸 수 있습니다" |
+- 패턴은 `lib/slug.ts`의 `SLUG_PATTERN`을 쓰고, 길이 상한은 `category.slug` 컬럼(6장)에 맞춰 100이다 (`MAX_SLUG_LENGTH` 200은 글 slug다). 길이(UTF-16)·공백 판정의 서버와의 차이는 `postSchema`와 같다.
+- 요청 본문은 스키마를 통과한 값(앞뒤 공백을 지운 `name`)을 보낸다.
+- `postSchema`와 같은 이유로 단위 테스트하지 않고 아래 화면 확인 2번으로 표의 규칙을 모두 본다.
+
+**저장**
+- 제출하면 Zod 검증 → 생성 모드는 `createCategory`, 수정 모드는 `updateCategory`. 요청 중에는 "추가"·"저장"·"취소" 버튼과 표의 수정·삭제 버튼을 막는다 (요청 중 모드가 바뀌거나 저장 대상이 지워지지 않게).
+- 제출할 때 이전 폼 오류를 지운다. 필드 오류는 각 필드 아래, 폼 오류는 버튼 위에 `role="alert"`로 보이고 입력값은 그대로 둔다. Zod 오류의 포커스는 React Hook Form 기본값을 따르고, 서버 응답의 필드 오류는 포커스를 옮기지 않는다 ('관리자 글 작성·수정'과 같다).
+  | 결과 | 화면 |
+  |---|---|
+  | `201`(생성)·`200`(수정) | 생성 모드로 돌아가 빈 값으로 `reset`, 목록을 다시 불러온다 |
+  | `400` `INVALID_INPUT`이고 `errors`에 `name`·`slug`가 있음 | 그 필드 아래에 `reason` (같은 필드가 여러 개면 첫 항목, 그 밖의 항목은 버린다) |
+  | `409` `DUPLICATE_SLUG` | slug 아래에 `detail`("이미 사용 중인 slug입니다.") |
+  | `404` `CATEGORY_NOT_FOUND` (수정 중 다른 탭에서 삭제됨) | 폼 오류 "카테고리가 삭제되어 저장하지 못했습니다.", 목록을 다시 불러온다. 수정 모드와 입력은 그대로 둔다 (내용을 복사해 둘 수 있게. "취소"로 생성 모드로 나간다) |
+  | `401` | `client.ts`가 로그인 화면으로 이동시킨다 (문구 없음) |
+  | 그 외 `ApiError`(폼 필드가 없는 `400`, 403, 429, 5xx, csrf 호출 실패)·네트워크 오류 | 폼 오류 "저장하지 못했습니다. 잠시 후 다시 시도해 주세요." |
+  - `CATEGORY_NOT_FOUND`를 `detail` 대신 고정 문구로 보이는 이유는 '관리자 글 작성·수정'의 `POST_NOT_FOUND`와 같다.
+
+**삭제**
+- 버튼을 누르면 `window.confirm("\"{name}\" 카테고리를 삭제할까요? 이 카테고리의 글(작성 중인 글 포함)은 삭제되지 않고 카테고리 없음이 됩니다.")`로 묻고, 취소하면 요청하지 않는다.
+  - 글이 있을 때만 경고하지 않고 항상 같은 문구를 쓴다: `postCount`는 PUBLISHED만 세어 작성 중 글이 있어도 0일 수 있고, 모든 글을 세려면 관리자용 목록 API가 필요한데 두지 않기로 했다(8-1). 삭제가 글을 지우지 않으므로(8-4) 결과를 문구로 알리는 것으로 충분하다고 본다.
+- 요청 중에는 표의 수정·삭제 버튼과 폼의 버튼을 막는다.
+  | 결과 | 화면 |
+  |---|---|
+  | `204` | 목록을 다시 불러온다. 지운 카테고리를 수정 중이었으면 생성 모드로 돌아가 빈 값으로 `reset` |
+  | `404` (`CATEGORY_NOT_FOUND`, 이미 삭제됨) | 바라던 상태라 `204`와 같다 (문구 없음) |
+  | `401` | `client.ts`가 로그인 화면으로 이동시킨다 (문구 없음) |
+  | 그 외 `ApiError`(403, 429, 5xx, csrf 호출 실패)·네트워크 오류 | `window.alert("삭제하지 못했습니다. 잠시 후 다시 시도해 주세요.")`, 목록과 폼은 그대로 둔다 |
+- 다시 불러오기(저장·삭제 뒤)의 표시와 실패는 위 목록 상태별 표를 따른다.
+
+**화면 확인** ('관리자 글 목록'의 화면 확인과 같은 환경. local 프로필은 시작할 때 글이 없으면 시드 카테고리·글을 넣으므로, 1번 전에 시드 카테고리를 모두 `DELETE /api/v1/admin/categories/{id}`로 지우고 1번을 볼 때까지 백엔드를 재시작하지 않는다. 완료 조건의 확인 수단이다)
+1. 헤더 "카테고리" → `/admin/categories`. 제목·안내 문구·"새 카테고리" 폼과 "카테고리가 없습니다."
+2. `categorySchema` 규칙: 빈 폼 "추가" → 이름·slug 필수 문구, `Network`에 `POST` 없음. 공백만 있는 이름, 51자 이름, `My Slug`·` my-slug`(앞 공백)·101자 slug → 각 문구. 50자 이름, 앞뒤 공백을 붙인 50자 이름, 100자 slug는 통과하고 요청 본문의 `name`은 공백을 지운 값. 이름 가운데의 `a\tb`('관리자 글 작성·수정' 화면 확인 2번의 방법으로 넣는다) → 제어 문자 문구
+3. 추가 → `POST` `201`, 폼이 비고 목록에 그 카테고리(발행 글 수 0). 이름 순으로 보이고, 같은 이름 두 개는 slug로 구분된다. 이미 있는 slug로 추가 → slug 아래 "이미 사용 중인 slug입니다.", 입력 유지
+4. "수정" → 제목 "카테고리 수정", 값이 채워지고 이름에 포커스. 이름만 바꿔 저장 → `PUT` `200`, 생성 모드로 돌아오고 목록에 반영. 다른 카테고리의 slug로 저장 → "이미 사용 중인 slug입니다." "취소" → 생성 모드, 빈 값
+5. 수정 중인 카테고리를 다른 탭에서 지우고 저장 → "카테고리가 삭제되어 저장하지 못했습니다.", 목록에서 사라지고 입력 유지. DevTools로 `admin/categories*`를 막고 저장 → "저장하지 못했습니다. 잠시 후 다시 시도해 주세요.", 입력 유지. 스로틀링 시 요청 중 폼과 표의 버튼이 막힌다
+6. 발행 글과 작성 중 글이 있는 카테고리 삭제 → confirm 문구에 이름, 취소 → 요청 없음, 확인 → `DELETE` `204`, 목록에서 사라지고 그 글들의 수정 화면이 "카테고리 없음". 수정 중인 카테고리 삭제 → 생성 모드로 돌아감. 다른 탭에서 먼저 지운 카테고리 삭제 → `404`, 문구 없이 갱신. DevTools로 `admin/categories/*`를 막고 삭제 → alert. 스로틀링 시 `DELETE` 중 버튼이 막히고, 다시 불러오는 동안 "불러오는 중..."
+7. DevTools로 `categories`(목록 조회)를 막고 새로고침 → "카테고리 목록을 불러오지 못했습니다. 새로고침해 주세요.", 폼은 보인다
+8. `.env.local` 없이 `npm run build`와 `npx next typegen` 성공 ('관리자 인증' 8번과 같다)
 
 ### 날짜 표시
 - KST `YYYY.MM.DD` (`2026.10.11`). 내장 `Intl.DateTimeFormat('ko-KR', { timeZone: 'Asia/Seoul', year: 'numeric', month: '2-digit', day: '2-digit' })`의 `formatToParts`로 조립한다 (`timeZone`을 명시해 서버 시간대와 무관하게 동작).
