@@ -121,3 +121,8 @@
   - 로그아웃 실패 문구, `Pagination`의 링크 주소를 `pageHref` prop으로 받음, '관리자 인증' 화면 확인의 `next` 값을 `/admin/posts` 기준으로 수정 (11장)
   - 공개 반영 지연을 stale-while-revalidate 동작(60초 뒤 첫 요청이 갱신 시작, `expire` 없음이라 상한 없음, 클라이언트 캐시 `stale` 5분)으로 정정 (11장 '렌더링 전략'), 8-4는 그 항목을 가리킨다
   - 로그아웃 상태의 `/admin`은 가드가 `redirect`보다 먼저라 `/admin/login?next=%2Fadmin`으로 간다고 정정 ('관리자 글 목록' 레이아웃·화면 확인 1번, '관리자 인증' 화면 확인 6번) (11장)
+
+- **v2.24**
+  - 프론트 `관리자 글 작성·수정`(11장): `PostForm`이 카테고리(`GET /categories`, 새 `lib/api/admin-categories.ts`)와 글을 불러와 폼을 채움, 수정 경로 `id`는 `parsePostIdParam`으로 숫자만 통과, 입력 항목(태그는 M4), `postSchema`(서버 규칙·메시지와 같음, slug는 `lib/slug.ts`의 `SLUG_PATTERN`·`MAX_SLUG_LENGTH` 공유), 저장 결과별 화면(`400` `errors`·`409`·`404`를 필드·폼 오류로), 발행된 글의 slug 변경 confirm, `beforeunload` 이탈 경고(앱 안 클라이언트 이동은 경고하지 않음), 화면 확인 목록
+  - 미리보기(`MarkdownPreview`)는 브라우저에서 react-markdown 동기 `Markdown` + `remarkGfm`로 렌더링하고 코드 하이라이팅은 하지 않음, raw HTML 금지 유지 (11장, 10-4)
+  - 8-4 `PUT`의 slug 변경 경고 위치를 11장 '관리자 글 작성·수정'으로 연결

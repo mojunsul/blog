@@ -42,14 +42,16 @@ frontend/src/
 │  │  ├ errors.ts   # ProblemDetail 타입(명세에 없어 직접 정의)·파싱, ApiError
 │  │  ├ posts.ts
 │  │  ├ auth.ts     # 브라우저용 login·logout·getMe (client.ts 사용)
-│  │  └ admin-posts.ts # 브라우저용 관리자 글 API (getAdminPosts, deletePost, client.ts 사용)
+│  │  ├ admin-posts.ts # 브라우저용 관리자 글 API (getAdminPosts, getAdminPost, createPost, updatePost, deletePost, client.ts 사용)
+│  │  └ admin-categories.ts # 브라우저용 카테고리 API (getCategories, client.ts 사용)
 │  ├ cookie.ts      # 쿠키 문자열에서 값 읽기 (readCookie)
 │  ├ next-path.ts   # 로그인 후 이동 경로 해석 (parseNextParam)
 │  ├ single-flight.ts # 동시 호출을 한 번의 실행으로 합침 (singleFlight)
 │  ├ date.ts        # UTC → KST 표시 변환 (formatDate, YYYY.MM.DD)
 │  ├ pagination.ts  # URL의 page 쿼리 해석 (parsePageParam)
 │  ├ post-status.ts # URL의 status 쿼리 해석 (parseStatusParam)
-│  ├ slug.ts        # slug 형식 검사 (isValidSlug, 6장 slug 규칙)
+│  ├ post-id.ts     # URL의 글 id 경로 해석 (parsePostIdParam)
+│  ├ slug.ts        # slug 형식 검사 (isValidSlug, SLUG_PATTERN·MAX_SLUG_LENGTH, 6장 slug 규칙)
 │  └ utils.ts
 ├ schemas/
 │  ├ auth.ts        # loginSchema - 서버 검증 규칙과 동일
@@ -216,6 +218,94 @@ CI에서 프론트 이미지를 빌드할 때는 백엔드가 없다. `next buil
 7. 스로틀링 시 로그아웃 요청 중 버튼이 막힌다. DevTools로 `auth/logout`을 막고 로그아웃 → 오류 문구, 막기를 풀고 다시 누르면 문구가 지워지고 `/admin/login`
 8. `.env.local` 없이 `npm run build`와 `npx next typegen` 성공 ('관리자 인증' 8번과 같다)
 
+### 관리자 글 작성·수정 (`/admin/posts/new`, `/admin/posts/{id}/edit`)
+**구성**
+- `posts/new/page.tsx`(서버 컴포넌트): 제목 "새 글"과 `PostForm`(클라이언트, `components/admin/`)을 둔다.
+- `posts/[id]/edit/page.tsx`(서버 컴포넌트): 제목 "글 수정"과, '관리자 글 목록'처럼 `Suspense`(fallback "불러오는 중...") 안의 비동기 컴포넌트가 `params`를 읽는다. `lib/post-id.ts`의 순수 함수 `parsePostIdParam(value: string): number | null`로 해석해 유효하면 `PostForm`에 `id`를 넘기고, `null`이면 API를 부르지 않고 "잘못된 주소입니다."와 "글 목록으로"(`/admin/posts`) 링크를 보여 준다 ('관리자 글 목록'과 같은 이유로 `notFound()`를 쓰지 않는다).
+  - `parsePostIdParam`: `^[1-9][0-9]*$`에 맞고 `Number.isSafeInteger`인 값이면 그 수, 그 외(`0`, 앞에 `0`이 붙은 값, 음수, 소수, 문자, `2^53` 이상)는 `null`. 값이 API 경로에 그대로 들어가므로 숫자만 통과시킨다 ('글 상세 페이지'의 slug 검사와 같은 이유). `2^53` 이상은 Long 범위 안이라도 JS 수로 정확히 표현되지 않고 글 수로 닿을 수 없는 값이라 잘못된 주소로 본다.
+- `PostForm({ id?: number })`: 마운트 때 카테고리 목록과, `id`가 있으면 글을 함께(`Promise.all`) 불러온 뒤 폼을 그린다. 불러오는 동안·실패는 아래 '불러오기' 표를 따른다. 성공하면 `reset(글에서 만든 값)`(새 글은 기본값)으로 폼의 기준값을 정하고, 이 기준값이 이탈 경고의 `isDirty` 기준이 된다. 데이터 패칭 라이브러리는 쓰지 않는다 ('관리자 글 목록'과 같다).
+- API (`client.ts` 사용, 타입은 `api.d.ts`의 `PostRequest`·`AdminPostDetailResponse`·`PostCreateResponse`·`CategoryResponse`)
+  - `lib/api/admin-posts.ts`에 더한다: `getAdminPost(id)`(`GET /admin/posts/{id}`), `createPost(body)`(`POST /admin/posts`), `updatePost(id, body)`(`PUT /admin/posts/{id}`)
+  - `lib/api/admin-categories.ts`(새 파일): `getCategories()`(`GET /categories`, 공개 API를 브라우저에서 부른다). 관리자 카테고리 화면(#78)도 이 파일에 생성·수정·삭제를 더한다. 서버 컴포넌트용 `posts.ts`는 `'use cache'`(60초)라 쓰지 않는다: 방금 만든 카테고리가 폼에 늦게 보인다.
+
+**불러오기** (폼 대신 보이는 문구, 제목은 항상 보인다)
+| 상태 | 화면 |
+|---|---|
+| 불러오는 중 | "불러오는 중..." |
+| 글 `404` (`POST_NOT_FOUND`) | "글을 찾을 수 없습니다."와 "글 목록으로"(`/admin/posts`) 링크 |
+| `401` | `client.ts`가 로그인 화면으로 이동시키므로 "불러오는 중..."을 유지한다 ('관리자 글 목록'과 같다) |
+| 그 외 `ApiError`(400, 403, 429, 5xx)·네트워크 오류 (글·카테고리 중 하나라도) | "글을 불러오지 못했습니다. 새로고침해 주세요." |
+
+**입력 항목** (순서대로)
+| 항목 | 입력 | 수정 폼의 초기값 |
+|---|---|---|
+| 제목 | `input` | `title` |
+| slug | `input`, 아래 안내 "영문 소문자·숫자·하이픈만 쓸 수 있습니다. 공개 주소 /posts/{slug}가 됩니다." | `slug` |
+| 카테고리 | `select`, 첫 항목 "카테고리 없음"(값 `""`), 이어서 목록 API 순서대로 "{name} ({slug})" (`name`은 중복될 수 있어 slug를 함께 보인다, 6장) | `categoryId`, `null`이면 `""` |
+| 상태 | 라디오 "작성 중"(`DRAFT`)·"발행됨"(`PUBLISHED`), 새 글 기본값 `DRAFT` | `status` |
+| 요약 | `textarea` | `summary`, `null`이면 `""` |
+| 썸네일 URL | `input` | `thumbnailUrl`, `null`이면 `""` |
+| 본문 | "작성"·"미리보기" 전환 버튼과 `textarea` | `content` |
+- 불러온 글의 `categoryId`가 카테고리 목록에 없으면(두 요청 사이에 카테고리가 삭제됨) 선택이 "카테고리 없음"으로 보이고 그대로 저장하면 카테고리 없는 글이 된다. 카테고리 삭제가 글의 카테고리를 `NULL`로 만드므로(6장) 결과가 같아 따로 다루지 않는다.
+- 태그 입력은 두지 않는다. M2의 `PostRequest`에 `tags`가 없다 (8-4, M4에서 추가).
+- 폼 아래 "저장" 버튼 하나. 저장할 상태는 위 라디오가 정한다.
+
+**`postSchema`** (`schemas/post.ts`, Zod) — 서버 규칙(8-4 `PostRequest`)과 같고, 메시지도 서버의 검증 메시지와 같다
+| 필드 | 규칙 | 메시지 |
+|---|---|---|
+| title | 앞뒤 공백 제거(`.trim()`) 후 1~200자, 제어 문자 금지(`/^\P{Cc}+$/u`) | "제목을 입력하세요", "제목은 200자 이하여야 합니다", "제목에 제어 문자를 쓸 수 없습니다" |
+| slug | 빈 값 거절, `MAX_SLUG_LENGTH`(200) 이하, `SLUG_PATTERN`에 맞음. 공백을 지우지 않는다 (서버도 지우지 않아 공백이 있으면 형식 위반이다) | "slug를 입력하세요", "slug는 200자 이하여야 합니다", "slug는 영문 소문자·숫자·하이픈만 쓸 수 있습니다" |
+| summary | 앞뒤 공백 제거 후 500자 이하, NUL 금지. 빈 값 허용 | "요약은 500자 이하여야 합니다", "요약에 NUL 문자를 쓸 수 없습니다" |
+| content | 공백만 있는 값 거절, 100,000자 이하, NUL 금지. 앞뒤 공백은 그대로 둔다 | "본문을 입력하세요", "본문은 100,000자 이하여야 합니다", "본문에 NUL 문자를 쓸 수 없습니다" |
+| thumbnailUrl | 앞뒤 공백 제거 후 빈 값 허용, 500자 이하, 값이 있으면 `/^https?:\/\/[^\s\p{Cc}]+$/u` | "썸네일 URL은 500자 이하여야 합니다", "썸네일 URL은 공백 없는 http(s) 주소여야 합니다" |
+| categoryId | 문자열(`""` 또는 목록의 id) | - |
+| status | `DRAFT`·`PUBLISHED` | - |
+- slug 규칙은 `lib/slug.ts`가 `SLUG_PATTERN`·`MAX_SLUG_LENGTH`를 export해 `isValidSlug`와 스키마가 같은 상수를 쓴다. 스키마가 `isValidSlug` 하나로 검사하지 않는 이유: 필드 오류를 빈 값·길이·형식으로 나눠 서버와 같은 문구로 보인다.
+- 길이는 JS 문자열 길이(UTF-16)로 세어 서버(Java 문자 수)와 같다. 공백 판정(`trim()`·`\s`)은 JS가 NBSP 등 유니코드 공백까지 포함해 Java(`strip()`·`\s`)와 조금 다를 수 있다 (`loginSchema`와 같다). 서버 검증이 최종이다.
+- 요청 본문: 스키마를 통과한 값(앞뒤 공백을 지운 `title`·`summary`·`thumbnailUrl`)을 보낸다. `summary`·`thumbnailUrl`의 `""`는 그대로 보내 서버가 `null`로 바꾼다 (8-4). `categoryId`는 `""`면 넣지 않고(수정에서는 카테고리가 지워진다, 8-4 `PUT`), 그 외는 `Number`로 바꾼다.
+- `postSchema`는 `loginSchema`와 같은 이유(라이브러리 규칙을 그대로 선언)로 단위 테스트하지 않고 아래 화면 확인으로 본다.
+
+**미리보기** (`MarkdownPreview`, 클라이언트 컴포넌트)
+- `MarkdownRenderer`는 Shiki를 쓰는 async 서버 컴포넌트라 폼에서 쓸 수 없다. 미리보기는 브라우저에서 react-markdown의 동기 `Markdown`으로 렌더링하고 **코드 하이라이팅은 하지 않는다** (코드 블록은 글자만).
+  - 서버 렌더링 요청(Server Action·API)을 두지 않는 이유: 미리보기마다 서버 왕복과 Shiki 실행이 생기는데 결과는 하이라이팅 색만 다르다. 클라이언트 Shiki는 하이라이터와 문법 파일이 관리자 번들에 들어간다. 관리자 1명이 내용을 확인하는 용도라 색은 필요 없다고 본다.
+- 플러그인은 `remarkGfm`만 쓴다 (표·체크리스트·취소선을 공개 화면과 같게 보인다). `rehype-slug`는 제목 `id`만 만들어 보이는 결과가 같으므로 넣지 않는다.
+- 보안은 `MarkdownRenderer`와 같다: `rehype-raw`, `skipHtml` 변경, `urlTransform` 재정의를 하지 않는다 (10-4). 스타일도 같은 `<div className="prose dark:prose-invert max-w-none">`로 감싼다.
+- "미리보기"를 누르면 그 시점의 본문으로 렌더링하고, "작성"을 누르면 `textarea`로 돌아간다. 미리보기 중에는 `textarea`를 `hidden`으로 숨기고 지우지 않는다 (입력값과 검증 대상 유지). 입력마다 렌더링하는 나란히 보기는 하지 않는다 (100,000자 본문을 키 입력마다 다시 파싱한다). 본문이 공백뿐이면 "미리 볼 내용이 없습니다."
+- 현재 선택된 버튼은 `aria-pressed="true"`. 두 버튼은 `type="button"`이라 폼을 제출하지 않는다.
+
+**저장**
+- 제출하면 Zod 검증 → (수정이고, 불러온 글이 `PUBLISHED`이고, slug를 바꿨으면) `window.confirm("slug를 바꾸면 기존 주소 /posts/{불러온 slug}는 더 이상 열리지 않습니다. 저장할까요?")`, 취소하면 요청하지 않는다 (8-4 `PUT` slug 변경, 리다이렉트 없음) → 새 글은 `createPost`, 수정은 `updatePost`.
+- 요청 중에는 "저장" 버튼을 막는다.
+- 제출할 때 이전 폼 오류 문구를 지운다. 필드 오류는 `setError`로 각 필드 아래에, 폼 오류는 "저장" 버튼 위에 `role="alert"`로 보인다. 입력값은 그대로 둔다.
+  | 결과 | 화면 |
+  |---|---|
+  | `201`(작성)·`200`(수정) | `router.push("/admin/posts")` (목록의 공개 반영 안내가 보인다) |
+  | `400` `INVALID_INPUT`이고 `errors`에 폼 필드(`title`·`slug`·`summary`·`content`·`thumbnailUrl`·`categoryId`·`status`)가 있음 | 그 필드 아래에 `reason` (같은 필드가 여러 개면 첫 항목, 폼 필드가 아닌 항목은 버린다) |
+  | `409` `DUPLICATE_SLUG` | slug 아래에 `detail`("이미 사용 중인 slug입니다.") |
+  | `404` `CATEGORY_NOT_FOUND` (선택한 카테고리가 그 사이 삭제됨) | 카테고리 아래에 `detail`("카테고리를 찾을 수 없습니다.") |
+  | `404` `POST_NOT_FOUND` (수정 중 다른 탭에서 삭제됨) | 폼 오류 "글이 삭제되어 저장하지 못했습니다." |
+  | `401` | `client.ts`가 로그인 화면으로 이동시킨다 (문구 없음, 아래 이탈 경고가 뜬다) |
+  | 그 외 `ApiError`(폼 필드가 없는 `400`, 403, 429, 5xx, csrf 호출 실패)·네트워크 오류 | 폼 오류 "저장하지 못했습니다. 잠시 후 다시 시도해 주세요." |
+  - `400`은 Zod가 같은 규칙으로 먼저 막으므로 공백 판정 차이(위)나 규칙 불일치 버그일 때만 나온다. `409`·`CATEGORY_NOT_FOUND`의 문구는 9장대로 `detail`을 쓴다. `POST_NOT_FOUND`만 고정 문구인 이유: `detail`("글을 찾을 수 없습니다.")로는 저장하지 못했다는 결과가 드러나지 않는다.
+
+**이탈 경고**
+- 폼이 기준값에서 바뀐 동안(`formState.isDirty`) `window`에 `beforeunload` 리스너를 두어, 새로고침·탭 닫기·주소 직접 입력·`window.location.assign`(로그아웃, `client.ts`의 401 이동) 때 브라우저 기본 확인 창을 띄운다. 문구는 브라우저가 정한다 (임의 문구는 표시되지 않는다).
+  - 401 이동에서 머무르기를 고르면 화면에 남아 입력을 복사해 둘 수 있다. 다시 저장해도 401이면 같은 확인 창이 뜬다.
+- **앱 안의 클라이언트 이동(헤더 "글"·"카테고리" 링크, 브라우저 뒤로 가기)은 경고하지 않는다.** App Router에 클라이언트 이동을 막는 API가 없어, 막으려면 문서의 링크 클릭과 `popstate`를 직접 가로채야 한다. 관리자 1명이 쓰는 화면이라 그 코드를 유지할 만큼 얻는 것이 없다고 본다.
+- 저장에 성공하면 `router.push`로 이동해 폼이 사라지므로 리스너도 정리된다 (경고 없음).
+
+**화면 확인** ('관리자 글 목록'의 화면 확인과 같은 환경. 완료 조건의 확인 수단이다)
+1. 목록의 "새 글" → `/admin/posts/new`. 카테고리 선택에 "카테고리 없음"과 "{name} ({slug})" 항목, 상태 기본값 "작성 중". 값을 채워 저장 → `POST` `201` 뒤 `/admin/posts`, 목록 맨 위에 그 글
+2. 빈 폼 저장 → 제목·slug·본문 아래 필수 문구, `Network`에 `POST` 없음. 공백만 있는 제목·본문, `My Slug`, 201자 slug, `ftp://a`·`https://a b` 썸네일 → 각 문구. 앞뒤 공백이 있는 제목은 지운 값으로 저장된다
+3. 이미 있는 slug로 저장 → slug 아래 "이미 사용 중인 slug입니다.", 입력 유지. 폼을 연 뒤 그 카테고리를 `DELETE /api/v1/admin/categories/{id}`로 지우고 그 카테고리로 저장 → 카테고리 아래 "카테고리를 찾을 수 없습니다."
+4. 목록의 제목 링크 → `/admin/posts/{id}/edit`에 값이 채워진다 (카테고리 없는 글은 "카테고리 없음", `null`인 요약·썸네일은 빈 칸). 수정 후 저장 → `PUT` `200` 뒤 목록의 수정일 반영. 카테고리를 "카테고리 없음"으로 저장 → 목록의 카테고리 "-"
+5. `PUBLISHED` 글의 slug를 바꿔 저장 → confirm에 불러온 slug, 취소 → 요청 없음, 확인 → 저장. `DRAFT` 글의 slug 변경은 confirm 없음
+6. `/admin/posts/abc/edit`, `/0/edit`, `/01/edit`, `/9007199254740992/edit` → "잘못된 주소입니다.", `Network`에 `admin/posts/` 요청 없음. 없는 id(`/999999/edit`) → "글을 찾을 수 없습니다."와 "글 목록으로". DevTools로 `categories` 요청을 막고 새로고침 → "글을 불러오지 못했습니다. 새로고침해 주세요."
+7. 수정 화면을 연 뒤 그 글을 `DELETE`로 지우고 저장 → "글이 삭제되어 저장하지 못했습니다." DevTools로 `admin/posts*` 요청을 막고 저장 → "저장하지 못했습니다. 잠시 후 다시 시도해 주세요.", 입력 유지. 스로틀링 시 요청 중 "저장" 버튼이 막힌다
+8. 표·체크리스트·코드 블록·`<script>`·`<img onerror>`·`[x](javascript:alert(1))`가 든 본문 → "미리보기"에서 표·체크리스트가 보이고, raw HTML은 글자로 보이며 스크립트가 실행되지 않고, `javascript:` 링크의 `href`가 비어 있다 (DOM으로 확인). "작성"으로 돌아오면 입력이 남아 있다. 공백뿐인 본문 → "미리 볼 내용이 없습니다."
+9. 값을 바꾼 뒤 새로고침 → 브라우저 확인 창, 바꾸지 않았으면 확인 창 없음. 수정 화면에서 값을 바꾼 뒤 `access_token`·`refresh_token`을 지우고 저장 → 확인 창, 떠나기 → `/admin/login?next=%2Fadmin%2Fposts%2F{id}%2Fedit`
+10. `.env.local` 없이 `npm run build`와 `npx next typegen` 성공 ('관리자 인증' 8번과 같다)
+
 ### 날짜 표시
 - KST `YYYY.MM.DD` (`2026.10.11`). 내장 `Intl.DateTimeFormat('ko-KR', { timeZone: 'Asia/Seoul', year: 'numeric', month: '2-digit', day: '2-digit' })`의 `formatToParts`로 조립한다 (`timeZone`을 명시해 서버 시간대와 무관하게 동작).
 - 날짜 라이브러리(dayjs, date-fns)는 쓰지 않는다. 상대 시간("3일 전"), 기간 계산, 문자열 파싱이 필요해지면 다시 검토한다.
@@ -243,7 +333,7 @@ CI에서 프론트 이미지를 빌드할 때는 백엔드가 없다. `next buil
   - 규칙에 맞는 값은 영문 소문자·숫자·하이픈뿐이라 그대로 API 경로에 넣는다. 규칙 밖 값을 그대로(또는 `encodeURIComponent`로) 넣으면 `.`이 든 값은 URL 정규화로 다른 API 경로가 될 수 있고(`encodeURIComponent`는 `.`을 인코딩하지 않는다), 인코딩된 슬래시(`%2F`)는 서버가 404가 아닌 400으로 거절할 수 있어 오류 화면이 된다.
   - `/posts/..`·`/posts/%2E%2E`는 브라우저가 요청 전에 `/`로 정규화하므로 상세 페이지에 오지 않는다(목록 페이지가 열린다). 검사는 값이 어떤 경로로 들어왔는지와 무관하게 `params`에 온 값에 적용한다.
   - 8-1의 "형식이 다른 slug는 404"와 결과가 같다 (API는 형식을 검사하지 않고, 프론트는 호출 전에 걸러 같은 not-found를 보여 준다). Next가 `params`의 `%2F`·`%2E`를 디코딩하든 안 하든 `%`·`/`·`.`은 규칙에 맞지 않으므로 결과가 같다.
-  - 관리자 폼의 Zod 스키마(M2)도 이 함수의 패턴을 함께 쓴다.
+  - 관리자 폼의 Zod 스키마도 같은 상수(`SLUG_PATTERN`·`MAX_SLUG_LENGTH`)를 쓴다 ('관리자 글 작성·수정').
 - `getPost`는 404(없는 글, DRAFT)면 `null`을 돌려주고('에러 처리'), 페이지는 `null`이면 `notFound()`. 그 외 오류는 그대로 던진다.
   - 목록 페이지와 같은 이유로 상태 코드는 `200`으로 남고 `noindex`가 붙는다.
 - 표시 항목: 제목(`h1`), 카테고리 이름(있을 때, 텍스트만)과 발행일(`formatDate`)을 `PostCard`와 같은 형식으로, 본문(`MarkdownRenderer`).
@@ -273,10 +363,10 @@ CI에서 프론트 이미지를 빌드할 때는 백엔드가 없다. `next buil
 - `MarkdownRenderer`는 async 서버 컴포넌트라 단위 테스트하지 않는다. 렌더링 결과는 글 상세 페이지에서 시드 글로 확인한다.
 
 ### 프론트엔드 테스트
-- Vitest로 `lib/`의 로직이 있는 순수 함수만 단위 테스트한다 (`date.ts`, `errors.ts`의 파싱 함수, `pagination.ts`, `post-status.ts`, `slug.ts`, `cookie.ts`, `next-path.ts`, `single-flight.ts`).
+- Vitest로 `lib/`의 로직이 있는 순수 함수만 단위 테스트한다 (`date.ts`, `errors.ts`의 파싱 함수, `pagination.ts`, `post-status.ts`, `post-id.ts`, `slug.ts`, `cookie.ts`, `next-path.ts`, `single-flight.ts`).
   - `async` 서버 컴포넌트는 Vitest·Jest 모두 단위 테스트를 지원하지 않으므로 단위 테스트하지 않는다.
   - `server.ts`는 `server-only`가 테스트 환경에서 import 시 오류를 던지므로 단위 테스트하지 않는다 (실제 호출은 화면에서 확인).
-  - `client.ts`와 `auth.ts`·`admin-posts.ts`(브라우저 전역·`fetch`에 기대는 파일), `loginSchema`(라이브러리 규칙을 그대로 선언)는 단위 테스트하지 않는다. 흐름은 '관리자 인증'·'관리자 글 목록'의 화면 확인으로 본다.
+  - `client.ts`와 `auth.ts`·`admin-posts.ts`·`admin-categories.ts`(브라우저 전역·`fetch`에 기대는 파일), `loginSchema`·`postSchema`(라이브러리 규칙을 그대로 선언)는 단위 테스트하지 않는다. 흐름은 '관리자 인증'·'관리자 글 목록'·'관리자 글 작성·수정'의 화면 확인으로 본다.
 - 최소 구성: `vitest`, `vitest.config.mts`(`resolve: { tsconfigPaths: true }`로 `@/` 별칭 해석, Vite 내장 기능이라 `vite-tsconfig-paths` 플러그인은 쓰지 않는다), `"test": "vitest run"`. React Testing Library·jsdom은 컴포넌트 테스트가 필요해질 때 추가한다.
 - `vitest`는 정확한 버전으로 고정한다(`^` 없음). Vitest는 메이저가 7~9개월마다 나와 깨지는 변경이 있으므로, 메이저 업그레이드는 별도 이슈로 한다.
 
