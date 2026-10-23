@@ -377,9 +377,9 @@ CI에서 프론트 이미지를 빌드할 때는 백엔드가 없다. `next buil
 2. `categorySchema` 규칙: 빈 폼 "추가" → 이름·slug 필수 문구, `Network`에 `POST` 없음. 공백만 있는 이름, 51자 이름, `My Slug`·` my-slug`(앞 공백)·101자 slug → 각 문구. 50자 이름, 앞뒤 공백을 붙인 50자 이름, 100자 slug는 통과하고 요청 본문의 `name`은 공백을 지운 값. 이름 가운데의 `a\tb`('관리자 글 작성·수정' 화면 확인 2번의 방법으로 넣는다) → 제어 문자 문구
 3. 추가 → `POST` `201`, 폼이 비고 목록에 그 카테고리(발행 글 수 0). 이름 순으로 보이고, 같은 이름 두 개는 slug로 구분된다. 이미 있는 slug로 추가 → slug 아래 "이미 사용 중인 slug입니다.", 입력 유지
 4. "수정" → 제목 "카테고리 수정", 값이 채워지고 이름에 포커스. 이름만 바꿔 저장 → `PUT` `200`, 생성 모드로 돌아오고 목록에 반영. 다른 카테고리의 slug로 저장 → "이미 사용 중인 slug입니다." "취소" → 생성 모드, 빈 값
-5. 수정 중인 카테고리를 다른 탭에서 지우고 저장 → "카테고리가 삭제되어 저장하지 못했습니다.", 목록에서 사라지고 입력 유지. DevTools로 `admin/categories*`를 막고 저장 → "저장하지 못했습니다. 잠시 후 다시 시도해 주세요.", 입력 유지. 스로틀링 시 요청 중 폼과 표의 버튼이 막힌다
+5. 수정 중인 카테고리를 다른 탭에서 지우고 저장 → "카테고리가 삭제되어 저장하지 못했습니다.", 목록에서 사라지고 입력 유지. DevTools로 `admin/categories*`를 막고 저장 → "저장하지 못했습니다. 잠시 후 다시 시도해 주세요.", 입력 유지. 스로틀링 시 요청 중 폼과 표의 버튼이 막힌다. `access_token`·`refresh_token`을 지우고 저장 → `/admin/login?next=%2Fadmin%2Fcategories`
 6. 발행 글과 작성 중 글이 있는 카테고리 삭제 → confirm 문구에 이름, 취소 → 요청 없음, 확인 → `DELETE` `204`, 목록에서 사라지고 그 글들의 수정 화면이 "카테고리 없음". 수정 중인 카테고리 삭제 → 생성 모드로 돌아감. 다른 탭에서 먼저 지운 카테고리 삭제 → `404`, 문구 없이 갱신. DevTools로 `admin/categories/*`를 막고 삭제 → alert. 스로틀링 시 `DELETE` 중 버튼이 막히고, 다시 불러오는 동안 "불러오는 중..."
-7. DevTools로 `categories`(목록 조회)를 막고 새로고침 → "카테고리 목록을 불러오지 못했습니다. 새로고침해 주세요.", 폼은 보인다
+7. DevTools로 `categories`(목록 조회)를 막고 새로고침 → "카테고리 목록을 불러오지 못했습니다. 새로고침해 주세요.", 폼은 보인다. `api/v1/categories`(공개 목록 조회)만 막고(`api/v1/admin/categories`는 이 패턴에 들지 않아 막히지 않는다) 추가 → `POST` `201`, 삭제 → `DELETE` `204` 뒤 각각 같은 문구가 나오고 폼은 보인다
 8. `.env.local` 없이 `npm run build`와 `npx next typegen` 성공 ('관리자 인증' 8번과 같다)
 
 ### 날짜 표시
@@ -442,7 +442,7 @@ CI에서 프론트 이미지를 빌드할 때는 백엔드가 없다. `next buil
 - Vitest로 `lib/`의 로직이 있는 순수 함수만 단위 테스트한다 (`date.ts`, `errors.ts`의 파싱 함수, `pagination.ts`, `post-status.ts`, `post-id.ts`, `slug.ts`, `cookie.ts`, `next-path.ts`, `single-flight.ts`).
   - `async` 서버 컴포넌트는 Vitest·Jest 모두 단위 테스트를 지원하지 않으므로 단위 테스트하지 않는다.
   - `server.ts`는 `server-only`가 테스트 환경에서 import 시 오류를 던지므로 단위 테스트하지 않는다 (실제 호출은 화면에서 확인).
-  - `client.ts`와 `auth.ts`·`admin-posts.ts`·`admin-categories.ts`(브라우저 전역·`fetch`에 기대는 파일), `loginSchema`·`postSchema`(라이브러리 규칙을 그대로 선언)는 단위 테스트하지 않는다. 흐름은 '관리자 인증'·'관리자 글 목록'·'관리자 글 작성·수정'의 화면 확인으로 본다.
+  - `client.ts`와 `auth.ts`·`admin-posts.ts`·`admin-categories.ts`(브라우저 전역·`fetch`에 기대는 파일), `loginSchema`·`postSchema`·`categorySchema`(라이브러리 규칙을 그대로 선언)는 단위 테스트하지 않는다. 흐름은 '관리자 인증'·'관리자 글 목록'·'관리자 글 작성·수정'·'관리자 카테고리'의 화면 확인으로 본다.
 - 최소 구성: `vitest`, `vitest.config.mts`(`resolve: { tsconfigPaths: true }`로 `@/` 별칭 해석, Vite 내장 기능이라 `vite-tsconfig-paths` 플러그인은 쓰지 않는다), `"test": "vitest run"`. React Testing Library·jsdom은 컴포넌트 테스트가 필요해질 때 추가한다.
 - `vitest`는 정확한 버전으로 고정한다(`^` 없음). Vitest는 메이저가 7~9개월마다 나와 깨지는 변경이 있으므로, 메이저 업그레이드는 별도 이슈로 한다.
 
