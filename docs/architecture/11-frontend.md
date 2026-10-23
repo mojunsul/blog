@@ -263,7 +263,7 @@ CI에서 프론트 이미지를 빌드할 때는 백엔드가 없다. `next buil
 - slug 규칙은 `lib/slug.ts`가 `SLUG_PATTERN`·`MAX_SLUG_LENGTH`를 export해 `isValidSlug`와 스키마가 같은 상수를 쓴다. 스키마가 `isValidSlug` 하나로 검사하지 않는 이유: 필드 오류를 빈 값·길이·형식으로 나눠 서버와 같은 문구로 보인다.
 - 길이는 JS 문자열 길이(UTF-16)로 세어 서버(Java 문자 수)와 같다. 공백 판정(`trim()`·`\s`)은 JS가 NBSP 등 유니코드 공백까지 포함해 Java(`strip()`·`\s`)와 조금 다를 수 있다 (`loginSchema`와 같다). 서버 검증이 최종이다.
 - 요청 본문: 스키마를 통과한 값(앞뒤 공백을 지운 `title`·`summary`·`thumbnailUrl`)을 보낸다. `summary`·`thumbnailUrl`의 `""`는 그대로 보내 서버가 `null`로 바꾼다 (8-4). `categoryId`는 `""`면 넣지 않고(수정에서는 카테고리가 지워진다, 8-4 `PUT`), 그 외는 `Number`로 바꾼다.
-- `postSchema`는 `loginSchema`와 같은 이유(라이브러리 규칙을 그대로 선언)로 단위 테스트하지 않고 아래 화면 확인 2번으로 표의 규칙을 모두 본다.
+- `postSchema`는 `loginSchema`와 같은 이유(라이브러리 규칙을 그대로 선언)로 단위 테스트하지 않고 아래 화면 확인 2번으로 표의 `title`부터 `thumbnailUrl`까지의 규칙을 모두 본다. `categoryId`·`status`는 `select`·라디오가 값을 정해 따로 보지 않는다.
 
 **미리보기** (`MarkdownPreview`, 클라이언트 컴포넌트)
 - `MarkdownRenderer`는 Shiki를 쓰는 async 서버 컴포넌트라 폼에서 쓸 수 없다. 미리보기는 브라우저에서 react-markdown의 동기 `Markdown`으로 렌더링하고 **코드 하이라이팅은 하지 않는다** (코드 블록은 글자만).
@@ -298,7 +298,11 @@ CI에서 프론트 이미지를 빌드할 때는 백엔드가 없다. `next buil
 
 **화면 확인** ('관리자 글 목록'의 화면 확인과 같은 환경. 완료 조건의 확인 수단이다)
 1. 목록의 "새 글" → `/admin/posts/new`. 카테고리 선택에 "카테고리 없음"과 "{name} ({slug})" 항목, 상태 기본값 "작성 중". 값을 채워 저장 → `POST` `201` 뒤 `/admin/posts`, 목록 맨 위에 그 글
-2. 빈 폼 저장 → 제목·slug·본문 아래 필수 문구, `Network`에 `POST` 없음. 공백만 있는 제목·본문, `My Slug`, 201자 slug, `ftp://a`·`https://a b` 썸네일 → 각 문구. 길이 경계: 201자 제목, 501자 요약, 100,001자 본문, 501자 썸네일 URL → 각 길이 문구 (200·500·100,000·500자는 통과). 제어 문자·NUL: DevTools 콘솔에서 제목에 `\t`, 요약·본문에 `\u0000`이 든 값을 넣고(네이티브 `value` setter로 넣은 뒤 `input` 이벤트 발송) 저장 → 각 문구. 앞뒤 공백이 있는 제목은 지운 값으로 저장된다
+2. `postSchema` 규칙 (요청 본문은 `Network`의 `POST` 페이로드로 본다)
+   - 필수·형식: 빈 폼 저장 → 제목·slug·본문 아래 필수 문구, `Network`에 `POST` 없음. 공백만 있는 제목·본문, `My Slug`·` my-slug`(앞 공백), 201자 slug, `ftp://a`·`https://a b` 썸네일 → 각 문구
+   - 길이 경계: 201자 제목, 501자 요약, 100,001자 본문, 501자 썸네일 URL → 각 길이 문구 (200·500·100,000·500자는 통과). 앞뒤 공백을 붙인 500자 요약·500자 썸네일 URL도 통과하고, 요청 본문에는 공백을 지운 값이 간다
+   - 제어 문자·NUL: DevTools 콘솔에서 값을 넣고 저장 → 각 문구. 대상은 제목·썸네일 URL에 `\t`, 요약·본문에 `\u0000` (`Tab` 키는 포커스를 옮겨 입력되지 않는다). 넣는 방법: `Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set.call(el, 값)`(`textarea`는 `HTMLTextAreaElement`) 뒤 `el.dispatchEvent(new Event("input", { bubbles: true }))`. React는 루트에서 버블 단계로 이벤트를 받으므로 `bubbles: true`가 없으면 폼 값이 바뀌지 않는다
+   - 공백 처리: 앞뒤 공백이 있는 제목은 지운 값으로 저장된다. 앞뒤에 공백·줄바꿈이 있는 본문은 요청 본문에 그대로 간다. 공백만 있는 요약·썸네일 URL은 오류 없이 저장되고 요청 본문은 `""`, 응답의 `summary`·`thumbnailUrl`은 `null`
 3. 이미 있는 slug로 저장 → slug 아래 "이미 사용 중인 slug입니다.", 입력 유지. 폼을 연 뒤 그 카테고리를 `DELETE /api/v1/admin/categories/{id}`로 지우고 그 카테고리로 저장 → 카테고리 아래 "카테고리를 찾을 수 없습니다."
 4. 목록의 제목 링크 → `/admin/posts/{id}/edit`에 값이 채워진다 (카테고리 없는 글은 "카테고리 없음", `null`인 요약·썸네일은 빈 칸). 수정 후 저장 → `PUT` `200` 뒤 목록의 수정일 반영. 카테고리를 "카테고리 없음"으로 저장 → 목록의 카테고리 "-". 카테고리 있는 글의 수정 화면에서 DevTools Local Overrides로 `GET /categories` 응답에서 그 카테고리를 빼고 새로고침 → "카테고리 없음"으로 보이고, 그대로 저장 → `PUT` 본문에 `categoryId` 없음, `200`
 5. `PUBLISHED` 글의 slug를 바꿔 저장 → confirm에 불러온 slug, 취소 → 요청 없음, 확인 → 저장. `DRAFT` 글의 slug 변경은 confirm 없음
