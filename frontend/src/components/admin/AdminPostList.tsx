@@ -13,8 +13,7 @@ type AdminPostPage = components["schemas"]["PageResponseAdminPostSummaryResponse
 type AdminPostSummary = components["schemas"]["AdminPostSummaryResponse"];
 type PostStatus = AdminPostSummary["status"];
 
-// data가 null이면 불러오지 못한 결과다.
-type LoadResult = { key: string; data: AdminPostPage | null };
+type LoadResult = { key: string; data: AdminPostPage } | { key: string; failed: true };
 
 const STATUS_LABELS: Record<PostStatus, string> = { DRAFT: "작성 중", PUBLISHED: "발행됨" };
 const FILTERS: { label: string; status?: PostStatus }[] = [
@@ -37,6 +36,10 @@ function isUnauthorized(error: unknown): boolean {
   return error instanceof ApiError && error.status === 401;
 }
 
+function isPostNotFound(error: unknown): boolean {
+  return error instanceof ApiError && error.status === 404 && error.code === "POST_NOT_FOUND";
+}
+
 export function AdminPostList({ page, status }: { page: number; status?: PostStatus }) {
   const [reloadCount, setReloadCount] = useState(0);
   const [result, setResult] = useState<LoadResult | null>(null);
@@ -53,7 +56,7 @@ export function AdminPostList({ page, status }: { page: number; status?: PostSta
       },
       (error) => {
         // 401은 client.ts가 로그인 화면으로 이동시키는 중이라 오류 문구 없이 "불러오는 중..."을 유지한다.
-        if (!ignored && !isUnauthorized(error)) setResult({ key: requestKey, data: null });
+        if (!ignored && !isUnauthorized(error)) setResult({ key: requestKey, failed: true });
       },
     );
     return () => {
@@ -68,8 +71,8 @@ export function AdminPostList({ page, status }: { page: number; status?: PostSta
       await deletePost(post.id);
     } catch (error) {
       if (isUnauthorized(error)) return;
-      // 404는 다른 탭 등에서 이미 지운 경우라 바라던 상태이므로 문구 없이 목록만 갱신한다.
-      if (!(error instanceof ApiError && error.status === 404)) {
+      // POST_NOT_FOUND는 다른 탭 등에서 이미 지운 경우라 바라던 상태이므로 문구 없이 목록만 갱신한다.
+      if (!isPostNotFound(error)) {
         setDeleting(false);
         window.alert(DELETE_FAILURE_MESSAGE);
         return;
@@ -99,7 +102,7 @@ export function AdminPostList({ page, status }: { page: number; status?: PostSta
 
   function renderContent() {
     if (!loaded) return <p>불러오는 중...</p>;
-    if (!loaded.data) return <p>{LOAD_FAILURE_MESSAGE}</p>;
+    if ("failed" in loaded) return <p>{LOAD_FAILURE_MESSAGE}</p>;
 
     const { content, totalPages, hasNext } = loaded.data;
     if (content.length === 0 && page === 1) return <p>글이 없습니다.</p>;
