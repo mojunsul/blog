@@ -206,7 +206,7 @@ CI에서 프론트 이미지를 빌드할 때는 백엔드가 없다. `next buil
 - 다시 불러오기(`204`·`404` 뒤)의 표시와 실패는 위 상태별 표를 따른다 (실패하면 "글 목록을 불러오지 못했습니다. 새로고침해 주세요.").
 - 마지막 페이지의 마지막 글을 지우면 다시 불러온 페이지가 비어 "이 페이지에는 글이 없습니다." 화면이 된다. 앞 페이지로 자동 이동하지 않는다.
 
-**화면 확인** ('관리자 인증'의 화면 확인과 같은 환경. 1번은 글이 없는 DB에서 보고, 그 뒤 글을 DRAFT·PUBLISHED를 섞어 11개 이상 `POST /api/v1/admin/posts`로 만든다. "불러오는 중..."과 버튼 막기는 DevTools `Network` 스로틀링(Slow 4G 등)으로 본다. 완료 조건의 확인 수단이다)
+**화면 확인** ('관리자 인증'의 화면 확인과 같은 환경. local 프로필은 시작할 때 글이 없으면 시드 글을 넣으므로, 1번 전에 시드 글을 모두 `DELETE /api/v1/admin/posts/{id}`로 지워 글이 없는 상태를 만들고, 1번을 볼 때까지 백엔드를 재시작하지 않는다. 그 뒤 글을 DRAFT·PUBLISHED를 섞어 11개 이상 `POST /api/v1/admin/posts`로 만든다. "불러오는 중..."과 버튼 막기는 DevTools `Network` 스로틀링(Slow 4G 등)으로 본다. 완료 조건의 확인 수단이다)
 1. 로그인 후 `/admin` → `/admin/posts`. 헤더의 "글"·"카테고리"·로그아웃, 제목·필터·공개 반영 안내 문구, "글이 없습니다."가 보인다. 로그아웃 상태의 `/admin` → `/admin/login?next=%2Fadmin%2Fposts`
 2. 목록이 `id` 내림차순 10개, "다음"으로 `?page=2`. 필터 "작성 중"·"발행됨"이 그 상태만 보이고 `page`가 빠진다. 2페이지에서 "이전"·"다음" 링크가 `status`를 유지한다. 발행한 적 없는 DRAFT의 발행일은 "-"
 3. `?page=0`, `?page=abc`, `?status=draft`, `?status=`, `?status=DRAFT&status=PUBLISHED` → "잘못된 주소입니다.", `Network`에 `admin/posts` 요청 없음. `?page=999` → "이 페이지에는 글이 없습니다."와 "첫 페이지로"(`/admin/posts`), `?status=DRAFT&page=999`의 "첫 페이지로"는 `/admin/posts?status=DRAFT`
