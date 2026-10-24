@@ -140,3 +140,4 @@
   - backend: wrapper로 `bootJar`(테스트 제외), layered jar 추출 후 레이어별 `COPY`, 기본 프로필은 이미지의 `SPRING_PROFILES_ACTIVE=prod`, JVM 옵션은 compose `JAVA_TOOL_OPTIONS`
   - frontend: standalone·static·public만 복사, `HOSTNAME=0.0.0.0`, 빈 `public`을 위한 `.gitkeep`, `.nvmrc`와 태그를 함께 바꿈
   - 확인 방법(로컬 빌드·기동·실행 사용자) 추가, 4장·목차에 반영
+  - 설계 검증 반영: backend 의존성 캐시를 `./gradlew dependencies` 선행(jar를 받지 않음)에서 BuildKit 캐시 마운트로 바꾸고 효과 범위(로컬 재빌드만, CI 제외)를 적음

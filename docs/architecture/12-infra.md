@@ -75,7 +75,8 @@ main 머지 (deploy.yml)
 - `.dockerignore`는 각 디렉터리에 두고 빌드 결과물·의존성 폴더·`.env*`·IDE 파일을 뺀다 (로컬 `.env.local` 등이 이미지에 들어가지 않게).
 
 **backend**
-- 빌드 스테이지: `eclipse-temurin:21-jdk`에서 저장소의 `./gradlew bootJar`. Gradle 이미지 대신 wrapper를 써서 CI(12-6)와 같은 Gradle 버전으로 빌드한다. `bootJar`만 실행하므로 테스트·`spotlessCheck`는 돌지 않는다 (CI가 한다). 의존성 레이어 캐시를 위해 `gradlew`·`gradle/`·`build.gradle`·`settings.gradle`을 먼저 복사해 의존성을 받은(`./gradlew dependencies`) 뒤 나머지(`src` 등)를 복사한다.
+- 빌드 스테이지: `eclipse-temurin:21-jdk`에서 저장소의 `./gradlew bootJar`. Gradle 이미지 대신 wrapper를 써서 CI(12-6)와 같은 Gradle 버전으로 빌드한다. `bootJar`만 실행하므로 테스트·`spotlessCheck`는 돌지 않는다 (CI가 한다). 의존성 jar는 레이어가 아니라 BuildKit 캐시 마운트로 재사용한다: `RUN --mount=type=cache,target=/root/.gradle ./gradlew bootJar --no-daemon`(빌드 스테이지는 root). 빌드 파일만 먼저 복사해 `./gradlew dependencies`를 돌리는 방식은 그래프(POM)만 해석하고 jar를 받지 않아 쓰지 않는다. 그래서 소스를 따로 나눠 복사하지 않고 한 번에 복사한다.
+  - 효과 범위: 같은 머신의 재빌드(로컬 확인)에서만 Gradle 배포판과 jar를 다시 받지 않는다. CI(12-6)는 매번 새 러너라 캐시 마운트가 비어 있어 매번 받는다. 배포는 main 머지 때만 일어나 받는 시간이 문제 되지 않으므로 buildx 캐시 설정은 두지 않는다.
 - layered jar를 쓴다: `build/libs/*.jar`(`bootJar`만 실행하면 plain jar는 생기지 않아 하나뿐)를 `application.jar`로 복사하고 `java -Djarmode=tools -jar application.jar extract --layers --destination extracted`로 풀고, 실행 스테이지에 `dependencies` → `spring-boot-loader` → `snapshot-dependencies` → `application` 순으로 각각 `COPY`한다 (Spring Boot 공식 Dockerfile 방식). 코드만 바뀐 배포는 마지막 레이어만 바뀌어, 작은 서버의 `docker compose pull` 양이 준다.
 - 실행 스테이지: `eclipse-temurin:21-jre`, `EXPOSE 8080`, `ENTRYPOINT ["java", "-jar", "application.jar"]`. JRE 이미지에 `curl`이 있어 compose healthcheck(12-2)에 쓸 수 있다.
 - 기본 프로필은 **이미지**에 `ENV SPRING_PROFILES_ACTIVE=prod`로 둔다. 이 이미지는 운영 전용이고(로컬은 IDE 실행, 12-1), compose에서 빠뜨렸을 때 Swagger가 켜지고 관리자·JWT 키 검사가 꺼진 기본 설정으로 뜨지 않게 한다. 필요하면 compose가 덮어쓴다.
