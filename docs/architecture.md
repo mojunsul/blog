@@ -18,6 +18,6 @@
 | 9 | 에러 응답 형식 (ProblemDetail, RFC 9457) | `docs/architecture/09-errors.md` | ProblemDetail 확장 형식, ErrorCode 목록, ProblemDetail 생성 코드 공유, ProblemDetail이 아닌 응답 |
 | 10 | 인증·보안 설계 | `docs/architecture/10-auth-security.md` | 토큰·쿠키, CSRF, 인증 흐름, 그 외 보안 규칙, Security 필터 설정, JWT와 로그인(Access·Refresh 토큰) |
 | 11 | 프론트엔드 구조 | `docs/architecture/11-frontend.md` | App Router 규칙, 렌더링 전략, 빌드 시 API 의존 제거, API 주소, 에러 처리, 날짜 표시, 글 목록·상세 페이지, Markdown 렌더링, 테스트, 스크립트 |
-| 12 | 인프라와 배포 | `docs/architecture/12-infra.md` | 로컬 개발, 서버(OCI·로그 용량 제한), HTTPS, Nginx 설정, DB 백업, CI/CD |
+| 12 | 인프라와 배포 | `docs/architecture/12-infra.md` | 로컬 개발, 서버(OCI·로그 용량 제한), HTTPS, Nginx 설정, DB 백업, CI/CD, Docker 이미지 |
 | 13 | 마일스톤 | `docs/architecture/13-milestones.md` | M0~M6 단계별 내용·완료 기준과 진행 원칙 |
 | 14 | 변경 이력 | `docs/changelog.md` | 문서 변경 이력 (장별 파일이 아닌 별도 파일) |

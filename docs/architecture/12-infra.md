@@ -64,5 +64,36 @@ main 머지 (deploy.yml)
 - Flyway 마이그레이션은 backend 기동 시 자동 실행된다. 마이그레이션은 이전 버전 코드와도 호환되게 작성한다 (컬럼 삭제는 코드 배포 이후 별도 마이그레이션으로).
 - `compose up -d` 방식은 수 초의 다운타임이 있다. 무중단 배포는 M6 이후 학습 주제로 둔다.
 
----
+### 12-7. Docker 이미지
+운영 배포용 `backend/Dockerfile`, `frontend/Dockerfile`. 빌드 컨텍스트는 각 디렉터리(`docker buildx build --platform linux/arm64 backend`), 플랫폼은 `linux/arm64`(1장). 이미지 이름·태그와 GHCR push는 12-6 deploy 워크플로가 정한다.
 
+**공통**
+- 멀티 스테이지: 빌드 스테이지에서 만들고, 실행 스테이지에는 실행에 필요한 결과만 복사한다.
+- 베이스 이미지는 공식 이미지를 **메이저 버전 태그**로 고정한다 (`eclipse-temurin:21-jdk`·`eclipse-temurin:21-jre`, `node:24-alpine`). digest·패치 버전으로 고정하지 않는 이유: 배포마다 이미지를 새로 빌드하므로 메이저 태그면 보안 패치가 자동으로 들어오고, digest 고정은 갱신 도구(Dependabot 등) 없이 1인이 따라가기 어렵다. 대신 같은 커밋이라도 빌드 시점에 따라 베이스가 달라질 수 있다.
+- 실행 사용자는 root가 아니다. 베이스 이미지에 있는 일반 사용자(`ubuntu`·`node`, 둘 다 uid 1000)를 `USER`로 지정하고 따로 만들지 않는다.
+- 이미지에 비밀값을 넣지 않는다 (`ENV`·`ARG`·복사 파일 모두). 비밀값은 실행 시 compose 환경변수로 받는다 (12-2).
+- `.dockerignore`는 각 디렉터리에 두고 빌드 결과물·의존성 폴더·`.env*`·IDE 파일을 뺀다 (로컬 `.env.local` 등이 이미지에 들어가지 않게).
+
+**backend**
+- 빌드 스테이지: `eclipse-temurin:21-jdk`에서 저장소의 `./gradlew bootJar`. Gradle 이미지 대신 wrapper를 써서 CI(12-6)와 같은 Gradle 버전으로 빌드한다. `bootJar`만 실행하므로 테스트·`spotlessCheck`는 돌지 않는다 (CI가 한다). 의존성 레이어 캐시를 위해 `gradlew`·`gradle/`·`build.gradle`·`settings.gradle`을 먼저 복사해 의존성을 받은(`./gradlew dependencies`) 뒤 나머지(`src` 등)를 복사한다.
+- layered jar를 쓴다: `build/libs/*.jar`(`bootJar`만 실행하면 plain jar는 생기지 않아 하나뿐)를 `application.jar`로 복사하고 `java -Djarmode=tools -jar application.jar extract --layers --destination extracted`로 풀고, 실행 스테이지에 `dependencies` → `spring-boot-loader` → `snapshot-dependencies` → `application` 순으로 각각 `COPY`한다 (Spring Boot 공식 Dockerfile 방식). 코드만 바뀐 배포는 마지막 레이어만 바뀌어, 작은 서버의 `docker compose pull` 양이 준다.
+- 실행 스테이지: `eclipse-temurin:21-jre`, `EXPOSE 8080`, `ENTRYPOINT ["java", "-jar", "application.jar"]`. JRE 이미지에 `curl`이 있어 compose healthcheck(12-2)에 쓸 수 있다.
+- 기본 프로필은 **이미지**에 `ENV SPRING_PROFILES_ACTIVE=prod`로 둔다. 이 이미지는 운영 전용이고(로컬은 IDE 실행, 12-1), compose에서 빠뜨렸을 때 Swagger가 켜지고 관리자·JWT 키 검사가 꺼진 기본 설정으로 뜨지 않게 한다. 필요하면 compose가 덮어쓴다.
+- JVM 옵션은 이미지에 넣지 않고 compose의 `JAVA_TOOL_OPTIONS`로 준다. 메모리 같은 값은 서버 사양에 따라 달라서다. 주지 않으면 JVM 기본값(컨테이너 메모리 인식)으로 뜬다.
+- 실행 시 필요한 환경변수: `DB_URL`, `POSTGRES_USER`, `POSTGRES_PASSWORD`(`application-prod.yaml`), `JWT_SECRET`(10-6), `ADMIN_USERNAME`, `ADMIN_PASSWORD`(5장 '관리자 계정 생성'). 관리자·JWT 값이 비면 prod 설정에 따라 기동이 멈추고 컨테이너는 0이 아닌 코드로 종료한다.
+
+**frontend**
+- Node 버전은 `frontend/.nvmrc`(현재 `24`)와 같은 메이저 태그 `node:24-alpine`. Dockerfile은 `.nvmrc`를 읽지 못하므로 `.nvmrc`를 바꿀 때 Dockerfile의 태그도 같이 바꾼다.
+- 스테이지: 의존성(`package.json`·`package-lock.json`만 복사 후 `npm ci`) → 빌드(`npm run build`) → 실행. 빌드에는 `API_INTERNAL_URL`도 백엔드도 필요 없다 (11장 '빌드 시 API 의존 제거'·'API 주소 처리').
+- 실행 스테이지에는 `.next/standalone`(→ `./`), `.next/static`(→ `./.next/static`), `public`(→ `./public`)만 복사한다. standalone 서버가 `.next/cache`에 쓰므로 `--chown=node:node`로 복사한다.
+  - `public`은 지금 비어 있어 git에 없다. CI 체크아웃에도 폴더가 있도록 `frontend/public/.gitkeep`을 커밋한다.
+- `ENV NODE_ENV=production`, `PORT=3000`, `HOSTNAME=0.0.0.0`, `EXPOSE 3000`, `CMD ["node", "server.js"]`. `HOSTNAME`을 주지 않으면 Docker가 넣는 컨테이너 ID 호스트명에만 바인딩되어 다른 컨테이너(Nginx)에서 접속하지 못한다.
+- `API_INTERNAL_URL`은 실행 시 compose `environment`로 준다 (11장 'API 주소 처리').
+
+**확인 방법** (로컬, 이슈 완료 조건)
+- 빌드: `docker buildx build --platform linux/arm64 -t blog-backend:local --load backend`, frontend도 같다. 로컬 PostgreSQL·백엔드를 끈 상태에서 성공해야 한다.
+- backend: `infra/docker-compose.yml`의 PostgreSQL을 띄우고 `DB_URL=jdbc:postgresql://host.docker.internal:5432/blog`와 DB 계정, `JWT_SECRET`(`openssl rand -base64 32`), `ADMIN_USERNAME`·`ADMIN_PASSWORD`로 실행 → `curl localhost:8080/actuator/health`가 `UP`. 세 값 중 하나라도 빼면 컨테이너가 종료된다(`docker ps -a`의 Exited, 0이 아닌 코드). 관리자 값 검사는 `admin` 행이 없을 때만 하므로(5장 '관리자 계정 생성'), `ADMIN_*` 누락은 `docker compose down -v`로 비운 DB에서 성공 실행보다 먼저 확인한다.
+- frontend: 시드 데이터가 있는 백엔드(`local` 프로필 `bootRun`)를 띄우고 `API_INTERNAL_URL=http://host.docker.internal:8080`만 주어 실행 → `curl localhost:3000/`의 글 목록과 `/posts/{slug}` 상세가 표시된다.
+- 실행 사용자: `docker exec <컨테이너> id -u`가 두 이미지 모두 `0`이 아니다.
+
+---

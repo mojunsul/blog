@@ -134,3 +134,9 @@
   - 삭제 확인은 글 유무와 상관없이 항상 같은 문구(`postCount`는 PUBLISHED만 셈), 카테고리 slug 변경 확인은 M4로 미룸
   - 8-4 카테고리 공개 반영 지연 항목을 11장 '렌더링 전략'·'관리자 카테고리'로 연결
   - 설계 검증 반영: '프론트엔드 테스트'의 단위 테스트 제외 목록에 `categorySchema`와 '관리자 카테고리' 화면 확인 추가, 화면 확인에 저장·삭제 뒤 다시 불러오기 실패(7번)와 저장 `401` 로그인 이동(5번), 삭제 `401` 로그인 이동(6번) 추가
+
+- **v2.26**
+  - Docker 이미지(12-7): 멀티 스테이지, 공식 이미지 메이저 태그 고정(`eclipse-temurin:21-jdk`·`21-jre`, `node:24-alpine`), 베이스 이미지의 일반 사용자(`ubuntu`·`node`)로 실행, 비밀값은 이미지에 넣지 않음
+  - backend: wrapper로 `bootJar`(테스트 제외), layered jar 추출 후 레이어별 `COPY`, 기본 프로필은 이미지의 `SPRING_PROFILES_ACTIVE=prod`, JVM 옵션은 compose `JAVA_TOOL_OPTIONS`
+  - frontend: standalone·static·public만 복사, `HOSTNAME=0.0.0.0`, 빈 `public`을 위한 `.gitkeep`, `.nvmrc`와 태그를 함께 바꿈
+  - 확인 방법(로컬 빌드·기동·실행 사용자) 추가, 4장·목차에 반영

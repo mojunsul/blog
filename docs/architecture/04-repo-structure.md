@@ -2,8 +2,8 @@
 
 ```
 blog/
-├ backend/                 # Spring Boot
-├ frontend/                # Next.js
+├ backend/                 # Spring Boot (Dockerfile, .dockerignore)
+├ frontend/                # Next.js (Dockerfile, .dockerignore)
 ├ infra/
 │  ├ docker-compose.yml          # 로컬용 (postgres만)
 │  ├ docker-compose.prod.yml     # 서버용 (nginx, certbot, frontend, backend, postgres, backup)
