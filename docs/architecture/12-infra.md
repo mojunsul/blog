@@ -74,11 +74,11 @@ nginx 이미지는 `nginx:1-alpine`(12-7과 같은 메이저 태그 원칙). `in
 - 429 응답 본문은 Nginx 기본 HTML이다. 프론트는 ProblemDetail이 아닌 응답을 `code: null`로 바꾸고(11장 '에러 처리'), 로그인 화면(11장 '관리자 인증')과 관리자 화면은 이미 429를 각 화면 결과 표의 "그 외" 행 문구로 보여 주므로 프론트를 바꾸지 않는다. 429 전용 문구는 관리자 1명이 겪을 일이 드물어 두지 않는다.
 
 **확인 방법** (로컬, 이슈 완료 조건)
-- 실행: `infra/.env`에 12-7의 backend 환경변수(`JWT_SECRET`, `ADMIN_USERNAME`, `ADMIN_PASSWORD`, DB 계정)를 채우고 `IMAGE_TAG=local docker compose -f infra/docker-compose.prod.yml up -d --build`. 이후 compose 명령은 `-p blog-prod`를 붙인다. `docker compose -p blog-prod ps`에서 backend가 `healthy`이고 nginx만 `0.0.0.0:80->80/tcp`를 가진다.
+- 실행: `infra/.env`에 12-7의 backend 환경변수(`JWT_SECRET`, `ADMIN_USERNAME`, `ADMIN_PASSWORD`, DB 계정)를 채우고 `IMAGE_TAG=local docker compose -f infra/docker-compose.prod.yml up -d --build`. 조회 명령(`ps`·`logs`)은 파일 없이 `-p blog-prod`로 하고, 컨테이너를 만드는 명령(`up` 등)은 `-p`만으로는 파일을 찾지 못해 위와 같이 `IMAGE_TAG=local`과 `-f infra/docker-compose.prod.yml`을 붙인다. `docker compose -p blog-prod ps`에서 backend가 `healthy`이고 nginx만 `0.0.0.0:80->80/tcp`를 가진다.
 - 로그인: prod 설정 그대로(`Secure` 쿠키) 확인한다. Chromium 계열 브라우저(Chrome·Edge)는 `http://localhost`를 보안 컨텍스트로 보아 `Secure` 쿠키를 HTTP에서도 저장·전송한다 (설계 때 Chromium으로 확인). 그래서 `blog.auth.secure-cookie`를 끄는 로컬용 덮어쓰기를 두지 않는다. Safari 등 다른 브라우저로는 확인하지 않는다.
 - 브라우저에서 관리자 로그인 → 글 작성(`PUBLISHED`) → 글 목록·상세(`/`, `/posts/{slug}`) 순으로 확인한다. 운영 DB에는 시드가 없어 처음에는 목록이 비어 있다.
 - 필수 비밀번호: `infra/.env`의 `POSTGRES_PASSWORD`를 비우고 `docker compose -f infra/docker-compose.prod.yml config`가 `POSTGRES_PASSWORD is required`로 실패한다.
-- 재생성 후 연결: `docker compose -p blog-prod up -d --force-recreate --no-deps backend frontend` 뒤 backend가 `healthy`가 되면 `curl -s -o /dev/null -w '%{http_code}\n' http://localhost/`와 `/api/v1/posts`가 `502`가 아니라 `200`이다 (nginx는 그대로 둔 채).
+- 재생성 후 연결: `IMAGE_TAG=local docker compose -f infra/docker-compose.prod.yml up -d --force-recreate --no-deps backend frontend` 뒤 backend가 `healthy`가 되면 `curl -s -o /dev/null -w '%{http_code}\n' http://localhost/`와 `/api/v1/posts`가 `502`가 아니라 `200`이다 (nginx는 그대로 둔 채).
 - 600KB 본문: 관리자 화면 콘솔에서 `content`를 `"가" + "\u0001".repeat(99999)`(JSON에서 약 600KB, 8-4)로 `POST /api/v1/admin/posts`를 `X-XSRF-TOKEN`과 함께 보내 `201`. 확인한 글은 삭제한다.
 - 비노출: `curl -i http://localhost/actuator/health`·`/swagger-ui/index.html`·`/v3/api-docs`가 Spring 응답(JSON)이 아니라 Next 404. `nc -z localhost 5432`·`8080`·`3000`이 실패한다 (로컬 개발용 PostgreSQL·`bootRun`·`npm run dev`를 끈 상태에서).
 - rate limit: `for i in $(seq 10); do curl -s -o /dev/null -w '%{http_code}\n' -X POST http://localhost/api/v1/auth/login; done`에서 앞 6회는 `403`(CSRF 없음), 이후 `429`.

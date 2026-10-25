@@ -148,3 +148,4 @@
   - 429·502는 Nginx 기본 HTML이고 프론트는 기존 "그 외" 문구로 처리(변경 없음), 로컬 HTTP 로그인은 `Secure` 쿠키를 끄지 않고 Chromium 계열 브라우저로 확인
   - 확인 방법 추가, 10-4·8-4·12-3·12-6(`up -d --no-build`)·12-7에 값과 참조 반영
   - 설계 검증 반영: Nginx `resolver 127.0.0.11` + 변수 `proxy_pass`로 업스트림 이름을 요청 때 확인(기동 순서·컨테이너 재생성 후 502 방지, 3장 문구 일반화), 운영 compose의 `POSTGRES_PASSWORD`는 `:?` 필수·DB 이름·사용자 기본값은 postgres와 backend가 같게(`environment` 치환), 429 문구는 화면별 "그 외" 행 참조로, 확인 방법에 재생성 후 502·비밀번호 누락·작성 후 목록 순서 추가
+  - 설계 검증 반영: 재생성 확인 명령에 `-f infra/docker-compose.prod.yml`과 `IMAGE_TAG=local`을 붙이고, `-p blog-prod`만 쓰는 범위를 조회 명령(`ps`·`logs`)으로 좁힘
