@@ -141,3 +141,11 @@
   - frontend: standalone·static·public만 복사, `HOSTNAME=0.0.0.0`, 빈 `public`을 위한 `.gitkeep`, `.nvmrc`와 태그를 함께 바꿈
   - 확인 방법(로컬 빌드·기동·실행 사용자) 추가, 4장·목차에 반영
   - 설계 검증 반영: backend 의존성 캐시를 `./gradlew dependencies` 선행(jar를 받지 않음)에서 BuildKit 캐시 마운트로 바꾸고 효과 범위(로컬 재빌드만, CI 제외)를 적음
+
+- **v2.27**
+  - 운영 compose(12-2): 프로젝트 이름 `blog-prod`(로컬 compose와 볼륨이 섞이지 않게), `image`(`ghcr.io/mojunsul/blog-*:${IMAGE_TAG:-latest}`)와 `build`를 함께 두어 로컬 빌드와 GHCR 이미지를 같은 파일로 씀, 호스트 포트는 nginx `80`만, postgres·backend healthcheck와 기동 순서, 로그 제한을 `x-logging` 앵커로 공통 적용, `.env.example`에 `IMAGE_TAG`
+  - Nginx(12-4): `nginx:1-alpine`, 접근 로그에 `rid=$request_id`, gzip, `client_max_body_size 2m`, rate limit(로그인 `5r/m` burst 5, `/api/` `10r/s` burst 20, `limit_req_status 429`), frontend `proxy_buffering off`(스트리밍), 프록시·보안 헤더는 `server` 블록에(`X-Frame-Options: DENY`, `X-Powered-By` 숨김)
+  - 429·502는 Nginx 기본 HTML이고 프론트는 기존 "그 외" 문구로 처리(변경 없음), 로컬 HTTP 로그인은 `Secure` 쿠키를 끄지 않고 Chromium 계열 브라우저로 확인
+  - 확인 방법 추가, 10-4·8-4·12-3·12-6(`up -d --no-build`)·12-7에 값과 참조 반영
+  - 설계 검증 반영: Nginx `resolver 127.0.0.11` + 변수 `proxy_pass`로 업스트림 이름을 요청 때 확인(기동 순서·컨테이너 재생성 후 502 방지, 3장 문구 일반화), 운영 compose의 `POSTGRES_PASSWORD`는 `:?` 필수·DB 이름·사용자 기본값은 postgres와 backend가 같게(`environment` 치환), 429 문구는 화면별 "그 외" 행 참조로, 확인 방법에 재생성 후 502·비밀번호 누락·작성 후 목록 순서 추가
+  - 설계 검증 반영: 재생성 확인 명령에 `-f infra/docker-compose.prod.yml`과 `IMAGE_TAG=local`을 붙이고, `-p blog-prod`만 쓰는 범위를 조회 명령(`ps`·`logs`)으로 좁힘

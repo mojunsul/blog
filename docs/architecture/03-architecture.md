@@ -19,7 +19,7 @@
 - API는 `api.` 서브도메인이 아니라 **같은 도메인의 `/api` 경로**로 연결한다.
   - same-origin이므로 CORS 설정이 필요 없다.
   - 인증 쿠키가 별도 도메인 설정 없이 전달된다.
-- Nginx `proxy_pass http://backend:8080;` (끝에 `/` 없음) → `/api` 경로가 그대로 Spring에 전달된다.
+- Nginx `proxy_pass`에 URI(끝의 `/`)를 붙이지 않는다 → `/api` 경로가 그대로 Spring에 전달된다 (설정은 12-4).
 - `/actuator`, `/swagger-ui`, `/v3/api-docs`는 `/api`로 시작하지 않으므로 외부에서 Spring에 도달하지 않는다. 헬스체크는 Docker 네트워크 내부(`http://backend:8080/actuator/health`)에서만 호출한다.
 - PostgreSQL 포트는 외부에 열지 않는다.
 - Spring은 프록시 뒤에서 동작하므로 `server.forward-headers-strategy: framework`를 설정한다.
