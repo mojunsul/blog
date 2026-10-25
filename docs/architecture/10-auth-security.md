@@ -38,8 +38,8 @@
 - 동시에 여러 요청이 401을 받으면 refresh는 **한 번만** 호출하고 나머지는 그 결과를 기다리도록 프론트에서 처리한다.
 
 ### 10-4. 그 외 보안 규칙
-- 로그인 API는 Nginx `limit_req`로 IP당 요청 수를 제한한다 (M3).
-- 응답 헤더: `X-Content-Type-Options`, `X-Frame-Options`(또는 CSP `frame-ancestors`), `Strict-Transport-Security`를 Nginx에서 추가한다.
+- 로그인 API는 Nginx `limit_req`로 IP당 요청 수를 제한한다 (M3, 수치는 12-4).
+- 응답 헤더: `X-Content-Type-Options`, `X-Frame-Options`, `Strict-Transport-Security`를 Nginx에서 추가한다 (값은 12-4, HSTS는 12-3).
 - Markdown 렌더링 시 raw HTML을 허용하지 않는다 (react-markdown 기본값 유지, `rehype-raw` 사용 금지).
 
 ---
