@@ -51,6 +51,7 @@
 
 ### 12-3. HTTPS (Nginx + Certbot)
 **도메인·DNS**
+- 도메인은 Cloudflare Registrar에서 산다 (`.com` 등, `.kr`은 팔지 않는다). 원가로 팔아 연장 가격이 오르지 않고, 등록과 함께 DNS가 Cloudflare로 정해져 1장과 맞는다. 실제 이름은 저장소에 두지 않는다 (아래).
 - Cloudflare DNS(1장)에 A 레코드 `blog` → 예약 공인 IP(12-2). 프록시 상태는 **DNS only**(회색 구름)로 둔다. 프록시를 켜면 Cloudflare가 TLS를 끝내고 Nginx의 `$remote_addr`가 Cloudflare IP가 되어, IP당 rate limit(12-4)이 방문자를 한 묶음으로 센다.
 - 저장소의 설정 파일에는 도메인을 쓰지 않는다. `server_name _`이고 인증서는 `--cert-name blog`로 발급해 경로가 `/etc/letsencrypt/live/blog/`로 고정된다. 도메인은 DNS와 최초 발급 명령(README)에만 들어간다.
 

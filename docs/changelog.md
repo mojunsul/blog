@@ -154,3 +154,4 @@
   - HTTPS(12-3): Cloudflare A 레코드 DNS only, 저장소에 도메인을 두지 않음(`server_name _`, `--cert-name blog`), `certbot/certbot:v5.8.0`(`profiles`, 상주 안 함), 인증서·웹루트는 `infra/certbot/` bind mount
   - 최초 발급은 임시 Nginx + webroot(`--dry-run` 먼저), 갱신은 호스트 cron(`renew` 후 `nginx -s reload`), HSTS `max-age=31536000`, 80 → 443 `301`
   - 로컬 운영 compose는 자체 서명 인증서로 실행(12-4 확인 방법), 4장에 `infra/certbot/` 추가
+  - 도메인은 Cloudflare Registrar에서 구매(12-3)
