@@ -20,7 +20,7 @@
 - PostgreSQL 데이터는 named volume으로 영속화
 - 비밀값은 서버의 `infra/.env`에만 둔다 (원본은 GitHub Secrets에서 관리)
   - `POSTGRES_PASSWORD`, `JWT_SECRET`, `ADMIN_USERNAME`, `ADMIN_PASSWORD`, Object Storage 인증 정보 등
-  - 비밀값이 아닌 `IMAGE_TAG`(비우면 `latest`)도 `infra/.env.example`에 둔다. 로컬은 셸에서 `IMAGE_TAG=local`로 덮어쓴다.
+  - 비밀값이 아닌 `IMAGE_TAG`(비우면 `latest`)도 `infra/.env.example`에 둔다. 로컬은 셸에서 `IMAGE_TAG=local`로 덮어쓴다. 서버 첫 배포(deploy 이슈 전)에는 `infra/.env`에 `IMAGE_TAG=local`을 둔다는 안내(아래 '서버 준비')도 같은 주석에 적는다.
   - `infra/.env.example`의 기본값 안내 주석은 로컬 compose 기준이므로, 운영 compose는 `POSTGRES_PASSWORD`가 필수라는 점을 함께 적는다.
   - `JWT_SECRET`은 `openssl rand -base64 32`로 만든다 (Base64, 디코딩 후 32바이트 이상, 10-6). 바꾸면 발급된 Access 토큰이 모두 무효가 된다.
   - 관리자 비밀번호 변경 (5장 '관리자 계정 생성', README에 같은 절차를 적는다). 저장소 폴더(`~/blog`)에서:
@@ -34,6 +34,7 @@
   - 인스턴스 iptables: Ubuntu 이미지 기본 규칙이 22 외 수신을 `REJECT`하므로 `/etc/iptables/rules.v4`에서 22 규칙 다음 줄에 80·443 `ACCEPT`를 넣고 `iptables-restore`로 적용한다. Docker 설치 전에 한다 (`iptables-restore`는 기존 규칙을 비우고 다시 쓰므로 Docker가 만든 규칙이 지워진다).
   - Docker: 공식 문서의 apt 저장소 방식으로 `docker-ce`·`docker-compose-plugin`을 설치하고 `ubuntu` 사용자를 `docker` 그룹에 넣는다 (`get.docker.com` 스크립트는 문서가 운영용으로 권하지 않는다).
   - 저장소: `git clone https://github.com/mojunsul/blog.git ~/blog` (Public이라 인증이 필요 없다). compose·Nginx 설정은 이 폴더에서 읽는다. 설정 갱신은 deploy(12-6) 전까지 수동 `git pull`.
+    - 이 이슈의 설정(certbot 서비스, 443 블록, `.gitignore`)은 머지 전 구현 검증에서 서버로 확인해야 하므로, 최초 발급·첫 배포·확인 방법(12-3)은 기능 브랜치에서 한다: clone 뒤 `git checkout chore/#109-server-https`, 구현 세션이 push하면 `git pull`. PR이 머지되면 `git checkout main && git pull`로 돌아간다. 머지된 커밋이 같아 설정이 바뀌지 않으므로 컨테이너는 다시 띄우지 않는다 (`infra/.env`·`infra/certbot/`은 git이 추적하지 않아 브랜치를 바꿔도 남는다).
   - `.env`: `infra/.env.example`을 `infra/.env`로 복사해 채우고 `chmod 600`. GitHub Secrets 등록은 deploy 이슈(12-6)에서 한다.
   - 첫 배포 이미지는 서버에서 빌드한다: `infra/.env`에 `IMAGE_TAG=local`을 두고 `docker compose -f infra/docker-compose.prod.yml up -d --build`. 서버도 arm64라 그대로 빌드된다. 로컬에서 빌드해 GHCR에 수동 push하는 방식은 쓰기 토큰(PAT)을 따로 만들어 관리해야 해 택하지 않았다. `IMAGE_TAG`를 셸이 아니라 `.env`에 두는 이유: 이후 `up`·`run`에서 빠지면 `latest`를 GHCR에서 받으려다 실패한다. deploy 이슈에서 이 값을 바꾼다.
   - 순서: 서버 준비 → DNS(12-3) → `.env` → 인증서 최초 발급(12-3) → 첫 배포 → 갱신 cron(12-3). 인증서가 없으면 nginx가 기동하지 못하므로 발급이 배포보다 먼저다.
@@ -51,9 +52,9 @@
 
 ### 12-3. HTTPS (Nginx + Certbot)
 **도메인·DNS**
-- 도메인은 Cloudflare Registrar에서 산다 (`.com` 등, `.kr`은 팔지 않는다). 원가로 팔아 연장 가격이 오르지 않고, 등록과 함께 DNS가 Cloudflare로 정해져 1장과 맞는다. 실제 이름은 저장소에 두지 않는다 (아래).
+- 도메인은 Cloudflare Registrar에서 산다 (`.com` 등, `.kr`은 팔지 않는다). 원가로 팔아 연장 가격이 오르지 않고, 등록과 함께 DNS가 Cloudflare로 정해져 1장과 맞는다. 실제 이름은 저장소 어디에도(설정 파일·README·문서) 두지 않는다 (아래).
 - Cloudflare DNS(1장)에 A 레코드 `blog` → 예약 공인 IP(12-2). 프록시 상태는 **DNS only**(회색 구름)로 둔다. 프록시를 켜면 Cloudflare가 TLS를 끝내고 Nginx의 `$remote_addr`가 Cloudflare IP가 되어, IP당 rate limit(12-4)이 방문자를 한 묶음으로 센다.
-- 저장소의 설정 파일에는 도메인을 쓰지 않는다. `server_name _`이고 인증서는 `--cert-name blog`로 발급해 경로가 `/etc/letsencrypt/live/blog/`로 고정된다. 도메인은 DNS와 최초 발급 명령(README)에만 들어간다.
+- 저장소의 설정 파일에는 도메인을 쓰지 않는다. `server_name _`이고 인증서는 `--cert-name blog`로 발급해 경로가 `/etc/letsencrypt/live/blog/`로 고정된다. README·문서의 명령에는 자리표시자 `blog.도메인`·`<이메일>`만 쓰고, 실제 값은 서버에서 명령을 실행할 때만 입력한다. 실제 도메인이 들어가는 곳은 Cloudflare DNS와 서버에 남는 인증서 설정(`infra/certbot/conf`, git 제외)뿐이다.
 
 **compose** (12-2)
 - `certbot`: `certbot/certbot:v5.8.0`. 이 이미지는 메이저 태그가 없고 `latest`는 메이저가 바뀌어도 따라가므로 정확한 버전으로 고정한다 (12-7 메이저 태그 원칙의 예외). `profiles: [certbot]`이고 `restart`를 두지 않는다: 상주하지 않고 `docker compose -f infra/docker-compose.prod.yml run --rm certbot <명령>`으로만 실행한다 (배포의 `up -d`는 띄우지 않는다). 로그 옵션은 다른 서비스와 같다.
@@ -81,7 +82,7 @@
   - `certbot renew`는 만료 30일 이내인 인증서만 갱신하므로 매일 돌려도 대부분 아무것도 하지 않는다. reload는 갱신 여부와 상관없이 매일 한다 (graceful이라 연결이 끊기지 않는다). `--deploy-hook`은 certbot 컨테이너 안에서 실행돼 nginx 컨테이너에 신호를 보낼 수 없다.
   - `-T`: cron에는 TTY가 없어 `run`·`exec`가 TTY를 붙이려다 실패하지 않게 한다.
 - certbot 컨테이너 루프(상주하며 12시간마다 `renew`) 대신 cron인 이유: 루프 방식은 reload를 위해 nginx의 `command`도 셸 루프로 덮어써야 해 이미지 기본 진입 스크립트를 건너뛰고, 두 루프의 주기가 따로 돈다. cron은 명령이 한 줄로 드러나고 갱신 직후 reload된다.
-- 실패 처리: `renew`가 실패하면 reload를 건너뛰고 오류가 `~/certbot-renew.log`에 남는다. 다음 날 다시 시도하며, 만료 30일 전부터 시도하므로 그 안에 고치면 된다. Let's Encrypt는 만료 안내 메일을 보내지 않으므로 만료 감시는 M5 Uptime Kuma의 인증서 만료 알림으로 한다. `-q`라 성공하면 certbot은 출력이 없어 로그가 거의 늘지 않으므로 따로 정리하지 않는다.
+- 실패 처리: `renew`가 실패하면 reload를 건너뛰고 오류가 `~/certbot-renew.log`에 남는다. 다음 날 다시 시도하며, 만료 30일 전부터 시도하므로 그 안에 고치면 된다. Let's Encrypt는 만료 안내 메일을 보내지 않으므로 만료 감시는 M5 Uptime Kuma의 인증서 만료 알림으로 한다(13장 M5). M5 전까지는 매주 월요일 `docker compose -f infra/docker-compose.prod.yml run --rm certbot certificates`로 남은 기간을 본다. 갱신이 정상이면 항상 30일 넘게 남으므로, 30일 이하면 `~/certbot-renew.log`를 보고 고친다. 주 1회인 이유: 갱신 실패가 시작된 뒤에도 3주 이상 남은 때에 알아챈다. `-q`라 성공하면 certbot은 출력이 없어 로그가 거의 늘지 않으므로 따로 정리하지 않는다.
 
 **로컬에서 운영 compose 띄우기**
 - 443 블록 때문에 인증서가 있어야 nginx가 뜬다. 자체 서명 인증서를 같은 경로에 만든다: `mkdir -p infra/certbot/conf/live/blog && openssl req -x509 -nodes -newkey rsa:2048 -days 30 -subj /CN=localhost -keyout infra/certbot/conf/live/blog/privkey.pem -out infra/certbot/conf/live/blog/fullchain.pem`
@@ -124,7 +125,7 @@ nginx 이미지는 `nginx:1-alpine`(12-7과 같은 메이저 태그 원칙). `in
 - 429 응답 본문은 Nginx 기본 HTML이다. 프론트는 ProblemDetail이 아닌 응답을 `code: null`로 바꾸고(11장 '에러 처리'), 로그인 화면(11장 '관리자 인증')과 관리자 화면은 이미 429를 각 화면 결과 표의 "그 외" 행 문구로 보여 주므로 프론트를 바꾸지 않는다. 429 전용 문구는 관리자 1명이 겪을 일이 드물어 두지 않는다.
 
 **확인 방법** (로컬, 이슈 완료 조건. HTTPS(12-3) 추가 후에는 12-3 '로컬에서 운영 compose 띄우기'를 먼저 한다)
-- 실행: `infra/.env`에 12-7의 backend 환경변수(`JWT_SECRET`, `ADMIN_USERNAME`, `ADMIN_PASSWORD`, DB 계정)를 채우고 `IMAGE_TAG=local docker compose -f infra/docker-compose.prod.yml up -d --build`. 조회 명령(`ps`·`logs`)은 파일 없이 `-p blog-prod`로 하고, 컨테이너를 만드는 명령(`up` 등)은 `-p`만으로는 파일을 찾지 못해 위와 같이 `IMAGE_TAG=local`과 `-f infra/docker-compose.prod.yml`을 붙인다. `docker compose -p blog-prod ps`에서 backend가 `healthy`이고 nginx만 `0.0.0.0:80->80/tcp`를 가진다.
+- 실행: `infra/.env`에 12-7의 backend 환경변수(`JWT_SECRET`, `ADMIN_USERNAME`, `ADMIN_PASSWORD`, DB 계정)를 채우고 `IMAGE_TAG=local docker compose -f infra/docker-compose.prod.yml up -d --build`. 조회 명령(`ps`·`logs`)은 파일 없이 `-p blog-prod`로 하고, 컨테이너를 만드는 명령(`up` 등)은 `-p`만으로는 파일을 찾지 못해 위와 같이 `IMAGE_TAG=local`과 `-f infra/docker-compose.prod.yml`을 붙인다. `docker compose -p blog-prod ps`에서 backend가 `healthy`이고 nginx만 `0.0.0.0:80->80/tcp`·`0.0.0.0:443->443/tcp`를 가진다.
 - 로그인: prod 설정 그대로(`Secure` 쿠키) 확인한다. Chromium 계열 브라우저(Chrome·Edge)는 `http://localhost`를 보안 컨텍스트로 보아 `Secure` 쿠키를 HTTP에서도 저장·전송한다 (설계 때 Chromium으로 확인). 그래서 `blog.auth.secure-cookie`를 끄는 로컬용 덮어쓰기를 두지 않는다. Safari 등 다른 브라우저로는 확인하지 않는다.
 - 브라우저에서 관리자 로그인 → 글 작성(`PUBLISHED`) → 글 목록·상세(`/`, `/posts/{slug}`) 순으로 확인한다. 운영 DB에는 시드가 없어 처음에는 목록이 비어 있다.
 - 필수 비밀번호: `infra/.env`의 `POSTGRES_PASSWORD`를 비우고 `docker compose -f infra/docker-compose.prod.yml config`가 `POSTGRES_PASSWORD is required`로 실패한다.

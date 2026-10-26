@@ -155,3 +155,4 @@
   - 최초 발급은 임시 Nginx + webroot(`--dry-run` 먼저), 갱신은 호스트 cron(`renew` 후 `nginx -s reload`), HSTS `max-age=31536000`, 80 → 443 `301`
   - 로컬 운영 compose는 자체 서명 인증서로 실행(12-4 확인 방법), 4장에 `infra/certbot/` 추가
   - 도메인은 Cloudflare Registrar에서 구매(12-3)
+  - 설계 검증 반영: 최초 발급·첫 배포·확인은 기능 브랜치 체크아웃으로 하고 머지 뒤 main으로 복귀(12-2), README에는 도메인·이메일 자리표시자만 두고 실제 값은 실행 때만 입력(12-3), `.env.example` `IMAGE_TAG` 주석에 서버 첫 배포 값 안내, 12-4 포트 확인에 443 추가, 인증서 만료 감시를 13장 M5에 적고 M5 전까지 주 1회 `certbot certificates`로 확인
