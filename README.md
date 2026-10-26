@@ -21,11 +21,11 @@
      -A INPUT -p tcp -m state --state NEW -m tcp --dport 443 -j ACCEPT
      ```
    - Docker: [공식 문서](https://docs.docker.com/engine/install/ubuntu/)의 apt 저장소 방식으로 `docker-ce`·`docker-compose-plugin`을 설치하고 `sudo usermod -aG docker ubuntu` 후 다시 로그인한다.
-2. **저장소**: 이 이슈의 설정은 머지 전 확인이 필요해 기능 브랜치로 시작한다.
+2. **저장소**
    ```bash
    git clone https://github.com/mojunsul/blog.git ~/blog && cd ~/blog
-   git checkout chore/#109-server-https
    ```
+   #109 머지 전 검증 때만 이 단계 뒤에 `git checkout chore/#109-server-https`를 하고, 마지막의 "#109 머지 전 검증 뒤 main으로 복귀"를 따른다. 머지 후 새로 구성할 때는 둘 다 건너뛴다.
 3. **DNS**: Cloudflare DNS에 A 레코드 `blog` → 예약 공인 IP, 프록시 상태는 **DNS only**(회색 구름). `dig +short blog.도메인`이 그 IP를 돌려주는지 확인한다.
 4. **`.env`**: `cp infra/.env.example infra/.env && chmod 600 infra/.env` 후 채운다 (`JWT_SECRET`은 `openssl rand -base64 32`). 서버 첫 배포는 `IMAGE_TAG=local`.
 5. **인증서 최초 발급** (저장소 폴더에서)
@@ -48,7 +48,9 @@
    17 3 * * * cd $HOME/blog && { docker compose -f infra/docker-compose.prod.yml run --rm -T certbot renew -q && docker compose -f infra/docker-compose.prod.yml exec -T nginx nginx -s reload; } >> $HOME/certbot-renew.log 2>&1
    ```
 
-PR이 머지되면 돌아가기 전에 브랜치 끝 SHA를 적어 둔다.
+### #109 머지 전 검증 뒤 main으로 복귀
+
+기능 브랜치에서 검증했을 때만 한다. PR이 머지되면 돌아가기 전에 브랜치 끝 SHA를 적어 둔다.
 
 ```bash
 git rev-parse HEAD
