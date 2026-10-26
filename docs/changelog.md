@@ -149,3 +149,8 @@
   - 확인 방법 추가, 10-4·8-4·12-3·12-6(`up -d --no-build`)·12-7에 값과 참조 반영
   - 설계 검증 반영: Nginx `resolver 127.0.0.11` + 변수 `proxy_pass`로 업스트림 이름을 요청 때 확인(기동 순서·컨테이너 재생성 후 502 방지, 3장 문구 일반화), 운영 compose의 `POSTGRES_PASSWORD`는 `:?` 필수·DB 이름·사용자 기본값은 postgres와 backend가 같게(`environment` 치환), 429 문구는 화면별 "그 외" 행 참조로, 확인 방법에 재생성 후 502·비밀번호 누락·작성 후 목록 순서 추가
   - 설계 검증 반영: 재생성 확인 명령에 `-f infra/docker-compose.prod.yml`과 `IMAGE_TAG=local`을 붙이고, `-p blog-prod`만 쓰는 범위를 조회 명령(`ps`·`logs`)으로 좁힘
+- **v2.28**
+  - 서버 준비(12-2): A1.Flex 4 OCPU·24GB Ubuntu 24.04, 예약 공인 IP, 보안 목록(22는 본인 IP)·iptables(Docker 설치 전), Docker 공식 apt 저장소, 저장소 clone, 첫 배포는 서버에서 빌드(`.env`의 `IMAGE_TAG=local`), 관리자 비밀번호 변경 명령
+  - HTTPS(12-3): Cloudflare A 레코드 DNS only, 저장소에 도메인을 두지 않음(`server_name _`, `--cert-name blog`), `certbot/certbot:v5.8.0`(`profiles`, 상주 안 함), 인증서·웹루트는 `infra/certbot/` bind mount
+  - 최초 발급은 임시 Nginx + webroot(`--dry-run` 먼저), 갱신은 호스트 cron(`renew` 후 `nginx -s reload`), HSTS `max-age=31536000`, 80 → 443 `301`
+  - 로컬 운영 compose는 자체 서명 인증서로 실행(12-4 확인 방법), 4장에 `infra/certbot/` 추가

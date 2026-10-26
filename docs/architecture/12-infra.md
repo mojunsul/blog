@@ -6,10 +6,10 @@
 - Spring Boot(IDE, `local` 프로필), Next.js(`npm run dev`)는 직접 실행
 
 ### 12-2. 서버 (OCI)
-- `docker-compose.prod.yml`: nginx, certbot, frontend, backend, postgres, backup (certbot은 HTTPS 이슈, backup은 백업 이슈에서 추가)
+- `docker-compose.prod.yml`: nginx, certbot, frontend, backend, postgres, backup (certbot은 12-3, backup은 백업 이슈에서 추가)
   - 최상위 `name: blog-prod`. 로컬용 `docker-compose.yml`과 같은 `infra/`에 있어 이름을 주지 않으면 둘 다 프로젝트 이름이 `infra`가 되고, 볼륨(`infra_postgres-data`)을 함께 써 로컬 시드 DB로 운영 구성이 뜬다.
-  - 이미지: `image: ghcr.io/mojunsul/blog-backend:${IMAGE_TAG:-latest}`(frontend는 `blog-frontend`)와 `build: ../backend`(`../frontend`)를 함께 둔다. 로컬은 `IMAGE_TAG=local`로 `up -d --build`, 서버는 `pull` 후 `up -d --no-build`(소스가 없어도 `build`는 빌드할 때만 읽힌다). deploy(12-6)도 이 이름으로 push한다.
-  - 호스트에 여는 포트는 nginx `80:80`뿐이다 (HTTPS 이슈에서 443 추가). postgres·backend·frontend에는 `ports`를 두지 않는다 (같은 compose 네트워크에서 서비스 이름으로 접속).
+  - 이미지: `image: ghcr.io/mojunsul/blog-backend:${IMAGE_TAG:-latest}`(frontend는 `blog-frontend`)와 `build: ../backend`(`../frontend`)를 함께 둔다. 로컬은 `IMAGE_TAG=local`로 `up -d --build`, 서버는 `pull` 후 `up -d --no-build`(소스가 없어도 `build`는 빌드할 때만 읽힌다). deploy(12-6)도 이 이름으로 push한다. deploy 전의 첫 배포는 아래 '서버 준비'대로 서버에서 빌드한다.
+  - 호스트에 여는 포트는 nginx `80:80`·`443:443`뿐이다. postgres·backend·frontend에는 `ports`를 두지 않는다 (같은 compose 네트워크에서 서비스 이름으로 접속).
   - postgres: `postgres:18`(로컬과 같다), `TZ: UTC`, named volume `postgres-data:/var/lib/postgresql`, `pg_isready` healthcheck(로컬과 같다)
     - `POSTGRES_DB: ${POSTGRES_DB:-blog}`, `POSTGRES_USER: ${POSTGRES_USER:-blog}` (로컬 compose와 같은 기본값)
     - `POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}`. 비밀번호만 기본값 없이 필수로 둔다. 비거나 없으면 compose가 컨테이너를 만들기 전에 실패해, 로컬 compose의 기본값 `blog`로 운영 DB가 뜨지 않는다.
@@ -23,10 +23,21 @@
   - 비밀값이 아닌 `IMAGE_TAG`(비우면 `latest`)도 `infra/.env.example`에 둔다. 로컬은 셸에서 `IMAGE_TAG=local`로 덮어쓴다.
   - `infra/.env.example`의 기본값 안내 주석은 로컬 compose 기준이므로, 운영 compose는 `POSTGRES_PASSWORD`가 필수라는 점을 함께 적는다.
   - `JWT_SECRET`은 `openssl rand -base64 32`로 만든다 (Base64, 디코딩 후 32바이트 이상, 10-6). 바꾸면 발급된 Access 토큰이 모두 무효가 된다.
-  - 관리자 비밀번호를 바꾸려면 `admin` 행을 삭제하고 `ADMIN_PASSWORD`를 바꾼 뒤 backend를 재시작한다 (5장 '관리자 계정 생성'). 절차는 M3에서 README에 적는다.
-- OCI 보안 목록 + 인스턴스 iptables 양쪽에서 80/443 개방 (22는 본인 IP로 제한 권장)
-- 예약 공인 IP(Reserved Public IP) 사용
-- 모든 서비스에 `restart: unless-stopped`
+  - 관리자 비밀번호 변경 (5장 '관리자 계정 생성', README에 같은 절차를 적는다). 저장소 폴더(`~/blog`)에서:
+    1. `infra/.env`의 `ADMIN_PASSWORD`를 바꾼다.
+    2. `docker compose -f infra/docker-compose.prod.yml exec postgres sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "DELETE FROM admin"'` (`refresh_token`도 함께 지워져 로그인 상태가 풀린다. 이미 발급된 Access 토큰은 만료(15분)까지 남는다)
+    3. `docker compose -f infra/docker-compose.prod.yml up -d --no-deps backend`. `restart`는 컨테이너를 다시 만들지 않아 바뀐 `.env` 값을 읽지 않는다.
+    4. 새 비밀번호로 로그인한다. backend가 기동하지 않으면 `logs backend`에서 값 검사(5장) 오류를 보고 `.env`를 고쳐 3을 다시 한다.
+- **서버 준비** (최초 1회, 절차는 README)
+  - 인스턴스: `VM.Standard.A1.Flex`(arm64, Always Free) 4 OCPU·24GB 한 대, Canonical Ubuntu 24.04, 부트 볼륨 기본값. 예약 공인 IP(Reserved Public IP)를 붙인다 (인스턴스를 다시 만들어도 DNS를 고치지 않게).
+  - OCI 보안 목록: 수신 TCP 80·443은 `0.0.0.0/0`, 22는 본인 IP(`/32`)만. 본인 IP가 바뀌면 OCI 콘솔에서 22 규칙을 고친다.
+  - 인스턴스 iptables: Ubuntu 이미지 기본 규칙이 22 외 수신을 `REJECT`하므로 `/etc/iptables/rules.v4`에서 22 규칙 다음 줄에 80·443 `ACCEPT`를 넣고 `iptables-restore`로 적용한다. Docker 설치 전에 한다 (`iptables-restore`는 기존 규칙을 비우고 다시 쓰므로 Docker가 만든 규칙이 지워진다).
+  - Docker: 공식 문서의 apt 저장소 방식으로 `docker-ce`·`docker-compose-plugin`을 설치하고 `ubuntu` 사용자를 `docker` 그룹에 넣는다 (`get.docker.com` 스크립트는 문서가 운영용으로 권하지 않는다).
+  - 저장소: `git clone https://github.com/mojunsul/blog.git ~/blog` (Public이라 인증이 필요 없다). compose·Nginx 설정은 이 폴더에서 읽는다. 설정 갱신은 deploy(12-6) 전까지 수동 `git pull`.
+  - `.env`: `infra/.env.example`을 `infra/.env`로 복사해 채우고 `chmod 600`. GitHub Secrets 등록은 deploy 이슈(12-6)에서 한다.
+  - 첫 배포 이미지는 서버에서 빌드한다: `infra/.env`에 `IMAGE_TAG=local`을 두고 `docker compose -f infra/docker-compose.prod.yml up -d --build`. 서버도 arm64라 그대로 빌드된다. 로컬에서 빌드해 GHCR에 수동 push하는 방식은 쓰기 토큰(PAT)을 따로 만들어 관리해야 해 택하지 않았다. `IMAGE_TAG`를 셸이 아니라 `.env`에 두는 이유: 이후 `up`·`run`에서 빠지면 `latest`를 GHCR에서 받으려다 실패한다. deploy 이슈에서 이 값을 바꾼다.
+  - 순서: 서버 준비 → DNS(12-3) → `.env` → 인증서 최초 발급(12-3) → 첫 배포 → 갱신 cron(12-3). 인증서가 없으면 nginx가 기동하지 못하므로 발급이 배포보다 먼저다.
+- 모든 상주 서비스에 `restart: unless-stopped` (실행할 때만 뜨는 certbot은 제외, 12-3)
 - backend에 `healthcheck` 설정 (`/actuator/health`), nginx·frontend는 backend healthy 이후 기동 (`depends_on: condition: service_healthy`). nginx와 frontend 사이에는 순서를 두지 않는다: nginx는 업스트림 이름을 요청 때 확인하므로(12-4 '업스트림 이름 확인') frontend가 아직 없어도 기동하고, 그동안 `/`는 `502`다.
   - `curl -fsS http://localhost:8080/actuator/health`(JRE 이미지에 `curl`이 있다, 12-7), `interval: 10s`, `timeout: 3s`, `retries: 5`, `start_period: 60s`(작은 서버에서 JVM 기동과 Flyway가 끝나기 전 실패를 세지 않게)
 - **로그 용량 제한** (디스크가 작아서 필수). 모든 서비스에 같은 값을 `x-logging` 앵커로 한 번 정의해 붙인다.
@@ -39,10 +50,48 @@
   ```
 
 ### 12-3. HTTPS (Nginx + Certbot)
-1. Nginx를 80 포트로 실행, `/.well-known/acme-challenge/` 경로 개방
-2. Certbot 컨테이너로 인증서 발급, 공유 볼륨에 저장
-3. 443 server 블록 추가(HSTS 헤더 포함), HTTP → HTTPS 리다이렉트, Nginx reload
-4. Certbot 주기적 갱신 + 갱신 후 Nginx reload
+**도메인·DNS**
+- Cloudflare DNS(1장)에 A 레코드 `blog` → 예약 공인 IP(12-2). 프록시 상태는 **DNS only**(회색 구름)로 둔다. 프록시를 켜면 Cloudflare가 TLS를 끝내고 Nginx의 `$remote_addr`가 Cloudflare IP가 되어, IP당 rate limit(12-4)이 방문자를 한 묶음으로 센다.
+- 저장소의 설정 파일에는 도메인을 쓰지 않는다. `server_name _`이고 인증서는 `--cert-name blog`로 발급해 경로가 `/etc/letsencrypt/live/blog/`로 고정된다. 도메인은 DNS와 최초 발급 명령(README)에만 들어간다.
+
+**compose** (12-2)
+- `certbot`: `certbot/certbot:v5.8.0`. 이 이미지는 메이저 태그가 없고 `latest`는 메이저가 바뀌어도 따라가므로 정확한 버전으로 고정한다 (12-7 메이저 태그 원칙의 예외). `profiles: [certbot]`이고 `restart`를 두지 않는다: 상주하지 않고 `docker compose -f infra/docker-compose.prod.yml run --rm certbot <명령>`으로만 실행한다 (배포의 `up -d`는 띄우지 않는다). 로그 옵션은 다른 서비스와 같다.
+- 인증서와 ACME 웹루트는 호스트 폴더를 bind mount 한다: `./certbot/conf:/etc/letsencrypt`, `./certbot/www:/var/www/certbot` (nginx는 둘 다 `:ro`). named volume이 아닌 이유: 최초 발급 때 compose 밖의 임시 Nginx가 같은 웹루트를 읽어야 하고, 로컬에서 자체 서명 인증서를 같은 경로에 넣기 쉽다. `infra/certbot/`은 개인 키가 있어 `.gitignore`에 넣는다.
+- nginx: `443:443`을 열고 위 두 폴더를 마운트한다.
+
+**Nginx** (`conf.d/blog.conf`, 12-4)
+- 80 server: `location /.well-known/acme-challenge/ { root /var/www/certbot; }`, 그 외는 `location / { return 301 https://$host$request_uri; }`.
+- 443 server: `listen 443 ssl;`, `http2 on;`, `ssl_certificate /etc/letsencrypt/live/blog/fullchain.pem;`, `ssl_certificate_key /etc/letsencrypt/live/blog/privkey.pem;`. 프로토콜·암호 목록은 Nginx 기본값(TLSv1.2·TLSv1.3)을 쓴다. 12-4의 프록시 헤더·보안 헤더·location은 모두 이 블록에 둔다.
+- HSTS: 443 server에 `add_header Strict-Transport-Security "max-age=31536000" always;`. `includeSubDomains`·`preload`는 두지 않는다: `blog.`의 하위 도메인은 쓰지 않고, preload 목록은 등록 후 빼기 어렵다.
+- 인증서 파일이 없으면 nginx가 기동하지 못하고 재시작을 반복한다. 그래서 최초 발급은 compose를 띄우기 전에 아래 절차로 한다.
+
+**최초 발급** (서버, 저장소 폴더에서 1회)
+1. `dig +short blog.도메인`이 예약 공인 IP를 돌려주는지 확인한다.
+2. 임시 Nginx로 웹루트를 연다: `docker run -d --rm --name acme -p 80:80 -v "$PWD/infra/certbot/www:/usr/share/nginx/html:ro" nginx:1-alpine`. 이미지 기본 설정이 80에서 `/usr/share/nginx/html`을 서빙하므로 설정 파일이 따로 필요 없다.
+3. `docker compose -f infra/docker-compose.prod.yml run --rm certbot certonly --webroot -w /var/www/certbot --cert-name blog -d blog.도메인 -m <이메일> --agree-tos --no-eff-email --dry-run`이 성공하면 `--dry-run`을 빼고 다시 실행한다. 이메일은 저장소에 넣지 않고 명령에만 쓴다. 실패하면 오류(DNS·80 포트)를 고친 뒤 `--dry-run`부터 다시 한다. `--dry-run`은 스테이징 서버를 써서 반복 실패해도 실제 발급 제한에 걸리지 않는다.
+4. `docker stop acme` 후 첫 배포(12-2 '서버 준비')를 한다.
+- 웹루트로 발급하는 이유: `--standalone`은 임시 Nginx 없이 한 줄이지만 갱신 설정에 standalone이 저장돼, nginx가 80을 쓰는 동안 `certbot renew`가 실패한다. 더미(자체 서명) 인증서를 먼저 넣어 nginx를 띄운 뒤 지우고 발급하는 방식은 단계가 더 많다.
+
+**갱신** (호스트 cron)
+- `ubuntu` 사용자 crontab에 한 줄을 둔다 (README에 같은 줄을 적는다):
+  ```
+  17 3 * * * cd $HOME/blog && { docker compose -f infra/docker-compose.prod.yml run --rm -T certbot renew -q && docker compose -f infra/docker-compose.prod.yml exec -T nginx nginx -s reload; } >> $HOME/certbot-renew.log 2>&1
+  ```
+  - `certbot renew`는 만료 30일 이내인 인증서만 갱신하므로 매일 돌려도 대부분 아무것도 하지 않는다. reload는 갱신 여부와 상관없이 매일 한다 (graceful이라 연결이 끊기지 않는다). `--deploy-hook`은 certbot 컨테이너 안에서 실행돼 nginx 컨테이너에 신호를 보낼 수 없다.
+  - `-T`: cron에는 TTY가 없어 `run`·`exec`가 TTY를 붙이려다 실패하지 않게 한다.
+- certbot 컨테이너 루프(상주하며 12시간마다 `renew`) 대신 cron인 이유: 루프 방식은 reload를 위해 nginx의 `command`도 셸 루프로 덮어써야 해 이미지 기본 진입 스크립트를 건너뛰고, 두 루프의 주기가 따로 돈다. cron은 명령이 한 줄로 드러나고 갱신 직후 reload된다.
+- 실패 처리: `renew`가 실패하면 reload를 건너뛰고 오류가 `~/certbot-renew.log`에 남는다. 다음 날 다시 시도하며, 만료 30일 전부터 시도하므로 그 안에 고치면 된다. Let's Encrypt는 만료 안내 메일을 보내지 않으므로 만료 감시는 M5 Uptime Kuma의 인증서 만료 알림으로 한다. `-q`라 성공하면 certbot은 출력이 없어 로그가 거의 늘지 않으므로 따로 정리하지 않는다.
+
+**로컬에서 운영 compose 띄우기**
+- 443 블록 때문에 인증서가 있어야 nginx가 뜬다. 자체 서명 인증서를 같은 경로에 만든다: `mkdir -p infra/certbot/conf/live/blog && openssl req -x509 -nodes -newkey rsa:2048 -days 30 -subj /CN=localhost -keyout infra/certbot/conf/live/blog/privkey.pem -out infra/certbot/conf/live/blog/fullchain.pem`
+- 이후 12-4 '확인 방법'의 `http://localhost`는 `https://localhost`(`curl -k`, 브라우저는 경고 화면에서 계속 진행)로 바꿔 읽는다. `http://localhost`는 `301`이다.
+
+**확인 방법** (서버, 이슈 완료 조건. `blog.도메인`은 실제 도메인)
+- 브라우저로 `https://blog.도메인`에서 관리자 로그인 → 글 작성(`PUBLISHED`) → 글 목록·상세를 확인한다.
+- `curl -sI http://blog.도메인/posts`가 `301`이고 `Location: https://blog.도메인/posts`. `curl -sI https://blog.도메인/`에 `Strict-Transport-Security: max-age=31536000`이 있다.
+- `docker compose -f infra/docker-compose.prod.yml run --rm certbot renew --dry-run`이 성공한다. crontab 줄의 명령을 셸에서 한 번 직접 실행해 종료 코드 0과 `certbot-renew.log`를 확인한다.
+- 서버 밖(로컬 PC)에서 `nc -z -w 3 <공인 IP> 5432`·`8080`·`3000`이 실패하고, `curl -s -o /dev/null -w '%{http_code}\n' https://blog.도메인/actuator/health`가 `404`(Next)다.
+- 관리자 비밀번호 변경: README 절차(12-2)대로 바꾼 뒤 새 비밀번호로 로그인되고 이전 비밀번호는 `401`이다.
 
 ### 12-4. Nginx 설정 요점
 nginx 이미지는 `nginx:1-alpine`(12-7과 같은 메이저 태그 원칙). `infra/nginx/nginx.conf`를 `/etc/nginx/nginx.conf`로, `infra/nginx/conf.d/`를 `/etc/nginx/conf.d/`로 읽기 전용 마운트한다. 접근·오류 로그는 이미지 기본대로 표준 출력·표준 오류로 나가 Docker 로그 제한(12-2)을 받는다.
@@ -61,19 +110,19 @@ nginx 이미지는 `nginx:1-alpine`(12-7과 같은 메이저 태그 원칙). `in
     - 로그인: 연속 6회(1 + burst)까지 바로 처리하고, 그 뒤는 12초에 1회. 관리자 1명이 비밀번호를 몇 번 틀리는 정도는 막히지 않고, 대입 공격은 분당 5회로 줄어든다.
     - `api`: 서버 컴포넌트의 API 호출은 Nginx를 거치지 않으므로(`http://backend:8080`, 3장) 브라우저가 직접 부르는 API(관리자 화면, M6 조회수)만 받는다. 관리자 화면 한 번에 몇 건이라 여유가 크다. 조회수 zone은 M6에서 추가한다.
     - `limit_req_status 429;` (기본값 `503`은 서버 장애와 구분되지 않는다)
-- `conf.d/blog.conf` (`listen 80`, `server_name _`)
+- `conf.d/blog.conf` (`server_name _`): 80 server는 ACME 경로와 HTTPS 리다이렉트만 두고(12-3), 아래 항목은 모두 443 server에 둔다.
   - `server` 블록에 `set $backend backend:8080;`, `set $frontend frontend:3000;`을 두고 `proxy_pass http://$backend;`처럼 쓴다. URI 부분(끝의 `/`)을 붙이지 않으므로 변수를 써도 요청 URI가 그대로 전달된다 (`/api/...` 경로 유지, 3장).
   - `location /api/` → `proxy_pass http://$backend;` + `limit_req zone=api ...`
   - `location = /api/v1/auth/login` → 같은 `proxy_pass` + `limit_req zone=login ...` (이 location에는 `api` zone을 겹쳐 걸지 않는다)
   - `location /` → `proxy_pass http://$frontend;` + `proxy_buffering off;`. Nginx가 응답을 버퍼링하면 Next의 `Suspense` 스트리밍(11장 '렌더링 전략')이 끝날 때까지 묶여 나간다. Next 문서는 `next.config`에서 `X-Accel-Buffering: no` 헤더를 붙이는 방법도 들지만, 프록시 동작이라 Nginx 설정에 둔다.
   - `/actuator`, `/swagger-ui`, `/v3/api-docs`는 따로 막지 않는다. `/api/`로 시작하지 않아 `location /`(frontend)로 가고 Next의 404가 나간다 (3장).
   - 프록시 헤더는 `server` 블록에 한 번 둔다: `Host $host`, `X-Real-IP $remote_addr`, `X-Forwarded-For $proxy_add_x_forwarded_for`, `X-Forwarded-Proto $scheme`, `X-Request-Id $request_id`(클라이언트가 보낸 값을 덮어씀. 32자 16진수라 백엔드 형식 검사(5장 '로깅')를 통과한다). `proxy_hide_header X-Powered-By;`(Next가 붙이는 프레임워크 정보)도 같이 둔다.
-  - 보안 헤더(`server` 블록, `always`로 오류 응답에도): `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`. 이 블로그를 다른 사이트가 iframe으로 넣을 일이 없어 `SAMEORIGIN`도 두지 않는다 (Giscus는 우리가 남의 iframe을 넣는 쪽이라 상관없다). CSP `frame-ancestors`는 CSP 전체를 설계할 때 함께 정한다. HSTS는 HTTPS 이슈에서 443 블록에 둔다 (12-3).
+  - 보안 헤더(`server` 블록, `always`로 오류 응답에도): `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`. 이 블로그를 다른 사이트가 iframe으로 넣을 일이 없어 `SAMEORIGIN`도 두지 않는다 (Giscus는 우리가 남의 iframe을 넣는 쪽이라 상관없다). CSP `frame-ancestors`는 CSP 전체를 설계할 때 함께 정한다. HSTS도 여기에 같이 둔다 (값은 12-3).
   - `proxy_set_header`·`add_header`는 location에서 하나라도 쓰면 `server` 블록 값을 물려받지 않으므로 location에는 두지 않는다.
 - backend·frontend가 내려가 있으면 Nginx 기본 `502` HTML이 나간다. 브라우저의 API 호출은 프론트가 `code: null`인 `ApiError`로 처리하고(11장 '에러 처리'), 페이지 요청은 그 HTML이 그대로 보인다. 배포 중 수 초의 다운타임(12-6)뿐이라 별도 오류 페이지는 두지 않는다.
 - 429 응답 본문은 Nginx 기본 HTML이다. 프론트는 ProblemDetail이 아닌 응답을 `code: null`로 바꾸고(11장 '에러 처리'), 로그인 화면(11장 '관리자 인증')과 관리자 화면은 이미 429를 각 화면 결과 표의 "그 외" 행 문구로 보여 주므로 프론트를 바꾸지 않는다. 429 전용 문구는 관리자 1명이 겪을 일이 드물어 두지 않는다.
 
-**확인 방법** (로컬, 이슈 완료 조건)
+**확인 방법** (로컬, 이슈 완료 조건. HTTPS(12-3) 추가 후에는 12-3 '로컬에서 운영 compose 띄우기'를 먼저 한다)
 - 실행: `infra/.env`에 12-7의 backend 환경변수(`JWT_SECRET`, `ADMIN_USERNAME`, `ADMIN_PASSWORD`, DB 계정)를 채우고 `IMAGE_TAG=local docker compose -f infra/docker-compose.prod.yml up -d --build`. 조회 명령(`ps`·`logs`)은 파일 없이 `-p blog-prod`로 하고, 컨테이너를 만드는 명령(`up` 등)은 `-p`만으로는 파일을 찾지 못해 위와 같이 `IMAGE_TAG=local`과 `-f infra/docker-compose.prod.yml`을 붙인다. `docker compose -p blog-prod ps`에서 backend가 `healthy`이고 nginx만 `0.0.0.0:80->80/tcp`를 가진다.
 - 로그인: prod 설정 그대로(`Secure` 쿠키) 확인한다. Chromium 계열 브라우저(Chrome·Edge)는 `http://localhost`를 보안 컨텍스트로 보아 `Secure` 쿠키를 HTTP에서도 저장·전송한다 (설계 때 Chromium으로 확인). 그래서 `blog.auth.secure-cookie`를 끄는 로컬용 덮어쓰기를 두지 않는다. Safari 등 다른 브라우저로는 확인하지 않는다.
 - 브라우저에서 관리자 로그인 → 글 작성(`PUBLISHED`) → 글 목록·상세(`/`, `/posts/{slug}`) 순으로 확인한다. 운영 DB에는 시드가 없어 처음에는 목록이 비어 있다.
