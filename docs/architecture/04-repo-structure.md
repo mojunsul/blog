@@ -12,6 +12,7 @@ blog/
 │  │  ├ nginx.conf               # 공통 설정 (gzip, 로그 형식, rate limit zone)
 │  │  └ conf.d/
 │  │     └ blog.conf             # blog.도메인 server 블록
+│  ├ certbot/                    # 인증서·ACME 웹루트 (서버에서 생성, 커밋하지 않음)
 │  └ backup/
 │     └ backup.sh                # pg_dump → 압축 → Object Storage 업로드
 ├ docs/

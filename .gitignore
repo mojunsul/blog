@@ -3,6 +3,9 @@
 .env.*
 !.env.example
 
+# 인증서 개인 키와 ACME 웹루트
+infra/certbot/
+
 # IDE / OS
 .idea/
 .vscode/
