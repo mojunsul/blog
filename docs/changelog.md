@@ -161,3 +161,4 @@
   - deploy 워크플로(12-6): `ubuntu-24.04-arm` 러너 네이티브 빌드, GHCR에 SHA·`latest` 태그 push(서버는 SHA만 사용), 패키지 Public으로 pull 인증 없음, 경로 필터·`workflow_dispatch`·`concurrency`(취소 안 함)
   - 서버 스크립트 `infra/deploy.sh`: 배포 커밋 체크아웃, Secrets로 만든 `.env` + `IMAGE_TAG=<SHA>`, Nginx 설정 변경 시 nginx 재생성, backend healthy + Nginx 경유 `/`·`/api/v1/posts` 헬스체크, 실패(pull 포함) 시 이전 HEAD·`.env`로 롤백
   - `.env` 원본은 GitHub Secrets 하나(배포마다 덮어씀), SSH 22를 `0.0.0.0/0`·키 인증만으로 변경, 관리자 비밀번호 변경을 Secret + `workflow_dispatch`로 변경(12-2), 수동 롤백·확인 방법 추가, 4장에 `deploy.sh`
+  - 설계 검증 반영: 롤백 확인을 빈 커밋 대신 경로 필터 안 파일(`deploy.yml` 주석)을 바꾼 커밋 push로, 로그 기준은 스텝 머리 `env:` 목록의 `***`만 허용, 경로 필터 미실행을 머지 전 기능 브랜치에서 확인(필터 밖 파일만 바꾼 커밋 단독 push), `git cat-file -e`로 스크립트 존재 먼저 확인, 대기 실행은 하나만 남음, Re-run 30일 제한(12-6)

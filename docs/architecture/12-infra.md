@@ -156,7 +156,7 @@ main 머지 (deploy.yml)
 ```
 **deploy 워크플로** (`.github/workflows/deploy.yml`)
 - 실행 조건: `push: branches: [main]` + `paths: [backend/**, frontend/**, infra/**, .github/workflows/deploy.yml]`(문서만 바뀐 머지는 배포하지 않는다), 그리고 `workflow_dispatch`(Secrets만 바꿨을 때 main을 다시 배포). 테스트는 PR CI가 머지 조건이라 다시 돌리지 않는다.
-- 동시 실행: `concurrency: { group: deploy, cancel-in-progress: false }`. 배포 도중 취소되면 서버가 반쯤 바뀐 상태로 남으므로, 앞 배포가 끝날 때까지 기다린다.
+- 동시 실행: `concurrency: { group: deploy, cancel-in-progress: false }`. 배포 도중 취소되면 서버가 반쯤 바뀐 상태로 남으므로, 앞 배포가 끝날 때까지 기다린다. 대기 실행은 그룹에 하나만 남고(새 실행이 대기 중이던 실행을 취소한다) 가장 최근 커밋이 배포되므로 그대로 둔다.
 - 러너는 `ubuntu-24.04-arm`(GitHub 호스팅 arm64, Public 저장소 무료)에서 네이티브로 빌드한다. QEMU 에뮬레이션은 Gradle·Next 빌드가 수 배 느려 택하지 않았다.
 - 빌드·push: `docker/setup-buildx-action` → `docker/login-action`(`ghcr.io`, `GITHUB_TOKEN`, `permissions: packages: write`) → `docker/build-push-action`으로 backend·frontend 각각 `ghcr.io/mojunsul/blog-backend`(`blog-frontend`)에 `:${{ github.sha }}`·`:latest` 두 태그를 push한다. 서버는 `latest`를 쓰지 않고 SHA 태그만 쓴다 (롤백 뒤에도 `latest`는 실패한 빌드를 가리킬 수 있어서).
 - GHCR 패키지는 첫 push 뒤 **Public**으로 바꾼다 (패키지 설정, 1회). 이미지에 비밀값이 없고(12-7) 저장소도 Public이라, 서버에 pull 토큰(PAT)을 두지 않기 위해서다.
@@ -170,9 +170,9 @@ main 머지 (deploy.yml)
 - GitHub 러너의 IP는 고정되지 않으므로 22 포트는 `0.0.0.0/0`에 연다 (12-2 '서버 준비'). 비밀번호 로그인은 OCI Ubuntu 이미지 기본값대로 꺼져 있어 키로만 들어온다.
 
 **`.env` 동기화**: 원본은 GitHub Secrets 하나다. 배포마다 워크플로가 Secrets로 `.env` 내용을 만들어 서버로 보내고, 서버의 `.env`를 손으로 고치지 않는다 (고쳐도 다음 배포에서 덮어써진다). `POSTGRES_DB`·`POSTGRES_USER`는 compose 기본값(`blog`)을 쓰므로 보내지 않는다.
-- 값은 run 스텝의 `env:`로 받아 `printf 'POSTGRES_PASSWORD=%s\n...' "$POSTGRES_PASSWORD" ...`로 만들고 ssh 표준 입력으로 보낸다 (`umask 077; cat > ~/blog/infra/.env.next`). 명령 인자·`echo`·`set -x`로 다루지 않아 로그에 남지 않는다 (Actions의 시크릿 마스킹은 보조 수단).
+- 값은 run 스텝의 `env:`로 받아 `printf 'POSTGRES_PASSWORD=%s\n...' "$POSTGRES_PASSWORD" ...`로 만들고 ssh 표준 입력으로 보낸다 (`umask 077; cat > ~/blog/infra/.env.next`). 명령 인자·`echo`·`set -x`로 다루지 않아 로그에 남지 않는다 (Actions의 시크릿 마스킹은 보조 수단). Actions는 스텝 로그 머리에 `env:` 목록을 `이름: ***`으로 출력하는데, 값이 출력된 것이 아니라 마스킹된 목록이므로 허용한다 (아래 '확인 방법'의 로그 기준).
 
-**서버 스크립트** `infra/deploy.sh <SHA>`: 워크플로가 `.env.next`를 보낸 뒤 `ssh ... 'cd ~/blog && git fetch -q origin && bash <(git show <SHA>:infra/deploy.sh) <SHA>'`로 실행한다 (배포할 커밋의 스크립트를 쓴다). `set -euo pipefail`.
+**서버 스크립트** `infra/deploy.sh <SHA>`: 워크플로가 `.env.next`를 보낸 뒤 `ssh ... 'cd ~/blog && git fetch -q origin && git cat-file -e <SHA>:infra/deploy.sh && bash <(git show <SHA>:infra/deploy.sh) <SHA>'`로 실행한다 (배포할 커밋의 스크립트를 쓴다. `git show`가 실패하면 `bash`가 빈 스크립트를 받아 0으로 끝나므로 `cat-file -e`로 먼저 확인한다). `set -euo pipefail`.
 1. 롤백 지점 보관: `PREV=$(git rev-parse HEAD)`, `cp infra/.env infra/.env.prev`
 2. `git checkout -q --detach <SHA>` (compose·Nginx 설정도 같은 커밋으로 맞춘다), `infra/.env` = `.env.next` 내용 + `IMAGE_TAG=<SHA>`, `chmod 600`, `.env.next` 삭제
 3. `docker compose -f infra/docker-compose.prod.yml pull backend frontend` → `up -d --no-build`. `git diff --quiet $PREV <SHA> -- infra/nginx`가 실패하면(Nginx 설정이 바뀌었으면) `up -d --no-deps --force-recreate nginx` (마운트 파일 교체는 `up -d`·reload로 반영되지 않는다, 12-2 '서버 준비').
@@ -184,7 +184,7 @@ main 머지 (deploy.yml)
 - GHCR의 SHA 태그는 정리하지 않는다 (Public 패키지 용량 무료).
 
 **수동 운영** (README에 적는다)
-- 이전 버전으로 되돌리기: Actions에서 되돌릴 커밋의 성공한 deploy 실행을 "Re-run all jobs"한다 (그 커밋으로 다시 빌드·배포). 이후 main 머지가 다시 배포하므로, 원인 커밋은 `git revert` PR로 고친다.
+- 이전 버전으로 되돌리기: Actions에서 되돌릴 커밋의 성공한 deploy 실행을 "Re-run all jobs"한다 (그 커밋으로 다시 빌드·배포). Re-run은 원래 실행 뒤 30일 안에만 되므로, 그보다 오래된 커밋은 `git revert` PR로 되돌린다. 이후 main 머지가 다시 배포하므로, 원인 커밋은 `git revert` PR로 고친다.
 - Secrets 변경 반영(관리자 비밀번호 등, 12-2): Secrets를 바꾸고 Actions에서 deploy를 `workflow_dispatch`로 실행한다. `.env` 값이 바뀐 서비스만 compose가 다시 만든다.
 - 배포 상태 확인: `docker compose -f infra/docker-compose.prod.yml ps --format '{{.Service}} {{.Image}}'`의 backend·frontend 태그가 배포한 SHA다.
 
@@ -192,9 +192,10 @@ main 머지 (deploy.yml)
 - 머지 전에는 기능 브랜치에서 확인한다: 구현 세션이 `on.push.branches`에 `chore/#110-deploy-workflow`를 임시로 더해 push하고, 확인이 끝나면 PR 전 마지막 커밋에서 뺀다. 서버 저장소는 그동안 브랜치 SHA로 detached 상태가 되고, 머지 뒤 첫 main 배포가 main 커밋으로 되돌린다.
   - 첫 실행은 패키지가 아직 Private이라 서버 pull이 실패해 롤백된다. 두 패키지를 Public으로 바꾼 뒤 그 실행을 다시 실행한다.
   - 자동 반영: push 뒤 사람 개입 없이 워크플로가 성공하고, 위 '배포 상태 확인'의 태그가 그 커밋 SHA, `https://blog.도메인`이 정상이다.
-  - 롤백: Secret `JWT_SECRET`을 빈 값이 아닌 짧은 Base64 값 `c2hvcnQ=`(디코딩 6바이트, 10-6대로 기동 실패. Secret은 빈 값을 저장할 수 없다)으로 바꾸고 `git commit --allow-empty`로 push → 워크플로가 실패하고, 로그에 롤백이 찍히고, 태그가 이전 SHA이며 사이트가 정상이다. 확인 뒤 Secret을 원래 값으로 되돌린다.
-  - 로그: 두 실행의 로그 전체(`gh run view --log`)에서 각 비밀값으로 `grep`해 나오지 않는다 (`***` 마스킹도 비밀값이 출력됐다는 뜻이라 없어야 한다).
-- 머지 후: main 머지 커밋의 deploy가 성공하고 태그가 머지 커밋 SHA다. 문서만 바꾼 머지에서는 deploy가 실행되지 않는다.
+  - 롤백: Secret `JWT_SECRET`을 빈 값이 아닌 짧은 Base64 값 `c2hvcnQ=`(디코딩 6바이트, 10-6대로 기동 실패. Secret은 빈 값을 저장할 수 없다)으로 바꾸고, 경로 필터에 드는 파일을 바꾼 커밋(예: `deploy.yml`에 주석 한 줄)을 push → 워크플로가 실패하고, 로그에 롤백이 찍히고, 태그가 이전 SHA이며 사이트가 정상이다. 확인 뒤 Secret을 원래 값으로 되돌리고, 그 주석은 임시 트리거와 함께 PR 전 마지막 커밋에서 뺀다. 빈 커밋(`--allow-empty`)은 바뀐 파일이 없어 경로 필터에 걸려 실행되지 않고, 같은 SHA의 Re-run은 롤백 전후 SHA가 같아 태그로 롤백을 확인할 수 없어 쓰지 않는다.
+  - 로그: 두 실행의 로그 전체(`gh run view --log`)에서 각 Secret 값(`DEPLOY_SSH_KEY`는 본문 한 줄)으로 `grep`해 나오지 않고, `grep -F '***'` 결과가 스텝 머리 `env:` 목록의 `이름: ***` 줄뿐이다 (그 밖의 `***`는 비밀값이 출력됐다가 마스킹됐다는 뜻이라 없어야 한다).
+  - 경로 필터: 필터 밖 파일만 바꾼 커밋(예: README 커밋)을 그 커밋 하나만 담아 push한다 (push의 경로 필터는 push 전후 차이 전체로 판정하므로 필터 안 파일을 바꾼 커밋과 함께 push하면 실행된다). `gh run list --workflow deploy.yml --commit <SHA>`가 비어 있다.
+- 머지 후: main 머지 커밋의 deploy가 성공하고 태그가 머지 커밋 SHA다.
 
 - Flyway 마이그레이션은 backend 기동 시 자동 실행된다. 마이그레이션은 이전 버전 코드와도 호환되게 작성한다 (컬럼 삭제는 코드 배포 이후 별도 마이그레이션으로).
 - `compose up -d` 방식은 수 초의 다운타임이 있다. 무중단 배포는 M6 이후 학습 주제로 둔다.
