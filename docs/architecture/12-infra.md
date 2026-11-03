@@ -18,25 +18,25 @@
     - `JWT_SECRET`·`ADMIN_USERNAME`·`ADMIN_PASSWORD`는 기본값 없이 `${VAR}`. 비면 빈 문자열이 들어가 12-7대로 backend 기동이 멈춘다.
   - frontend: `API_INTERNAL_URL: http://backend:8080` (11장 'API 주소 처리')
 - PostgreSQL 데이터는 named volume으로 영속화
-- 비밀값은 서버의 `infra/.env`에만 둔다 (원본은 GitHub Secrets에서 관리)
+- 비밀값은 서버의 `infra/.env`에만 둔다. 원본은 GitHub Secrets이고, 자동 배포부터는 deploy가 매번 `.env`를 다시 쓴다 (12-6 '`.env` 동기화')
   - `POSTGRES_PASSWORD`, `JWT_SECRET`, `ADMIN_USERNAME`, `ADMIN_PASSWORD`, Object Storage 인증 정보 등
   - 비밀값이 아닌 `IMAGE_TAG`(비우면 `latest`)도 `infra/.env.example`에 둔다. 로컬은 셸에서 `IMAGE_TAG=local`로 덮어쓴다. 서버 첫 배포(deploy 이슈 전)에는 `infra/.env`에 `IMAGE_TAG=local`을 둔다는 안내(아래 '서버 준비')도 같은 주석에 적는다.
   - `infra/.env.example`의 기본값 안내 주석은 로컬 compose 기준이므로, 운영 compose는 `POSTGRES_PASSWORD`가 필수라는 점을 함께 적는다.
   - `JWT_SECRET`은 `openssl rand -base64 32`로 만든다 (Base64, 디코딩 후 32바이트 이상, 10-6). 바꾸면 발급된 Access 토큰이 모두 무효가 된다.
   - 관리자 비밀번호 변경 (5장 '관리자 계정 생성', README에 같은 절차를 적는다). 저장소 폴더(`~/blog`)에서:
-    1. `infra/.env`의 `ADMIN_PASSWORD`를 바꾼다.
+    1. GitHub Secret `ADMIN_PASSWORD`를 바꾼다 (서버 `.env`는 deploy가 덮어쓰므로 직접 고치지 않는다, 12-6).
     2. `docker compose -f infra/docker-compose.prod.yml exec postgres sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "DELETE FROM admin"'` (`refresh_token`도 함께 지워져 로그인 상태가 풀린다. 이미 발급된 Access 토큰은 만료(15분)까지 남는다)
-    3. `docker compose -f infra/docker-compose.prod.yml up -d --no-deps backend`. `restart`는 컨테이너를 다시 만들지 않아 바뀐 `.env` 값을 읽지 않는다.
-    4. 새 비밀번호로 로그인한다. backend가 기동하지 않으면 `logs backend`에서 값 검사(5장) 오류를 보고 `.env`를 고쳐 3을 다시 한다.
+    3. Actions에서 deploy를 `workflow_dispatch`로 실행한다. `.env`가 바뀌어 backend 컨테이너가 다시 만들어진다 (`restart`는 컨테이너를 다시 만들지 않아 바뀐 값을 읽지 않는다).
+    4. 새 비밀번호로 로그인한다. backend가 기동하지 않으면 `logs backend`에서 값 검사(5장) 오류를 보고 Secret을 고쳐 3을 다시 한다. 기동하지 못하면 deploy가 이전 `.env`로 롤백하므로 이전 비밀번호로 계정이 다시 만들어진다.
 - **서버 준비** (최초 1회, 절차는 README)
   - 인스턴스: `VM.Standard.A1.Flex`(arm64, Always Free) 4 OCPU·24GB 한 대, Canonical Ubuntu 24.04, 부트 볼륨 기본값. 예약 공인 IP(Reserved Public IP)를 붙인다 (인스턴스를 다시 만들어도 DNS를 고치지 않게).
-  - OCI 보안 목록: 수신 TCP 80·443은 `0.0.0.0/0`, 22는 본인 IP(`/32`)만. 본인 IP가 바뀌면 OCI 콘솔에서 22 규칙을 고친다.
+  - OCI 보안 목록: 수신 TCP 80·443·22 모두 `0.0.0.0/0`. 22는 deploy(12-6)의 GitHub 러너 IP가 고정되지 않아 열고, 키 인증만 허용한다 (`/etc/ssh/sshd_config`의 `PasswordAuthentication no`를 확인).
   - 인스턴스 iptables: Ubuntu 이미지 기본 규칙이 22 외 수신을 `REJECT`하므로 `/etc/iptables/rules.v4`에서 22 규칙 다음 줄에 80·443 `ACCEPT`를 넣고 `iptables-restore`로 적용한다. Docker 설치 전에 한다 (`iptables-restore`는 기존 규칙을 비우고 다시 쓰므로 Docker가 만든 규칙이 지워진다).
   - Docker: 공식 문서의 apt 저장소 방식으로 `docker-ce`·`docker-compose-plugin`을 설치하고 `ubuntu` 사용자를 `docker` 그룹에 넣는다 (`get.docker.com` 스크립트는 문서가 운영용으로 권하지 않는다).
-  - 저장소: `git clone https://github.com/mojunsul/blog.git ~/blog` (Public이라 인증이 필요 없다). compose·Nginx 설정은 이 폴더에서 읽는다. 설정 갱신은 deploy(12-6) 전까지 수동 `git pull`.
+  - 저장소: `git clone https://github.com/mojunsul/blog.git ~/blog` (Public이라 인증이 필요 없다). compose·Nginx 설정은 이 폴더에서 읽는다. 설정 갱신은 deploy(12-6)가 배포 커밋을 체크아웃해 맞춘다 (서버에서 `git pull`하지 않는다).
     - 이 이슈의 설정(certbot 서비스, 443 블록, `.gitignore`)은 머지 전 구현 검증에서 서버로 확인해야 하므로, 최초 발급·첫 배포·확인 방법(12-3)은 기능 브랜치에서 한다: clone 뒤 `git checkout chore/#109-server-https`, 구현 세션이 push하면 `git pull`. PR이 머지되면 돌아가기 전에 브랜치 끝 SHA를 적어 두고(`git rev-parse HEAD`) `git checkout main && git pull`로 돌아간다. merge commit으로 머지하므로 main의 커밋은 브랜치와 다르고, 그사이 main에 다른 `infra/` 변경이 머지됐을 수 있다. `git diff <브랜치 끝 SHA> HEAD -- infra`가 비어 있으면 설정이 같으므로 컨테이너를 다시 띄우지 않고, 차이가 있으면 `docker compose -f infra/docker-compose.prod.yml up -d --force-recreate`로 모든 서비스를 다시 만든다. Nginx 설정(`nginx.conf`·`conf.d/`, 12-4)은 마운트만 되어 있어 compose 정의가 같으면 `up -d`가 컨테이너를 다시 만들지 않고, 파일 하나를 마운트한 `nginx.conf`는 git이 파일을 교체하면 reload로도 반영되지 않기 때문이다. nginx로 좁히지 않는 이유: 같은 차이에 다른 서비스의 마운트 파일이 섞여도 놓치지 않고, 한 번뿐인 절차라 수 초 다운타임은 문제되지 않는다 (`infra/.env`·`infra/certbot/`은 git이 추적하지 않아 브랜치를 바꿔도 남는다).
-  - `.env`: `infra/.env.example`을 `infra/.env`로 복사해 채우고 `chmod 600`. GitHub Secrets 등록은 deploy 이슈(12-6)에서 한다.
-  - 첫 배포 이미지는 서버에서 빌드한다: `infra/.env`에 `IMAGE_TAG=local`을 두고 `docker compose -f infra/docker-compose.prod.yml up -d --build`. 서버도 arm64라 그대로 빌드된다. 로컬에서 빌드해 GHCR에 수동 push하는 방식은 쓰기 토큰(PAT)을 따로 만들어 관리해야 해 택하지 않았다. `IMAGE_TAG`를 셸이 아니라 `.env`에 두는 이유: 이후 `up`·`run`에서 빠지면 `latest`를 GHCR에서 받으려다 실패한다. deploy 이슈에서 이 값을 바꾼다.
+  - `.env`: `infra/.env.example`을 `infra/.env`로 복사해 채우고 `chmod 600`. 같은 값을 GitHub Secrets(12-6 표)에도 등록한다. 첫 자동 배포부터 deploy가 이 파일을 다시 쓴다.
+  - 첫 배포 이미지는 서버에서 빌드한다: `infra/.env`에 `IMAGE_TAG=local`을 두고 `docker compose -f infra/docker-compose.prod.yml up -d --build`. 서버도 arm64라 그대로 빌드된다. 로컬에서 빌드해 GHCR에 수동 push하는 방식은 쓰기 토큰(PAT)을 따로 만들어 관리해야 해 택하지 않았다. `IMAGE_TAG`를 셸이 아니라 `.env`에 두는 이유: 이후 `up`·`run`에서 빠지면 `latest`를 GHCR에서 받으려다 실패한다. 첫 자동 배포부터 deploy가 커밋 SHA로 바꾼다 (12-6).
   - 순서: 서버 준비 → DNS(12-3) → `.env` → 인증서 최초 발급(12-3) → 첫 배포 → 갱신 cron(12-3). 인증서가 없으면 nginx가 기동하지 못하므로 발급이 배포보다 먼저다.
 - 모든 상주 서비스에 `restart: unless-stopped` (실행할 때만 뜨는 certbot은 제외, 12-3)
 - backend에 `healthcheck` 설정 (`/actuator/health`), nginx·frontend는 backend healthy 이후 기동 (`depends_on: condition: service_healthy`). nginx와 frontend 사이에는 순서를 두지 않는다: nginx는 업스트림 이름을 요청 때 확인하므로(12-4 '업스트림 이름 확인') frontend가 아직 없어도 기동하고, 그동안 `/`는 `502`다.
@@ -154,6 +154,48 @@ main 머지 (deploy.yml)
  → SSH 접속 → docker compose pull && docker compose up -d --no-build (12-2)
  → 내부 헬스체크 확인, 실패 시 이전 SHA 태그로 롤백
 ```
+**deploy 워크플로** (`.github/workflows/deploy.yml`)
+- 실행 조건: `push: branches: [main]` + `paths: [backend/**, frontend/**, infra/**, .github/workflows/deploy.yml]`(문서만 바뀐 머지는 배포하지 않는다), 그리고 `workflow_dispatch`(Secrets만 바꿨을 때 main을 다시 배포). 테스트는 PR CI가 머지 조건이라 다시 돌리지 않는다.
+- 동시 실행: `concurrency: { group: deploy, cancel-in-progress: false }`. 배포 도중 취소되면 서버가 반쯤 바뀐 상태로 남으므로, 앞 배포가 끝날 때까지 기다린다.
+- 러너는 `ubuntu-24.04-arm`(GitHub 호스팅 arm64, Public 저장소 무료)에서 네이티브로 빌드한다. QEMU 에뮬레이션은 Gradle·Next 빌드가 수 배 느려 택하지 않았다.
+- 빌드·push: `docker/setup-buildx-action` → `docker/login-action`(`ghcr.io`, `GITHUB_TOKEN`, `permissions: packages: write`) → `docker/build-push-action`으로 backend·frontend 각각 `ghcr.io/mojunsul/blog-backend`(`blog-frontend`)에 `:${{ github.sha }}`·`:latest` 두 태그를 push한다. 서버는 `latest`를 쓰지 않고 SHA 태그만 쓴다 (롤백 뒤에도 `latest`는 실패한 빌드를 가리킬 수 있어서).
+- GHCR 패키지는 첫 push 뒤 **Public**으로 바꾼다 (패키지 설정, 1회). 이미지에 비밀값이 없고(12-7) 저장소도 Public이라, 서버에 pull 토큰(PAT)을 두지 않기 위해서다.
+- 서버 접속은 액션 없이 `ssh`로 한다. Secrets:
+  | 이름 | 값 |
+  |---|---|
+  | `DEPLOY_HOST` | 예약 공인 IP |
+  | `DEPLOY_SSH_KEY` | 배포 전용 ed25519 개인 키 (공개 키는 서버 `ubuntu`의 `authorized_keys`, 비밀번호 없음) |
+  | `DEPLOY_KNOWN_HOSTS` | `ssh-keyscan -t ed25519 <IP>` 결과 (호스트 키 고정, `StrictHostKeyChecking`을 끄지 않는다) |
+  | `POSTGRES_PASSWORD`, `JWT_SECRET`, `ADMIN_USERNAME`, `ADMIN_PASSWORD` | 서버 `.env` 값 (12-2) |
+- GitHub 러너의 IP는 고정되지 않으므로 22 포트는 `0.0.0.0/0`에 연다 (12-2 '서버 준비'). 비밀번호 로그인은 OCI Ubuntu 이미지 기본값대로 꺼져 있어 키로만 들어온다.
+
+**`.env` 동기화**: 원본은 GitHub Secrets 하나다. 배포마다 워크플로가 Secrets로 `.env` 내용을 만들어 서버로 보내고, 서버의 `.env`를 손으로 고치지 않는다 (고쳐도 다음 배포에서 덮어써진다). `POSTGRES_DB`·`POSTGRES_USER`는 compose 기본값(`blog`)을 쓰므로 보내지 않는다.
+- 값은 run 스텝의 `env:`로 받아 `printf 'POSTGRES_PASSWORD=%s\n...' "$POSTGRES_PASSWORD" ...`로 만들고 ssh 표준 입력으로 보낸다 (`umask 077; cat > ~/blog/infra/.env.next`). 명령 인자·`echo`·`set -x`로 다루지 않아 로그에 남지 않는다 (Actions의 시크릿 마스킹은 보조 수단).
+
+**서버 스크립트** `infra/deploy.sh <SHA>`: 워크플로가 `.env.next`를 보낸 뒤 `ssh ... 'cd ~/blog && git fetch -q origin && bash <(git show <SHA>:infra/deploy.sh) <SHA>'`로 실행한다 (배포할 커밋의 스크립트를 쓴다). `set -euo pipefail`.
+1. 롤백 지점 보관: `PREV=$(git rev-parse HEAD)`, `cp infra/.env infra/.env.prev`
+2. `git checkout -q --detach <SHA>` (compose·Nginx 설정도 같은 커밋으로 맞춘다), `infra/.env` = `.env.next` 내용 + `IMAGE_TAG=<SHA>`, `chmod 600`, `.env.next` 삭제
+3. `docker compose -f infra/docker-compose.prod.yml pull backend frontend` → `up -d --no-build`. `git diff --quiet $PREV <SHA> -- infra/nginx`가 실패하면(Nginx 설정이 바뀌었으면) `up -d --no-deps --force-recreate nginx` (마운트 파일 교체는 `up -d`·reload로 반영되지 않는다, 12-2 '서버 준비').
+4. 헬스체크(서버 안에서): backend 컨테이너의 health 상태가 `healthy`가 될 때까지 최대 180초(`start_period` 60초 + `retries`×`interval`에 여유) 기다린다. 이어서 Nginx를 거쳐 `curl -fsSk https://localhost/`와 `https://localhost/api/v1/posts`가 둘 다 2xx인지 5초 간격 최대 6회 본다 (Nginx resolver 캐시 10초 동안의 `502`를 넘기기 위해, 12-4). `/`는 frontend와 frontend→backend 연결을, `/api/v1/posts`는 backend와 DB를 확인한다.
+5. 성공: `.env.prev` 삭제, `docker image prune -af`(디스크가 작다. 이전 이미지는 GHCR에 남는다), 종료 코드 0
+6. 실패(2~4의 어느 명령이든 실패하면 `trap ... ERR`로 여기로 온다. 이미지 pull 실패도 포함): `docker compose ... logs --tail 50 backend frontend`를 출력하고 `git checkout -q --detach $PREV`, `mv infra/.env.prev infra/.env`, `up -d --no-build`(3과 같은 Nginx 처리), 4를 다시 해 결과를 출력한 뒤 종료 코드 1 → 워크플로 실패(GitHub 실패 알림 메일). 첫 자동 배포의 `PREV`는 서버 빌드 이미지(`IMAGE_TAG=local`)라 그대로 되돌아간다.
+- 롤백한 배포의 마이그레이션은 되돌리지 않는다. 그래서 아래 마이그레이션 호환 규칙이 필요하다.
+- 빌드·push가 실패하면 서버 접속 스텝까지 가지 않아 서버는 바뀌지 않는다. `.env.next`만 보내고 스크립트 실행 전에 접속이 끊기면 남은 `.env.next`는 다음 배포가 덮어쓴다.
+- GHCR의 SHA 태그는 정리하지 않는다 (Public 패키지 용량 무료).
+
+**수동 운영** (README에 적는다)
+- 이전 버전으로 되돌리기: Actions에서 되돌릴 커밋의 성공한 deploy 실행을 "Re-run all jobs"한다 (그 커밋으로 다시 빌드·배포). 이후 main 머지가 다시 배포하므로, 원인 커밋은 `git revert` PR로 고친다.
+- Secrets 변경 반영(관리자 비밀번호 등, 12-2): Secrets를 바꾸고 Actions에서 deploy를 `workflow_dispatch`로 실행한다. `.env` 값이 바뀐 서비스만 compose가 다시 만든다.
+- 배포 상태 확인: `docker compose -f infra/docker-compose.prod.yml ps --format '{{.Service}} {{.Image}}'`의 backend·frontend 태그가 배포한 SHA다.
+
+**확인 방법** (이슈 완료 조건)
+- 머지 전에는 기능 브랜치에서 확인한다: 구현 세션이 `on.push.branches`에 `chore/#110-deploy-workflow`를 임시로 더해 push하고, 확인이 끝나면 PR 전 마지막 커밋에서 뺀다. 서버 저장소는 그동안 브랜치 SHA로 detached 상태가 되고, 머지 뒤 첫 main 배포가 main 커밋으로 되돌린다.
+  - 첫 실행은 패키지가 아직 Private이라 서버 pull이 실패해 롤백된다. 두 패키지를 Public으로 바꾼 뒤 그 실행을 다시 실행한다.
+  - 자동 반영: push 뒤 사람 개입 없이 워크플로가 성공하고, 위 '배포 상태 확인'의 태그가 그 커밋 SHA, `https://blog.도메인`이 정상이다.
+  - 롤백: Secret `JWT_SECRET`을 빈 값이 아닌 짧은 Base64 값 `c2hvcnQ=`(디코딩 6바이트, 10-6대로 기동 실패. Secret은 빈 값을 저장할 수 없다)으로 바꾸고 `git commit --allow-empty`로 push → 워크플로가 실패하고, 로그에 롤백이 찍히고, 태그가 이전 SHA이며 사이트가 정상이다. 확인 뒤 Secret을 원래 값으로 되돌린다.
+  - 로그: 두 실행의 로그 전체(`gh run view --log`)에서 각 비밀값으로 `grep`해 나오지 않는다 (`***` 마스킹도 비밀값이 출력됐다는 뜻이라 없어야 한다).
+- 머지 후: main 머지 커밋의 deploy가 성공하고 태그가 머지 커밋 SHA다. 문서만 바꾼 머지에서는 deploy가 실행되지 않는다.
+
 - Flyway 마이그레이션은 backend 기동 시 자동 실행된다. 마이그레이션은 이전 버전 코드와도 호환되게 작성한다 (컬럼 삭제는 코드 배포 이후 별도 마이그레이션으로).
 - `compose up -d` 방식은 수 초의 다운타임이 있다. 무중단 배포는 M6 이후 학습 주제로 둔다.
 

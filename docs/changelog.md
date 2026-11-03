@@ -157,3 +157,7 @@
   - 도메인은 Cloudflare Registrar에서 구매(12-3)
   - 설계 검증 반영: 최초 발급·첫 배포·확인은 기능 브랜치 체크아웃으로 하고 머지 뒤 main으로 복귀(12-2), README에는 도메인·이메일 자리표시자만 두고 실제 값은 실행 때만 입력(12-3), `.env.example` `IMAGE_TAG` 주석에 서버 첫 배포 값 안내, 12-4 포트 확인에 443 추가, 인증서 만료 감시를 13장 M5에 적고 M5 전까지 주 1회 `certbot certificates`로 확인
   - 설계 검증 반영: main 복귀 뒤 `git diff <브랜치 끝 SHA> HEAD -- infra`에 차이가 있으면 `up -d --force-recreate`로 다시 만듦(마운트한 Nginx 설정 반영, 12-2), 갱신 시점을 고정 30일이 아니라 수명의 약 1/3(certbot 4.0+, ARI)로 고치고 주간 점검 기준을 수명 비율(90일 30일·64일 21일 미만)로 변경, 주간 점검을 README 인증서 갱신 절차에 적음(12-3)
+- **v2.29**
+  - deploy 워크플로(12-6): `ubuntu-24.04-arm` 러너 네이티브 빌드, GHCR에 SHA·`latest` 태그 push(서버는 SHA만 사용), 패키지 Public으로 pull 인증 없음, 경로 필터·`workflow_dispatch`·`concurrency`(취소 안 함)
+  - 서버 스크립트 `infra/deploy.sh`: 배포 커밋 체크아웃, Secrets로 만든 `.env` + `IMAGE_TAG=<SHA>`, Nginx 설정 변경 시 nginx 재생성, backend healthy + Nginx 경유 `/`·`/api/v1/posts` 헬스체크, 실패(pull 포함) 시 이전 HEAD·`.env`로 롤백
+  - `.env` 원본은 GitHub Secrets 하나(배포마다 덮어씀), SSH 22를 `0.0.0.0/0`·키 인증만으로 변경, 관리자 비밀번호 변경을 Secret + `workflow_dispatch`로 변경(12-2), 수동 롤백·확인 방법 추가, 4장에 `deploy.sh`
