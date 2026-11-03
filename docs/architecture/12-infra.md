@@ -170,7 +170,7 @@ main 머지 (deploy.yml)
 - GitHub 러너의 IP는 고정되지 않으므로 22 포트는 `0.0.0.0/0`에 연다 (12-2 '서버 준비'). 비밀번호 로그인은 OCI Ubuntu 이미지 기본값대로 꺼져 있어 키로만 들어온다.
 
 **`.env` 동기화**: 원본은 GitHub Secrets 하나다. 배포마다 워크플로가 Secrets로 `.env` 내용을 만들어 서버로 보내고, 서버의 `.env`를 손으로 고치지 않는다 (고쳐도 다음 배포에서 덮어써진다). `POSTGRES_DB`·`POSTGRES_USER`는 compose 기본값(`blog`)을 쓰므로 보내지 않는다.
-- 값은 run 스텝의 `env:`로 받아 `printf 'POSTGRES_PASSWORD=%s\n...' "$POSTGRES_PASSWORD" ...`로 만들고 ssh 표준 입력으로 보낸다 (`umask 077; cat > ~/blog/infra/.env.next`). 명령 인자·`echo`·`set -x`로 다루지 않아 로그에 남지 않는다 (Actions의 시크릿 마스킹은 보조 수단). Actions는 스텝 로그 머리에 `env:` 목록을 `이름: ***`으로 출력하는데, 값이 출력된 것이 아니라 마스킹된 목록이므로 허용한다 (아래 '확인 방법'의 로그 기준).
+- 값은 run 스텝의 `env:`로 받아 `printf 'POSTGRES_PASSWORD=%s\n...' "$POSTGRES_PASSWORD" ...`로 만들고 ssh 표준 입력으로 보낸다 (`umask 077; cat > ~/blog/infra/.env.next`). 명령 인자·`echo`·`set -x`로 다루지 않아 로그에 남지 않는다 (Actions의 시크릿 마스킹은 보조 수단). Actions는 스텝 로그 머리에 `env:` 목록과 액션의 `with:` 입력(예: `docker/login-action`의 `password`)을 `이름: ***`으로 출력하는데, 값이 출력된 것이 아니라 마스킹된 입력 목록이므로 허용한다 (아래 '확인 방법'의 로그 기준).
 
 **서버 스크립트** `infra/deploy.sh <SHA>`: 워크플로가 `.env.next`를 보낸 뒤 `ssh ... 'cd ~/blog && git fetch -q origin && git cat-file -e <SHA>:infra/deploy.sh && bash <(git show <SHA>:infra/deploy.sh) <SHA>'`로 실행한다 (배포할 커밋의 스크립트를 쓴다. `git show`가 실패하면 `bash`가 빈 스크립트를 받아 0으로 끝나므로 `cat-file -e`로 먼저 확인한다). `set -euo pipefail`.
 1. 롤백 지점 보관: `PREV=$(git rev-parse HEAD)`, `cp infra/.env infra/.env.prev`
@@ -193,7 +193,10 @@ main 머지 (deploy.yml)
   - 첫 실행은 패키지가 아직 Private이라 서버 pull이 실패해 롤백된다. 두 패키지를 Public으로 바꾼 뒤 그 실행을 다시 실행한다.
   - 자동 반영: push 뒤 사람 개입 없이 워크플로가 성공하고, 위 '배포 상태 확인'의 태그가 그 커밋 SHA, `https://blog.도메인`이 정상이다.
   - 롤백: Secret `JWT_SECRET`을 빈 값이 아닌 짧은 Base64 값 `c2hvcnQ=`(디코딩 6바이트, 10-6대로 기동 실패. Secret은 빈 값을 저장할 수 없다)으로 바꾸고, 경로 필터에 드는 파일을 바꾼 커밋(예: `deploy.yml`에 주석 한 줄)을 push → 워크플로가 실패하고, 로그에 롤백이 찍히고, 태그가 이전 SHA이며 사이트가 정상이다. 확인 뒤 Secret을 원래 값으로 되돌리고, 그 주석은 임시 트리거와 함께 PR 전 마지막 커밋에서 뺀다. 빈 커밋(`--allow-empty`)은 바뀐 파일이 없어 경로 필터에 걸려 실행되지 않고, 같은 SHA의 Re-run은 롤백 전후 SHA가 같아 태그로 롤백을 확인할 수 없어 쓰지 않는다.
-  - 로그: 두 실행의 로그 전체(`gh run view --log`)에서 각 Secret 값(`DEPLOY_SSH_KEY`는 본문 한 줄)으로 `grep`해 나오지 않고, `grep -F '***'` 결과가 스텝 머리 `env:` 목록의 `이름: ***` 줄뿐이다 (그 밖의 `***`는 비밀값이 출력됐다가 마스킹됐다는 뜻이라 없어야 한다).
+  - 로그: 두 실행의 로그 전체(`gh run view --log`)에서 각 Secret 값(`DEPLOY_SSH_KEY`는 본문 한 줄)으로 `grep`해 나오지 않고, `grep -F '***'` 결과에서 스텝 머리 `env:`·`with:` 입력 목록의 `이름: ***` 줄은 허용한다. 그 밖의 `***` 줄은 Actions가 Secret 값과 같은 문자열을 로그 어디서나 바꾸므로 값이 출력된 것인지 우연히 같은 문자열인지 가른다.
+    - 줄 앞의 스텝 이름과 앞뒤 줄로 어느 명령의 출력인지(예: 롤백의 `compose logs`) 찾고, `***` 자리에 Secret 값을 대입해 원문을 복원한다.
+    - 복원한 원문이 코드·라이브러리의 고정 문구 일부(예: `ADMIN_USERNAME`이 `admin`일 때 `/api/v1/admin` 경로)이면 우연한 일치로 통과다. 값이 들어가는 자리(`이름=값`, 명령 인자, 설정·환경 출력, 인증 헤더)이거나 원문을 복원할 수 없으면 값이 출력된 것으로 보고 실패다 (출력 경로를 고치고 다시 확인한다).
+    - 통과로 본 줄은 이슈 코멘트에 스텝 이름과 출처 명령만 적는다 (Public 이슈라 Secret 값과 복원한 원문은 적지 않는다).
   - 경로 필터: 필터 밖 파일만 바꾼 커밋(예: README 커밋)을 그 커밋 하나만 담아 push한다 (push의 경로 필터는 push 전후 차이 전체로 판정하므로 필터 안 파일을 바꾼 커밋과 함께 push하면 실행된다). `gh run list --workflow deploy.yml --commit <SHA>`가 비어 있다.
 - 머지 후: main 머지 커밋의 deploy가 성공하고 태그가 머지 커밋 SHA다.
 
