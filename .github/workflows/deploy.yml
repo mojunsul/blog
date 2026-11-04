@@ -1,9 +1,8 @@
 name: deploy
-# 롤백 검증용 임시 주석
 
 on:
   push:
-    branches: [main, chore/#110-deploy-workflow]
+    branches: [main]
     paths: [backend/**, frontend/**, infra/**, .github/workflows/deploy.yml]
   workflow_dispatch:
 
