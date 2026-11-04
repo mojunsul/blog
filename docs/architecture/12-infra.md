@@ -178,8 +178,8 @@ main 머지 (deploy.yml)
 3. `docker compose -f infra/docker-compose.prod.yml pull backend frontend` → `up -d --no-build`. `git diff --quiet $PREV <SHA> -- infra/nginx`가 실패하면(Nginx 설정이 바뀌었으면) `up -d --no-deps --force-recreate nginx` (마운트 파일 교체는 `up -d`·reload로 반영되지 않는다, 12-2 '서버 준비').
 4. 헬스체크(서버 안에서): backend 컨테이너의 health 상태가 `healthy`가 될 때까지 최대 180초(`start_period` 60초 + `retries`×`interval`에 여유) 기다린다. 이어서 Nginx를 거쳐 `curl -fsSk https://localhost/`와 `https://localhost/api/v1/posts`가 둘 다 2xx인지 5초 간격 최대 6회 본다 (Nginx resolver 캐시 10초 동안의 `502`를 넘기기 위해, 12-4). `/`는 frontend와 frontend→backend 연결을, `/api/v1/posts`는 backend와 DB를 확인한다.
 5. 성공: `.env.prev` 삭제, backend·frontend의 이전 이미지 정리(디스크가 작다. 이전 이미지는 GHCR에 남는다), 종료 코드 0
-   - 정리 대상은 `ghcr.io/mojunsul/blog-*` 중 이번 SHA가 아닌 태그(첫 자동 배포 뒤의 `local` 포함)와 태그 없는 이미지만이다: `docker image ls --filter 'reference=ghcr.io/mojunsul/blog-*' --filter dangling=false --format '{{.Repository}}:{{.Tag}}' | grep -v ":<SHA>$" | xargs -r docker rmi`, 이어서 `docker image prune -f`(태그 없는 이미지만. 같은 SHA를 Re-run으로 다시 빌드하면 이전 이미지가 태그를 잃는다).
-   - `docker image prune -af`를 쓰지 않는 이유: 실행 중이 아닌 이미지를 모두 지워, 갱신 cron이 `run`할 때만 쓰는 certbot 이미지(12-3)까지 지운다. 그러면 갱신 때마다 Docker Hub에서 다시 받아야 하고, 받기에 실패하면 갱신도 실패한다. nginx·postgres·certbot 이미지는 deploy가 pull하지 않으므로(3단계) 자동 정리 대상이 아니다. 이 이미지들의 버전을 올린 뒤에는 이전 이미지를 `docker image rm`으로 직접 지운다.
+   - 정리 대상은 `ghcr.io/mojunsul/blog-*` 중 이번 SHA가 아닌 태그(첫 자동 배포 뒤의 `local` 포함)와 태그 없는 이미지만이다: `docker image ls --filter 'reference=ghcr.io/mojunsul/blog-*' --filter dangling=false --format '{{.Repository}}:{{.Tag}}' | { grep -v ":<SHA>$" || true; } | xargs -r docker rmi`, 이어서 `docker image prune -f`(태그 없는 이미지만. 같은 SHA를 Re-run으로 다시 빌드하면 이전 이미지가 태그를 잃는다). 지울 태그가 없으면(같은 SHA 재배포, 예: Secrets 변경 `workflow_dispatch`) 아무것도 지우지 않는 정상 경우다. `grep -v`는 남는 줄이 없으면 종료 코드 1이라 `pipefail`에서 정리 실패로 가지 않게 `|| true`로 감싼다.
+   - `docker image prune -af`를 쓰지 않는 이유: 실행 중이 아닌 이미지를 모두 지워, 갱신 cron이 `run`할 때만 쓰는 certbot 이미지(12-3)까지 지운다. 그러면 갱신 때마다 Docker Hub에서 다시 받아야 하고, 받기에 실패하면 갱신도 실패한다. nginx·postgres·certbot 이미지는 정리 필터가 `blog-*`만 대상으로 하므로 자동 정리되지 않는다 (3단계 `up -d`는 서버에 없는 이미지를 pull하므로, compose에서 버전을 올리면 새 이미지는 받지만 이전 이미지는 남는다). 이전 이미지 삭제는 아래 '수동 운영'.
    - 정리는 배포가 끝난 뒤의 일이라, 정리 명령이 실패해도 롤백하지 않고 오류만 출력한 뒤 종료 코드 0으로 끝낸다 (6단계 `trap`에 걸리지 않게 한다).
 6. 실패(2~4의 어느 명령이든 실패하면 `trap ... ERR`로 여기로 온다. 이미지 pull 실패도 포함): `docker compose ... logs --tail 50 backend frontend`를 출력하고 `git checkout -q --detach $PREV`, `mv infra/.env.prev infra/.env`, `up -d --no-build`(3과 같은 Nginx 처리), 4를 다시 해 결과를 출력한 뒤 종료 코드 1 → 워크플로 실패(GitHub 실패 알림 메일). 첫 자동 배포의 `PREV`는 서버 빌드 이미지(`IMAGE_TAG=local`)라 그대로 되돌아간다.
 - 롤백한 배포의 마이그레이션은 되돌리지 않는다. 그래서 아래 마이그레이션 호환 규칙이 필요하다.
@@ -189,6 +189,7 @@ main 머지 (deploy.yml)
 **수동 운영** (README에 적는다)
 - 이전 버전으로 되돌리기: Actions에서 되돌릴 커밋의 성공한 deploy 실행을 "Re-run all jobs"한다 (그 커밋으로 다시 빌드·배포). Re-run은 원래 실행 뒤 30일 안에만 되므로, 그보다 오래된 커밋은 `git revert` PR로 되돌린다. 이후 main 머지가 다시 배포하므로, 원인 커밋은 `git revert` PR로 고친다.
 - Secrets 변경 반영(관리자 비밀번호 등, 12-2): Secrets를 바꾸고 Actions에서 deploy를 `workflow_dispatch`로 실행한다. `.env` 값이 바뀐 서비스만 compose가 다시 만든다.
+- nginx·postgres·certbot 이미지 버전을 올린 뒤: 그 커밋의 배포가 성공하면 서버에서 `docker image ls nginx`(postgres·certbot도 같다)로 이전 태그를 확인하고 `docker image rm <이미지>:<이전 태그>`로 지운다. 실행 중인 컨테이너가 쓰는 이미지는 `rm`이 거부하므로 현재 버전은 지워지지 않는다.
 - 배포 상태 확인: `docker compose -f infra/docker-compose.prod.yml ps --format '{{.Service}} {{.Image}}'`의 backend·frontend 태그가 배포한 SHA다.
 
 **확인 방법** (이슈 완료 조건)
