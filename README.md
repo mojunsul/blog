@@ -25,6 +25,7 @@ main에 머지하면(`backend/`·`frontend/`·`infra/`·`deploy.yml`이 바뀐 �
 - **GHCR 패키지**: 첫 push 뒤 `blog-backend`·`blog-frontend` 패키지를 Public으로 바꾼다 (패키지 설정, 1회). 서버에 pull 토큰을 두지 않기 위해서다.
 - **이전 버전으로 되돌리기**: Actions에서 되돌릴 커밋의 성공한 deploy 실행을 "Re-run all jobs"한다. 30일이 지난 실행은 Re-run할 수 없으므로 `git revert` PR로 되돌린다. 이후 main 머지가 다시 배포하므로 원인 커밋은 `git revert` PR로 고친다.
 - **Secrets 변경 반영**: Secrets를 바꾸고 Actions에서 deploy를 `workflow_dispatch`로 실행한다.
+- **배포 결과 확인**: Actions 탭의 deploy 실행이 성공이면 반영된 것이고, 실패하면 로그에 롤백이 찍힌다.
 - **배포 상태 확인** (서버 `~/blog`): backend·frontend 태그가 배포한 SHA다.
   ```bash
   docker compose -f infra/docker-compose.prod.yml ps --format '{{.Service}} {{.Image}}'
