@@ -26,6 +26,10 @@ main에 머지하면(`backend/`·`frontend/`·`infra/`·`deploy.yml`이 바뀐 �
 - **이전 버전으로 되돌리기**: Actions에서 되돌릴 커밋의 성공한 deploy 실행을 "Re-run all jobs"한다. 30일이 지난 실행은 Re-run할 수 없으므로 `git revert` PR로 되돌린다. 이후 main 머지가 다시 배포하므로 원인 커밋은 `git revert` PR로 고친다.
 - **Secrets 변경 반영**: Secrets를 바꾸고 Actions에서 deploy를 `workflow_dispatch`로 실행한다.
 - **배포 결과 확인**: Actions 탭의 deploy 실행이 성공이면 반영된 것이고, 실패하면 로그에 롤백이 찍힌다.
+- **nginx·postgres·certbot 이미지 버전을 올린 뒤**: 배포가 성공하면 서버에서 `docker image ls <저장소>`(`nginx`·`postgres`·`certbot/certbot`)로 이전 태그를 확인하고 `docker image rm <저장소>:<이전 태그>`로 지운다. nginx·postgres는 실행 중인 이미지를 `rm`이 거부하므로 현재 버전은 지워지지 않는다. certbot은 먼저 새 버전을 받고, 성공한 뒤에만 이전 태그를 지운다 (받기 전에 지우면 다음 갱신 때 받기에 실패할 수 있다).
+  ```bash
+  docker compose -f infra/docker-compose.prod.yml pull certbot
+  ```
 - **배포 상태 확인** (서버 `~/blog`): backend·frontend 태그가 배포한 SHA다.
   ```bash
   docker compose -f infra/docker-compose.prod.yml ps --format '{{.Service}} {{.Image}}'
