@@ -2,7 +2,7 @@ name: deploy
 
 on:
   push:
-    branches: [main]
+    branches: [main, chore/#110-deploy-workflow]
     paths: [backend/**, frontend/**, infra/**, .github/workflows/deploy.yml]
   workflow_dispatch:
 
