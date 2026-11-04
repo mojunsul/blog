@@ -61,3 +61,5 @@ jobs:
             $SSH 'umask 077; cat > ~/blog/infra/.env.next'
           # git show가 실패하면 bash가 빈 스크립트를 받아 0으로 끝나므로 cat-file로 먼저 확인한다.
           $SSH "cd ~/blog && git fetch -q origin && git cat-file -e $GITHUB_SHA:infra/deploy.sh && bash <(git show $GITHUB_SHA:infra/deploy.sh) $GITHUB_SHA"
+
+# rollback test
