@@ -166,3 +166,7 @@
   - 구현 검증 질문 반영: 로그 기준에 `GITHUB_TOKEN`을 받는 액션이 자기 스텝에서 스스로 마스킹한 토큰 자리(`actions/checkout`의 `AUTHORIZATION: basic ***`) 허용 추가, 성공 시 이미지 정리를 `docker image prune -af`에서 backend·frontend 이전 태그와 태그 없는 이미지로 좁힘(갱신 cron의 certbot 이미지 보존, 12-3), 정리 실패는 롤백하지 않음(12-6)
   - 설계 검증 반영: 이미지 정리에서 지울 태그가 없으면(같은 SHA 재배포) 정상으로 보고 `grep -v`를 `|| true`로 감쌈, nginx·postgres·certbot 이미지가 자동 정리되지 않는 근거를 정리 필터(`blog-*`)로 고치고 버전을 올린 뒤의 이전 이미지 삭제를 수동 운영(README)으로 옮김(12-6)
   - 설계 검증 반영: 버전을 올린 뒤 certbot은 `profiles`라 배포의 `up -d`가 새 이미지를 받지 않으므로, 수동 운영에서 `pull certbot`으로 새 버전을 먼저 받은 뒤 이전 태그를 지우는 순서로 고치고 `rm` 거부 보호는 nginx·postgres로 한정, 조회 명령의 저장소 이름을 `nginx`·`postgres`·`certbot/certbot`으로 명시(12-6)
+- **v2.30**
+  - DB 백업(12-5): 호스트 cron이 `infra/backup/backup.sh` 실행, postgres 컨테이너 `pg_dump -Fc` → 임시 파일 → compose `backup` 서비스(`oci-cli`, profile)로 버킷 `blog-backup` 업로드, 실패 시 `~/backup.log`에 기록하고 재시도 없음
+  - Object Storage 인증을 인스턴스 주체(동적 그룹·정책, 생성·조회·읽기만)로 정해 `.env`·Secrets에 백업 값 없음, 보관 14일은 수명 주기 규칙
+  - 복구 절차(운영 DB·새 DB 테스트)와 확인 방법, M5 전 주간 점검·M5 Push 모니터, 12-6 수동 운영에 backup 이미지 갱신 추가
