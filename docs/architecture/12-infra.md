@@ -177,7 +177,10 @@ main 머지 (deploy.yml)
 2. `git checkout -q --detach <SHA>` (compose·Nginx 설정도 같은 커밋으로 맞춘다), `infra/.env` = `.env.next` 내용 + `IMAGE_TAG=<SHA>`, `chmod 600`, `.env.next` 삭제
 3. `docker compose -f infra/docker-compose.prod.yml pull backend frontend` → `up -d --no-build`. `git diff --quiet $PREV <SHA> -- infra/nginx`가 실패하면(Nginx 설정이 바뀌었으면) `up -d --no-deps --force-recreate nginx` (마운트 파일 교체는 `up -d`·reload로 반영되지 않는다, 12-2 '서버 준비').
 4. 헬스체크(서버 안에서): backend 컨테이너의 health 상태가 `healthy`가 될 때까지 최대 180초(`start_period` 60초 + `retries`×`interval`에 여유) 기다린다. 이어서 Nginx를 거쳐 `curl -fsSk https://localhost/`와 `https://localhost/api/v1/posts`가 둘 다 2xx인지 5초 간격 최대 6회 본다 (Nginx resolver 캐시 10초 동안의 `502`를 넘기기 위해, 12-4). `/`는 frontend와 frontend→backend 연결을, `/api/v1/posts`는 backend와 DB를 확인한다.
-5. 성공: `.env.prev` 삭제, `docker image prune -af`(디스크가 작다. 이전 이미지는 GHCR에 남는다), 종료 코드 0
+5. 성공: `.env.prev` 삭제, backend·frontend의 이전 이미지 정리(디스크가 작다. 이전 이미지는 GHCR에 남는다), 종료 코드 0
+   - 정리 대상은 `ghcr.io/mojunsul/blog-*` 중 이번 SHA가 아닌 태그(첫 자동 배포 뒤의 `local` 포함)와 태그 없는 이미지만이다: `docker image ls --filter 'reference=ghcr.io/mojunsul/blog-*' --filter dangling=false --format '{{.Repository}}:{{.Tag}}' | grep -v ":<SHA>$" | xargs -r docker rmi`, 이어서 `docker image prune -f`(태그 없는 이미지만. 같은 SHA를 Re-run으로 다시 빌드하면 이전 이미지가 태그를 잃는다).
+   - `docker image prune -af`를 쓰지 않는 이유: 실행 중이 아닌 이미지를 모두 지워, 갱신 cron이 `run`할 때만 쓰는 certbot 이미지(12-3)까지 지운다. 그러면 갱신 때마다 Docker Hub에서 다시 받아야 하고, 받기에 실패하면 갱신도 실패한다. nginx·postgres·certbot 이미지는 deploy가 pull하지 않으므로(3단계) 자동 정리 대상이 아니다. 이 이미지들의 버전을 올린 뒤에는 이전 이미지를 `docker image rm`으로 직접 지운다.
+   - 정리는 배포가 끝난 뒤의 일이라, 정리 명령이 실패해도 롤백하지 않고 오류만 출력한 뒤 종료 코드 0으로 끝낸다 (6단계 `trap`에 걸리지 않게 한다).
 6. 실패(2~4의 어느 명령이든 실패하면 `trap ... ERR`로 여기로 온다. 이미지 pull 실패도 포함): `docker compose ... logs --tail 50 backend frontend`를 출력하고 `git checkout -q --detach $PREV`, `mv infra/.env.prev infra/.env`, `up -d --no-build`(3과 같은 Nginx 처리), 4를 다시 해 결과를 출력한 뒤 종료 코드 1 → 워크플로 실패(GitHub 실패 알림 메일). 첫 자동 배포의 `PREV`는 서버 빌드 이미지(`IMAGE_TAG=local`)라 그대로 되돌아간다.
 - 롤백한 배포의 마이그레이션은 되돌리지 않는다. 그래서 아래 마이그레이션 호환 규칙이 필요하다.
 - 빌드·push가 실패하면 서버 접속 스텝까지 가지 않아 서버는 바뀌지 않는다. `.env.next`만 보내고 스크립트 실행 전에 접속이 끊기면 남은 `.env.next`는 다음 배포가 덮어쓴다.
@@ -193,7 +196,7 @@ main 머지 (deploy.yml)
   - 첫 실행은 패키지가 아직 Private이라 서버 pull이 실패해 롤백된다. 두 패키지를 Public으로 바꾼 뒤 그 실행을 다시 실행한다.
   - 자동 반영: push 뒤 사람 개입 없이 워크플로가 성공하고, 위 '배포 상태 확인'의 태그가 그 커밋 SHA, `https://blog.도메인`이 정상이다.
   - 롤백: Secret `JWT_SECRET`을 빈 값이 아닌 짧은 Base64 값 `c2hvcnQ=`(디코딩 6바이트, 10-6대로 기동 실패. Secret은 빈 값을 저장할 수 없다)으로 바꾸고, 경로 필터에 드는 파일을 바꾼 커밋(예: `deploy.yml`에 주석 한 줄)을 push → 워크플로가 실패하고, 로그에 롤백이 찍히고, 태그가 이전 SHA이며 사이트가 정상이다. 확인 뒤 Secret을 원래 값으로 되돌리고, 그 주석은 임시 트리거와 함께 PR 전 마지막 커밋에서 뺀다. 빈 커밋(`--allow-empty`)은 바뀐 파일이 없어 경로 필터에 걸려 실행되지 않고, 같은 SHA의 Re-run은 롤백 전후 SHA가 같아 태그로 롤백을 확인할 수 없어 쓰지 않는다.
-  - 로그: 두 실행의 로그 전체(`gh run view --log`)에서 각 Secret 값(`DEPLOY_SSH_KEY`는 본문 한 줄)으로 `grep`해 나오지 않고, `grep -F '***'` 결과에서 스텝 머리 `env:`·`with:` 입력 목록의 `이름: ***` 줄은 허용한다. 그 밖의 `***` 줄은 Actions가 Secret 값과 같은 문자열을 로그 어디서나 바꾸므로 값이 출력된 것인지 우연히 같은 문자열인지 가른다.
+  - 로그: 두 실행의 로그 전체(`gh run view --log`)에서 각 Secret 값(`DEPLOY_SSH_KEY`는 본문 한 줄)으로 `grep`해 나오지 않고, `grep -F '***'` 결과에서 스텝 머리 `env:`·`with:` 입력 목록의 `이름: ***` 줄은 허용한다. `GITHUB_TOKEN`을 받는 액션이 스스로 마스킹해 출력한 그 토큰 자리(예: `actions/checkout` 스텝의 `http.https://github.com/.extraheader AUTHORIZATION: basic ***`)도 허용한다. 이 토큰은 위 표의 Secret이 아니고 잡이 끝나면 만료되며, 워크플로의 명령이 출력한 것이 아니기 때문이다. 허용은 그 액션 자신의 스텝 안 줄로 한정한다 (워크플로의 run 스텝에서 같은 모양이 나오면 아래 기준으로 판정한다). 그 밖의 `***` 줄은 Actions가 Secret 값과 같은 문자열을 로그 어디서나 바꾸므로 값이 출력된 것인지 우연히 같은 문자열인지 가른다.
     - 줄 앞의 스텝 이름과 앞뒤 줄로 어느 명령의 출력인지(예: 롤백의 `compose logs`) 찾고, `***` 자리에 Secret 값을 대입해 원문을 복원한다.
     - 복원한 원문이 코드·라이브러리의 고정 문구 일부(예: `ADMIN_USERNAME`이 `admin`일 때 `/api/v1/admin` 경로)이면 우연한 일치로 통과다. 값이 들어가는 자리(`이름=값`, 명령 인자, 설정·환경 출력, 인증 헤더)이거나 원문을 복원할 수 없으면 값이 출력된 것으로 보고 실패다 (출력 경로를 고치고 다시 확인한다).
     - 통과로 본 줄은 이슈 코멘트에 스텝 이름과 출처 명령만 적는다 (Public 이슈라 Secret 값과 복원한 원문은 적지 않는다).
