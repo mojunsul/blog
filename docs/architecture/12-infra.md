@@ -156,7 +156,7 @@ nginx 이미지는 `nginx:1-alpine`(12-7과 같은 메이저 태그 원칙). `in
       OCI_CLI_AUTH: instance_principal
     logging: *default-logging
 ```
-- 이미지는 Oracle 공식 이미지(arm64 포함, 진입점 `oci`, 사용자 `oracle` uid 1000)를 날짜 태그로 고정한다. `restart`·`depends_on`·`ports`는 두지 않는다.
+- 이미지는 Oracle 공식 이미지(arm64 포함, 진입점 `oci`, 사용자 `oracle` uid 1000)를 날짜 태그로 고정한다. 메이저 태그 원칙(12-7)의 예외다: 태그는 주간 날짜 태그·`latest`·`main`·`sha-*`뿐이라 메이저 태그가 없고, `latest`는 CLI 메이저가 바뀌어도 따라가 명령·출력이 예고 없이 바뀔 수 있다. 버전을 올릴 때는 12-6 '수동 운영'대로 한다. `restart`·`depends_on`·`ports`는 두지 않는다.
 
 **`infra/backup/backup.sh`** (`set -Eeuo pipefail`, 저장소 루트에서 실행)
 1. 이름 `blog-<UTC 시각>.dump`(`date -u +%Y%m%dT%H%M%SZ`, 겹치지 않아 덮어쓸 일이 없다), 임시 파일은 `mktemp`(모드 600), `trap ... EXIT`로 항상 지운다.
@@ -174,7 +174,7 @@ nginx 이미지는 `nginx:1-alpine`(12-7과 같은 메이저 태그 원칙). `in
 
 **OCI 설정** (최초 1회, 콘솔. 절차는 README. 12-2 '서버 준비'의 첫 배포 뒤에 한다)
 1. 버킷 `blog-backup`: 인스턴스와 같은 리전·루트 컴파트먼트, Standard 계층, Private(기본값), 버전 관리 끔.
-2. 동적 그룹 `blog-backup`(Default 도메인): 규칙 `instance.id = '<인스턴스 OCID>'`.
+2. 동적 그룹 `blog-backup`(Default 도메인): 규칙 `instance.id = '<인스턴스 OCID>'`. 인스턴스를 새로 만들면(새 서버) 규칙의 OCID를 새 인스턴스 것으로 바꾼다. 규칙이 그 OCID 하나뿐이라 이전 인스턴스는 그 즉시 권한을 잃는다 (백업도 실패한다). 두 서버를 함께 쓰는 기간은 없어 규칙에 둘을 같이 두지 않는다.
 3. 정책(루트 컴파트먼트) 두 줄. 두 번째는 수명 주기 규칙이 객체를 지우는 데 필요하다 (없으면 규칙 저장이 거부된다). `<리전>`은 리전 식별자(예: `ap-chuncheon-1`).
    ```
    Allow dynamic-group blog-backup to manage objects in tenancy where all {target.bucket.name='blog-backup', any {request.permission='OBJECT_CREATE', request.permission='OBJECT_INSPECT', request.permission='OBJECT_READ'}}
@@ -190,6 +190,7 @@ nginx 이미지는 `nginx:1-alpine`(12-7과 같은 메이저 태그 원칙). `in
 **복구** (README에 적는다. 모두 저장소 폴더 `~/blog`에서)
 - 받기: `os object list`(위)로 이름을 고르고 `(umask 077; docker compose -f infra/docker-compose.prod.yml run --rm -T backup os object get --bucket-name blog-backup --name <이름> --file - > ~/restore.dump)`.
 - 운영 DB 복구(데이터 손실·새 서버):
+  0. 새 서버만: 먼저 'OCI 설정' 2대로 동적 그룹 규칙의 OCID를 새 인스턴스로 바꾸고, `run --rm -T backup os ns get`이 네임스페이스를 출력할 때까지 기다린다 (IAM 변경 반영에 몇 분 걸릴 수 있다). 바꾸기 전에는 '받기'가 `NotAuthorizedOrNotFound`로 실패한다. 10분이 지나도 실패하면 규칙의 OCID와 정책을 콘솔에서 다시 확인한다. 그 뒤 '받기'를 한다.
   1. `docker compose -f infra/docker-compose.prod.yml up -d postgres` (새 서버는 '서버 준비'에서 첫 배포 대신 이것부터 한다), `docker compose ... stop backend`
   2. `docker compose ... exec -T postgres sh -c 'dropdb -U "$POSTGRES_USER" "$POSTGRES_DB" && createdb -U "$POSTGRES_USER" "$POSTGRES_DB"'` (새 서버에서는 backend가 Flyway로 만든 빈 스키마가 있을 수 있어 항상 다시 만든다)
   3. `docker compose ... exec -T postgres sh -c 'pg_restore -U "$POSTGRES_USER" -d "$POSTGRES_DB" --no-owner --exit-on-error' < ~/restore.dump`. 실패하면 DB가 일부만 복구된 상태이므로 원인(오류 줄)을 고친 뒤 2부터 다시 한다. 받은 파일이 깨졌으면 그 전날 백업을 받는다.
@@ -260,9 +261,9 @@ main 머지 (deploy.yml)
 **수동 운영** (README에 적는다)
 - 이전 버전으로 되돌리기: Actions에서 되돌릴 커밋의 성공한 deploy 실행을 "Re-run all jobs"한다 (그 커밋으로 다시 빌드·배포). Re-run은 원래 실행 뒤 30일 안에만 되므로, 그보다 오래된 커밋은 `git revert` PR로 되돌린다. 이후 main 머지가 다시 배포하므로, 원인 커밋은 `git revert` PR로 고친다.
 - Secrets 변경 반영(관리자 비밀번호 등, 12-2): Secrets를 바꾸고 Actions에서 deploy를 `workflow_dispatch`로 실행한다. `.env` 값이 바뀐 서비스만 compose가 다시 만든다.
-- nginx·postgres·certbot 이미지 버전을 올린 뒤: 그 커밋의 배포가 성공하면 서버에서 `docker image ls <저장소>`(저장소 이름은 `nginx`·`postgres`·`certbot/certbot`)로 이전 태그를 확인하고 `docker image rm <저장소>:<이전 태그>`로 지운다.
+- nginx·postgres·certbot·backup 이미지 버전을 올린 뒤: 그 커밋의 배포가 성공하면 서버에서 `docker image ls <저장소>`(저장소 이름은 `nginx`·`postgres`·`certbot/certbot`·`ghcr.io/oracle/oci-cli`)로 이전 태그를 확인하고 `docker image rm <저장소>:<이전 태그>`로 지운다.
   - nginx·postgres: 실행 중인 컨테이너가 쓰는 이미지는 `rm`이 거부하므로 현재 버전은 지워지지 않는다.
-  - certbot·backup(`oci-cli`): 아래는 certbot 기준이고 backup도 같다 (`pull backup`, 이미지 저장소 `ghcr.io/oracle/oci-cli`).
+  - certbot·backup: 아래는 certbot 기준이고 backup도 같다 (`pull backup`).
   - certbot: 상주하지 않아 위 보호가 없고 배포가 새 이미지를 받지 않으므로, 먼저 `docker compose -f infra/docker-compose.prod.yml pull certbot`(서비스를 지정하면 profile을 켜지 않아도 받는다)으로 새 버전을 받고, 성공한 뒤에만 이전 태그를 지운다. 받기 전에 지우면 다음 갱신 cron의 `run`이 Docker Hub에서 받아야 하고, 받기에 실패하면 갱신도 실패한다. pull이 실패하면 이전 태그를 그대로 두고 나중에 다시 한다.
 - 배포 상태 확인: `docker compose -f infra/docker-compose.prod.yml ps --format '{{.Service}} {{.Image}}'`의 backend·frontend 태그가 배포한 SHA다.
 

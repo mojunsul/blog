@@ -170,3 +170,4 @@
   - DB 백업(12-5): 호스트 cron이 `infra/backup/backup.sh` 실행, postgres 컨테이너 `pg_dump -Fc` → 임시 파일 → compose `backup` 서비스(`oci-cli`, profile)로 버킷 `blog-backup` 업로드, 실패 시 `~/backup.log`에 기록하고 재시도 없음
   - Object Storage 인증을 인스턴스 주체(동적 그룹·정책, 생성·조회·읽기만)로 정해 `.env`·Secrets에 백업 값 없음, 보관 14일은 수명 주기 규칙
   - 복구 절차(운영 DB·새 DB 테스트)와 확인 방법, M5 전 주간 점검·M5 Push 모니터, 12-6 수동 운영에 backup 이미지 갱신 추가
+  - 3장 구성도에 호스트 cron·backup.sh·`run --rm` backup 흐름 반영, oci-cli 날짜 태그 고정 이유(메이저 태그 없음), 새 서버 복구 때 동적 그룹 OCID 교체 절차 추가

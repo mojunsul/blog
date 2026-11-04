@@ -11,8 +11,13 @@
 │                                                       │
 │  backend ──→ postgres (:5432, 외부 비공개)              │
 │  frontend ─(서버 컴포넌트 fetch)→ http://backend:8080   │
-│  backup (cron) ─ pg_dump → OCI Object Storage         │
-└───────────────────────────────────────────────────────┘
+│                                                       │
+│  호스트 cron → backup.sh (매일, 12-5)                  │
+│   ├ exec postgres pg_dump → 호스트 임시 파일            │
+│   └ run --rm backup (oci-cli, 상주 안 함) ─ 업로드 ─┐    │
+└──────────────────────────────────────────────────┼────┘
+                                                   ▼
+                                  OCI Object Storage (blog-backup)
 ```
 
 **핵심 결정**
