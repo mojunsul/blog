@@ -8,6 +8,7 @@ blog/
 │  ├ docker-compose.yml          # 로컬용 (postgres만)
 │  ├ docker-compose.prod.yml     # 서버용 (nginx, certbot, frontend, backend, postgres, backup)
 │  ├ .env.example                # 필요한 환경변수 목록 (값은 비움)
+│  ├ deploy.sh                   # 서버에서 배포·헬스체크·롤백 (deploy.yml이 SSH로 실행)
 │  ├ nginx/
 │  │  ├ nginx.conf               # 공통 설정 (gzip, 로그 형식, rate limit zone)
 │  │  └ conf.d/

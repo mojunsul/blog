@@ -6,7 +6,34 @@
 
 ## 서버 구성
 
-`infra/docker-compose.prod.yml`: nginx, certbot, frontend, backend, postgres. 호스트에 여는 포트는 nginx의 80·443뿐이다. 비밀값은 서버의 `infra/.env`에만 둔다.
+`infra/docker-compose.prod.yml`: nginx, certbot, frontend, backend, postgres. 호스트에 여는 포트는 nginx의 80·443뿐이다. 비밀값의 원본은 GitHub Secrets이고, 서버의 `infra/.env`는 자동 배포부터 deploy가 매번 다시 쓴다.
+
+## 배포
+
+main에 머지하면(`backend/`·`frontend/`·`infra/`·`deploy.yml`이 바뀐 경우, 문서만 바뀌면 배포하지 않는다) `.github/workflows/deploy.yml`이 arm64 이미지를 빌드해 GHCR에 push하고(태그: 커밋 SHA + `latest`), SSH로 서버에서 `infra/deploy.sh <SHA>`를 실행한다. 헬스체크가 실패하면 이전 커밋·`.env`로 롤백하고 워크플로를 실패시킨다(GitHub 실패 알림 메일).
+
+- **Secrets** (저장소 Settings → Secrets and variables → Actions)
+
+  | 이름 | 값 |
+  |---|---|
+  | `DEPLOY_HOST` | 예약 공인 IP |
+  | `DEPLOY_SSH_KEY` | 배포 전용 ed25519 개인 키 (공개 키는 서버 `ubuntu`의 `authorized_keys`) |
+  | `DEPLOY_KNOWN_HOSTS` | `ssh-keyscan -t ed25519 <IP>` 결과 |
+  | `POSTGRES_PASSWORD`, `JWT_SECRET`, `ADMIN_USERNAME`, `ADMIN_PASSWORD` | 서버 `.env` 값 |
+
+  배포 전용 키는 `ssh-keygen -t ed25519 -N '' -f deploy_key`로 만들고, 개인 키는 Secret에만 두고 로컬 파일은 지운다.
+- **GHCR 패키지**: 첫 push 뒤 `blog-backend`·`blog-frontend` 패키지를 Public으로 바꾼다 (패키지 설정, 1회). 서버에 pull 토큰을 두지 않기 위해서다.
+- **이전 버전으로 되돌리기**: Actions에서 되돌릴 커밋의 성공한 deploy 실행을 "Re-run all jobs"한다. 30일이 지난 실행은 Re-run할 수 없으므로 `git revert` PR로 되돌린다. 이후 main 머지가 다시 배포하므로 원인 커밋은 `git revert` PR로 고친다.
+- **Secrets 변경 반영**: Secrets를 바꾸고 Actions에서 deploy를 `workflow_dispatch`로 실행한다.
+- **배포 결과 확인**: Actions 탭의 deploy 실행이 성공이면 반영된 것이고, 실패하면 로그에 롤백이 찍힌다.
+- **nginx·postgres·certbot 이미지 버전을 올린 뒤**: 배포가 성공하면 서버에서 `docker image ls <저장소>`(`nginx`·`postgres`·`certbot/certbot`)로 이전 태그를 확인하고 `docker image rm <저장소>:<이전 태그>`로 지운다. nginx·postgres는 실행 중인 이미지를 `rm`이 거부하므로 현재 버전은 지워지지 않는다. certbot은 먼저 새 버전을 받고, 성공한 뒤에만 이전 태그를 지운다 (받기 전에 지우면 다음 갱신 때 받기에 실패할 수 있다).
+  ```bash
+  docker compose -f infra/docker-compose.prod.yml pull certbot
+  ```
+- **배포 상태 확인** (서버 `~/blog`): backend·frontend 태그가 배포한 SHA다.
+  ```bash
+  docker compose -f infra/docker-compose.prod.yml ps --format '{{.Service}} {{.Image}}'
+  ```
 
 ## 최초 배포 (서버, 1회)
 
@@ -14,7 +41,7 @@
 
 1. **서버 준비** (OCI 콘솔)
    - `VM.Standard.A1.Flex`(arm64) 4 OCPU·24GB, Ubuntu 24.04, 예약 공인 IP를 붙인다.
-   - 보안 목록 수신 TCP: 80·443은 `0.0.0.0/0`, 22는 본인 IP(`/32`)만. 본인 IP가 바뀌면 22 규칙을 고친다.
+   - 보안 목록 수신 TCP: 80·443·22 모두 `0.0.0.0/0`. 22는 deploy의 GitHub 러너 IP가 고정되지 않아 열고, 키 인증만 허용한다 (`/etc/ssh/sshd_config`의 `PasswordAuthentication no` 확인).
    - 인스턴스 iptables: `/etc/iptables/rules.v4`에서 22 규칙 다음 줄에 아래를 넣고 `sudo iptables-restore < /etc/iptables/rules.v4`로 적용한다. Docker 설치 전에 한다 (적용하면 Docker가 만든 규칙이 지워진다).
      ```
      -A INPUT -p tcp -m state --state NEW -m tcp --dport 80 -j ACCEPT
@@ -43,7 +70,8 @@
    ```bash
    docker compose -f infra/docker-compose.prod.yml up -d --build
    ```
-7. **갱신 cron**: `crontab -e`에 한 줄을 추가한다.
+7. **자동 배포 준비**: 위 '배포'의 Secrets와 GHCR 패키지 Public 전환. `.env` 값은 같은 값을 Secrets에도 등록한다. 첫 자동 배포부터 deploy가 `.env`를 다시 쓰고 `IMAGE_TAG`를 커밋 SHA로 바꾼다.
+8. **갱신 cron**: `crontab -e`에 한 줄을 추가한다.
    ```
    17 3 * * * cd $HOME/blog && { docker compose -f infra/docker-compose.prod.yml run --rm -T certbot renew -q && docker compose -f infra/docker-compose.prod.yml exec -T nginx nginx -s reload; } >> $HOME/certbot-renew.log 2>&1
    ```
@@ -94,16 +122,13 @@ docker compose -f infra/docker-compose.prod.yml run --rm certbot renew --dry-run
 
 저장소 폴더(`~/blog`)에서:
 
-1. `infra/.env`의 `ADMIN_PASSWORD`를 바꾼다.
+1. GitHub Secret `ADMIN_PASSWORD`를 바꾼다 (서버 `.env`는 deploy가 덮어쓰므로 직접 고치지 않는다).
 2. 기존 계정을 지운다 (`refresh_token`도 함께 지워져 로그인 상태가 풀린다. 이미 발급된 Access 토큰은 만료(15분)까지 남는다).
    ```bash
    docker compose -f infra/docker-compose.prod.yml exec postgres sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "DELETE FROM admin"'
    ```
-3. backend를 다시 만든다. `restart`는 바뀐 `.env` 값을 읽지 않는다.
-   ```bash
-   docker compose -f infra/docker-compose.prod.yml up -d --no-deps backend
-   ```
-4. 새 비밀번호로 로그인한다. backend가 기동하지 않으면 `docker compose -f infra/docker-compose.prod.yml logs backend`의 값 검사 오류를 보고 `.env`를 고쳐 3을 다시 한다.
+3. Actions에서 deploy를 `workflow_dispatch`로 실행한다. `.env`가 바뀌어 backend 컨테이너가 다시 만들어진다 (`restart`는 바뀐 값을 읽지 않는다).
+4. 새 비밀번호로 로그인한다. backend가 기동하지 않으면 `docker compose -f infra/docker-compose.prod.yml logs backend`의 값 검사 오류를 보고 Secret을 고쳐 3을 다시 한다. 기동하지 못하면 deploy가 이전 `.env`로 롤백하므로 이전 비밀번호로 계정이 다시 만들어진다.
 
 ## 로컬에서 운영 compose 띄우기
 

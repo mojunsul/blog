@@ -1,0 +1,63 @@
+name: deploy
+
+on:
+  push:
+    branches: [main]
+    paths: [backend/**, frontend/**, infra/**, .github/workflows/deploy.yml]
+  workflow_dispatch:
+
+# 배포 도중 취소되면 서버가 반쯤 바뀐 상태로 남으므로 앞 배포가 끝날 때까지 기다린다.
+concurrency:
+  group: deploy
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  deploy:
+    # QEMU 에뮬레이션은 Gradle·Next 빌드가 수 배 느려 arm64 러너에서 네이티브로 빌드한다.
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@v6
+        with:
+          context: backend
+          push: true
+          tags: |
+            ghcr.io/mojunsul/blog-backend:${{ github.sha }}
+            ghcr.io/mojunsul/blog-backend:latest
+      - uses: docker/build-push-action@v6
+        with:
+          context: frontend
+          push: true
+          tags: |
+            ghcr.io/mojunsul/blog-frontend:${{ github.sha }}
+            ghcr.io/mojunsul/blog-frontend:latest
+      # 비밀값은 명령 인자·echo·set -x로 다루지 않고 ssh 표준 입력으로만 보내 로그에 남기지 않는다.
+      - name: 서버 배포
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+          POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
+          JWT_SECRET: ${{ secrets.JWT_SECRET }}
+          ADMIN_USERNAME: ${{ secrets.ADMIN_USERNAME }}
+          ADMIN_PASSWORD: ${{ secrets.ADMIN_PASSWORD }}
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          (umask 077; printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/deploy_key)
+          SSH="ssh -i $HOME/.ssh/deploy_key -o IdentitiesOnly=yes ubuntu@$DEPLOY_HOST"
+          printf 'POSTGRES_PASSWORD=%s\nJWT_SECRET=%s\nADMIN_USERNAME=%s\nADMIN_PASSWORD=%s\n' \
+            "$POSTGRES_PASSWORD" "$JWT_SECRET" "$ADMIN_USERNAME" "$ADMIN_PASSWORD" |
+            $SSH 'umask 077; cat > ~/blog/infra/.env.next'
+          # git show가 실패하면 bash가 빈 스크립트를 받아 0으로 끝나므로 cat-file로 먼저 확인한다.
+          $SSH "cd ~/blog && git fetch -q origin && git cat-file -e $GITHUB_SHA:infra/deploy.sh && bash <(git show $GITHUB_SHA:infra/deploy.sh) $GITHUB_SHA"
