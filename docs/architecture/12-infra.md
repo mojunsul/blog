@@ -37,7 +37,7 @@
     - 이 이슈의 설정(certbot 서비스, 443 블록, `.gitignore`)은 머지 전 구현 검증에서 서버로 확인해야 하므로, 최초 발급·첫 배포·확인 방법(12-3)은 기능 브랜치에서 한다: clone 뒤 `git checkout chore/#109-server-https`, 구현 세션이 push하면 `git pull`. PR이 머지되면 돌아가기 전에 브랜치 끝 SHA를 적어 두고(`git rev-parse HEAD`) `git checkout main && git pull`로 돌아간다. merge commit으로 머지하므로 main의 커밋은 브랜치와 다르고, 그사이 main에 다른 `infra/` 변경이 머지됐을 수 있다. `git diff <브랜치 끝 SHA> HEAD -- infra`가 비어 있으면 설정이 같으므로 컨테이너를 다시 띄우지 않고, 차이가 있으면 `docker compose -f infra/docker-compose.prod.yml up -d --force-recreate`로 모든 서비스를 다시 만든다. Nginx 설정(`nginx.conf`·`conf.d/`, 12-4)은 마운트만 되어 있어 compose 정의가 같으면 `up -d`가 컨테이너를 다시 만들지 않고, 파일 하나를 마운트한 `nginx.conf`는 git이 파일을 교체하면 reload로도 반영되지 않기 때문이다. nginx로 좁히지 않는 이유: 같은 차이에 다른 서비스의 마운트 파일이 섞여도 놓치지 않고, 한 번뿐인 절차라 수 초 다운타임은 문제되지 않는다 (`infra/.env`·`infra/certbot/`은 git이 추적하지 않아 브랜치를 바꿔도 남는다).
   - `.env`: `infra/.env.example`을 `infra/.env`로 복사해 채우고 `chmod 600`. 같은 값을 GitHub Secrets(12-6 표)에도 등록한다. 첫 자동 배포부터 deploy가 이 파일을 다시 쓴다.
   - 첫 배포 이미지는 서버에서 빌드한다: `infra/.env`에 `IMAGE_TAG=local`을 두고 `docker compose -f infra/docker-compose.prod.yml up -d --build`. 서버도 arm64라 그대로 빌드된다. 로컬에서 빌드해 GHCR에 수동 push하는 방식은 쓰기 토큰(PAT)을 따로 만들어 관리해야 해 택하지 않았다. `IMAGE_TAG`를 셸이 아니라 `.env`에 두는 이유: 이후 `up`·`run`에서 빠지면 `latest`를 GHCR에서 받으려다 실패한다. 첫 자동 배포부터 deploy가 커밋 SHA로 바꾼다 (12-6).
-  - 순서: 서버 준비 → DNS(12-3) → `.env` → 인증서 최초 발급(12-3) → 첫 배포 → 갱신 cron(12-3). 인증서가 없으면 nginx가 기동하지 못하므로 발급이 배포보다 먼저다.
+  - 순서: 서버 준비 → DNS(12-3) → `.env` → 인증서 최초 발급(12-3) → 첫 배포 → 갱신 cron(12-3). 인증서가 없으면 nginx가 기동하지 못하므로 발급이 배포보다 먼저다. 기존 서버를 새 서버로 옮길 때(복구)는 첫 배포 대신 12-5 '복구'의 운영 DB 복구를 하고, 그 마지막 단계에서 백업 crontab을 다시 등록한다.
 - 모든 상주 서비스에 `restart: unless-stopped` (실행할 때만 뜨는 certbot은 제외, 12-3)
 - backend에 `healthcheck` 설정 (`/actuator/health`), nginx·frontend는 backend healthy 이후 기동 (`depends_on: condition: service_healthy`). nginx와 frontend 사이에는 순서를 두지 않는다: nginx는 업스트림 이름을 요청 때 확인하므로(12-4 '업스트림 이름 확인') frontend가 아직 없어도 기동하고, 그동안 `/`는 `502`다.
   - `curl -fsS http://localhost:8080/actuator/health`(JRE 이미지에 `curl`이 있다, 12-7), `interval: 10s`, `timeout: 3s`, `retries: 5`, `start_period: 60s`(작은 서버에서 JVM 기동과 Flyway가 끝나기 전 실패를 세지 않게)
@@ -172,7 +172,7 @@ nginx 이미지는 `nginx:1-alpine`(12-7과 같은 메이저 태그 원칙). `in
 - 18:30 UTC = 03:30 KST, 방문이 적은 시각이다. 성공하면 하루 한 줄이라 로그를 따로 정리하지 않는다.
 - `bash`로 실행해 실행 권한 비트에 기대지 않는다. 스크립트는 deploy가 체크아웃한 커밋의 것을 쓴다 (12-6).
 
-**OCI 설정** (최초 1회, 콘솔. 절차는 README. 12-2 '서버 준비'의 첫 배포 뒤에 한다)
+**OCI 설정** (콘솔. 절차는 README. 12-2 '서버 준비'의 첫 배포 뒤에 한다). 1·3·4는 테넌시에 남아 최초 1회만 하고, 2(규칙의 OCID)와 5(호스트 crontab)는 인스턴스에 묶여 새 서버마다 다시 한다 (아래 '복구' 0·5단계).
 1. 버킷 `blog-backup`: 인스턴스와 같은 리전·루트 컴파트먼트, Standard 계층, Private(기본값), 버전 관리 끔.
 2. 동적 그룹 `blog-backup`(Default 도메인): 규칙 `instance.id = '<인스턴스 OCID>'`. 인스턴스를 새로 만들면(새 서버) 규칙의 OCID를 새 인스턴스 것으로 바꾼다. 규칙이 그 OCID 하나뿐이라 이전 인스턴스는 그 즉시 권한을 잃는다 (백업도 실패한다). 두 서버를 함께 쓰는 기간은 없어 규칙에 둘을 같이 두지 않는다.
 3. 정책(루트 컴파트먼트) 두 줄. 두 번째는 수명 주기 규칙이 객체를 지우는 데 필요하다 (없으면 규칙 저장이 거부된다). `<리전>`은 리전 식별자(예: `ap-chuncheon-1`).
@@ -195,6 +195,7 @@ nginx 이미지는 `nginx:1-alpine`(12-7과 같은 메이저 태그 원칙). `in
   2. `docker compose ... exec -T postgres sh -c 'dropdb -U "$POSTGRES_USER" "$POSTGRES_DB" && createdb -U "$POSTGRES_USER" "$POSTGRES_DB"'` (새 서버에서는 backend가 Flyway로 만든 빈 스키마가 있을 수 있어 항상 다시 만든다)
   3. `docker compose ... exec -T postgres sh -c 'pg_restore -U "$POSTGRES_USER" -d "$POSTGRES_DB" --no-owner --exit-on-error' < ~/restore.dump`. 실패하면 DB가 일부만 복구된 상태이므로 원인(오류 줄)을 고친 뒤 2부터 다시 한다. 받은 파일이 깨졌으면 그 전날 백업을 받는다.
   4. `docker compose ... up -d --no-build` → backend가 `healthy`가 된다 (Flyway 이력도 복구되어 마이그레이션이 이어진다). `rm ~/restore.dump`
+  5. 새 서버만: 'OCI 설정' 5대로 crontab 줄을 등록하고(M5 뒤에는 '실패 알아채기'의 Push URL을 붙인 줄) `crontab -l`로 확인한다. crontab은 이전 호스트에만 있어, 빠뜨리면 백업이 알림 없이 멈춘다. 등록 다음 날 '실패 알아채기'의 점검 명령으로 그날 객체가 생겼는지 본다.
   - `admin` 행이 복구되므로 관리자 값 검사(5장 '관리자 계정 생성')는 건너뛰고, 로그인 비밀번호는 백업 시점의 것이다. `.env`의 값과 다르면 12-2 '관리자 비밀번호 변경'을 한다.
 - 복구 테스트(새 DB, 운영 DB는 건드리지 않는다):
   1. 직접 백업: `bash infra/backup/backup.sh`가 종료 코드 0이고 출력한 이름을 받는다 (cron 백업 뒤 바뀐 글이 있어도 비교가 어긋나지 않게 새로 만든다).
