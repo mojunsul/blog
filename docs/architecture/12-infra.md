@@ -161,7 +161,7 @@ nginx 이미지는 `nginx:1-alpine`(12-7과 같은 메이저 태그 원칙). `in
 **`infra/backup/backup.sh`** (`set -Eeuo pipefail`, 저장소 루트에서 실행)
 1. 이름 `blog-<UTC 시각>.dump`(`date -u +%Y%m%dT%H%M%SZ`, 겹치지 않아 덮어쓸 일이 없다), 임시 파일은 `mktemp`(모드 600), `trap ... EXIT`로 항상 지운다.
 2. `docker compose -f infra/docker-compose.prod.yml exec -T postgres sh -c 'pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Fc' > 임시 파일`. 파이프로 바로 올리지 않는 이유: `pg_dump`가 중간에 실패해도 업로드가 끝까지 가 잘린 백업이 정상처럼 남는다. 파일로 받으면 덤프가 성공한 뒤에만 올린다.
-3. `docker compose ... run --rm -T -v "<임시 파일>:/tmp/<이름>:ro" backup os object put --bucket-name blog-backup --name <이름> --file /tmp/<이름> --no-overwrite --no-multipart`. 임시 파일은 호스트 `ubuntu`(uid 1000) 소유 600이라 같은 uid인 컨테이너 사용자가 읽는다. `--no-multipart`: 128MiB를 넘으면 기본이 멀티파트인데, 실패했을 때 남는 미완료 업로드를 지울 권한(삭제)을 주지 않으므로 한 번에 올린다 (덤프는 그보다 훨씬 작다).
+3. `docker compose ... run --rm -T --user "$(id -u):$(id -g)" -v "<임시 파일>:/tmp/<이름>:ro" backup os object put --bucket-name blog-backup --name <이름> --file /tmp/<이름> --no-overwrite --no-multipart`. `--user`: 임시 파일은 실행한 호스트 사용자 소유 600인데, 서버의 `ubuntu`는 uid 1001이라 이미지 사용자 `oracle`(uid 1000)로는 읽지 못한다. 호스트 uid로 실행하면 600을 유지한 채 읽고, 인스턴스 주체 인증은 홈 디렉터리의 설정 파일이 필요 없어 그대로 동작한다. 644로 열면 덤프가 같은 호스트의 다른 사용자에게 보이고, 표준 입력 업로드(`--file -`)는 `--no-multipart`와 함께 쓸 수 없어(CLI가 거부) 택하지 않았다. `--no-multipart`: 128MiB를 넘으면 기본이 멀티파트인데, 실패했을 때 남는 미완료 업로드를 지울 권한(삭제)을 주지 않으므로 한 번에 올린다 (덤프는 그보다 훨씬 작다).
 4. 성공: `<UTC 시각> 백업 완료: <이름> (<바이트> bytes)`를 출력, 종료 코드 0.
 5. 실패(2·3의 어느 명령이든): `trap ... ERR`로 `<UTC 시각> 백업 실패`를 출력하고 0이 아닌 코드로 끝난다. 재시도하지 않고 다음 날 실행을 기다린다 (관리자 1명의 블로그라 하루치 변경이 적다). 배포(12-6)가 postgres를 다시 만드는 중이면 `exec`가 실패하는데 같은 처리다.
 
