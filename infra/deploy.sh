@@ -55,4 +55,9 @@ apply "$PREV" "$SHA"
 check
 
 rm infra/.env.prev
-docker image prune -af
+
+# 배포는 끝났으므로 정리 실패가 롤백으로 이어지면 안 된다. prune -af는 갱신 cron이 쓰는 certbot 이미지까지 지워 blog-*만 정리한다.
+trap - ERR
+docker image ls --filter 'reference=ghcr.io/mojunsul/blog-*' --filter dangling=false --format '{{.Repository}}:{{.Tag}}' \
+	| { grep -v ":$SHA$" || true; } | xargs -r docker rmi || echo "이전 이미지 정리 실패 (배포에는 영향 없음)"
+docker image prune -f || echo "태그 없는 이미지 정리 실패 (배포에는 영향 없음)"
