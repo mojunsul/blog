@@ -190,7 +190,7 @@ nginx 이미지는 `nginx:1-alpine`(12-7과 같은 메이저 태그 원칙). `in
 **복구** (README에 적는다. 모두 저장소 폴더 `~/blog`에서)
 - 받기: `os object list`(위)로 이름을 고르고 `(umask 077; docker compose -f infra/docker-compose.prod.yml run --rm -T backup os object get --bucket-name blog-backup --name <이름> --file - > ~/restore.dump)`.
 - 운영 DB 복구(데이터 손실·새 서버):
-  0. 새 서버만: 먼저 'OCI 설정' 2대로 동적 그룹 규칙의 OCID를 새 인스턴스로 바꾸고, `run --rm -T backup os ns get`이 네임스페이스를 출력할 때까지 기다린다 (IAM 변경 반영에 몇 분 걸릴 수 있다). 바꾸기 전에는 '받기'가 `BucketNotFound`(404) 등 권한 오류로 실패한다 (Object Storage는 권한이 없을 때 버킷이 없다는 404를 돌려준다). 10분이 지나도 실패하면 규칙의 OCID와 정책을 콘솔에서 다시 확인한다. 그 뒤 '받기'를 한다.
+  0. 새 서버만: 먼저 'OCI 설정' 2대로 동적 그룹 규칙의 OCID를 새 인스턴스로 바꾸고, '받기'의 `os object list`가 객체 목록을 출력할 때까지 기다린다 (IAM 변경 반영에 몇 분 걸릴 수 있다). 목록 조회는 `OBJECT_INSPECT` 권한이 있어야 성공해 반영을 보여 준다. `os ns get`은 권한 없이도 성공해 대기 조건으로 쓰지 않는다. 바꾸기 전에는 목록 조회가 `BucketNotFound`(404) 등 권한 오류로 실패한다 (Object Storage는 권한이 없을 때 버킷이 없다는 404를 돌려준다). 10분이 지나도 실패하면 규칙의 OCID와 정책을 콘솔에서 다시 확인한다. 그 뒤 출력된 목록에서 이름을 골라 '받기'를 이어 한다.
   1. `docker compose -f infra/docker-compose.prod.yml up -d postgres` (새 서버는 '서버 준비'에서 첫 배포 대신 이것부터 한다), `docker compose ... stop backend`
   2. `docker compose ... exec -T postgres sh -c 'dropdb -U "$POSTGRES_USER" "$POSTGRES_DB" && createdb -U "$POSTGRES_USER" "$POSTGRES_DB"'` (새 서버에서는 backend가 Flyway로 만든 빈 스키마가 있을 수 있어 항상 다시 만든다)
   3. `docker compose ... exec -T postgres sh -c 'pg_restore -U "$POSTGRES_USER" -d "$POSTGRES_DB" --no-owner --exit-on-error' < ~/restore.dump`. 실패하면 DB가 일부만 복구된 상태이므로 원인(오류 줄)을 고친 뒤 2부터 다시 한다. 받은 파일이 깨졌으면 그 전날 백업을 받는다.

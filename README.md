@@ -139,7 +139,7 @@ docker compose -f infra/docker-compose.prod.yml run --rm certbot renew --dry-run
    30 18 * * * cd $HOME/blog && bash infra/backup/backup.sh >> $HOME/backup.log 2>&1
    ```
 
-인증 확인 (저장소 폴더에서). 네임스페이스가 출력되면 된다. IAM 변경 반영에 몇 분 걸릴 수 있다.
+인증 확인 (저장소 폴더에서). 네임스페이스가 출력되면 인스턴스 주체 인증이 된다. 이 명령은 권한이 필요 없어 정책 반영은 보여 주지 않으므로, 정책은 아래 수동 백업이 성공하는지로 확인한다 (IAM 변경 반영에 몇 분 걸릴 수 있다).
 
 ```bash
 docker compose -f infra/docker-compose.prod.yml run --rm -T backup os ns get
@@ -173,7 +173,7 @@ docker compose -f infra/docker-compose.prod.yml run --rm -T backup os object lis
 
 **운영 DB 복구** (데이터 손실·새 서버)
 
-0. 새 서버만: 위 'OCI 설정' 2로 동적 그룹 규칙의 OCID를 새 인스턴스로 바꾸고, 인증 확인이 네임스페이스를 출력할 때까지 기다린 뒤 '받기'를 한다. 바꾸기 전에는 `NotAuthorizedOrNotFound`로 실패한다. 10분이 지나도 실패하면 규칙의 OCID와 정책을 콘솔에서 다시 확인한다. 새 서버는 '최초 배포'의 1부터 5까지를 마친 뒤 6(첫 배포) 대신 이 절차를 하고, `infra/.env`의 `IMAGE_TAG`는 비워 둔다 (4단계가 `latest`를 GHCR에서 받는다. `local`이면 로컬 이미지가 없어 실패한다).
+0. 새 서버만: 위 'OCI 설정' 2로 동적 그룹 규칙의 OCID를 새 인스턴스로 바꾸고, 위 주간 점검의 목록 명령이 객체 목록을 출력할 때까지 기다린 뒤 그 목록에서 이름을 골라 '받기'를 한다. 목록 조회는 버킷 권한이 있어야 성공하므로 IAM 반영을 보여 준다 (인증 확인의 `os ns get`은 권한 없이도 성공해 이 확인에 쓰지 않는다). 바꾸기 전에는 `BucketNotFound`(404) 등 권한 오류로 실패한다. 10분이 지나도 실패하면 규칙의 OCID와 정책을 콘솔에서 다시 확인한다. 새 서버는 '최초 배포'의 1부터 5까지를 마친 뒤 6(첫 배포) 대신 이 절차를 하고, `infra/.env`의 `IMAGE_TAG`는 비워 둔다 (4단계가 `latest`를 GHCR에서 받는다. `local`이면 로컬 이미지가 없어 실패한다).
 1. postgres만 띄우고 backend를 멈춘다.
    ```bash
    docker compose -f infra/docker-compose.prod.yml up -d postgres && docker compose -f infra/docker-compose.prod.yml stop backend
