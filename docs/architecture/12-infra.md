@@ -6,7 +6,7 @@
 - Spring Boot(IDE, `local` 프로필), Next.js(`npm run dev`)는 직접 실행
 
 ### 12-2. 서버 (OCI)
-- `docker-compose.prod.yml`: nginx, certbot, frontend, backend, postgres, backup (certbot은 12-3, backup은 백업 이슈에서 추가)
+- `docker-compose.prod.yml`: nginx, certbot, frontend, backend, postgres, backup (certbot은 12-3, backup은 12-5. 둘 다 `profiles`로 상주하지 않는다)
   - 최상위 `name: blog-prod`. 로컬용 `docker-compose.yml`과 같은 `infra/`에 있어 이름을 주지 않으면 둘 다 프로젝트 이름이 `infra`가 되고, 볼륨(`infra_postgres-data`)을 함께 써 로컬 시드 DB로 운영 구성이 뜬다.
   - 이미지: `image: ghcr.io/mojunsul/blog-backend:${IMAGE_TAG:-latest}`(frontend는 `blog-frontend`)와 `build: ../backend`(`../frontend`)를 함께 둔다. 로컬은 `IMAGE_TAG=local`로 `up -d --build`, 서버는 `pull` 후 `up -d --no-build`(소스가 없어도 `build`는 빌드할 때만 읽힌다). deploy(12-6)도 이 이름으로 push한다. deploy 전의 첫 배포는 아래 '서버 준비'대로 서버에서 빌드한다.
   - 호스트에 여는 포트는 nginx `80:80`·`443:443`뿐이다. postgres·backend·frontend에는 `ports`를 두지 않는다 (같은 compose 네트워크에서 서비스 이름으로 접속).
@@ -19,7 +19,7 @@
   - frontend: `API_INTERNAL_URL: http://backend:8080` (11장 'API 주소 처리')
 - PostgreSQL 데이터는 named volume으로 영속화
 - 비밀값은 서버의 `infra/.env`에만 둔다. 원본은 GitHub Secrets이고, 자동 배포부터는 deploy가 매번 `.env`를 다시 쓴다 (12-6 '`.env` 동기화')
-  - `POSTGRES_PASSWORD`, `JWT_SECRET`, `ADMIN_USERNAME`, `ADMIN_PASSWORD`, Object Storage 인증 정보 등
+  - `POSTGRES_PASSWORD`, `JWT_SECRET`, `ADMIN_USERNAME`, `ADMIN_PASSWORD` (Object Storage는 인스턴스 주체로 인증해 키가 없다, 12-5)
   - 비밀값이 아닌 `IMAGE_TAG`(비우면 `latest`)도 `infra/.env.example`에 둔다. 로컬은 셸에서 `IMAGE_TAG=local`로 덮어쓴다. 서버 첫 배포(deploy 이슈 전)에는 `infra/.env`에 `IMAGE_TAG=local`을 둔다는 안내(아래 '서버 준비')도 같은 주석에 적는다.
   - `infra/.env.example`의 기본값 안내 주석은 로컬 compose 기준이므로, 운영 compose는 `POSTGRES_PASSWORD`가 필수라는 점을 함께 적는다.
   - `JWT_SECRET`은 `openssl rand -base64 32`로 만든다 (Base64, 디코딩 후 32바이트 이상, 10-6). 바꾸면 발급된 Access 토큰이 모두 무효가 된다.
@@ -37,7 +37,7 @@
     - 이 이슈의 설정(certbot 서비스, 443 블록, `.gitignore`)은 머지 전 구현 검증에서 서버로 확인해야 하므로, 최초 발급·첫 배포·확인 방법(12-3)은 기능 브랜치에서 한다: clone 뒤 `git checkout chore/#109-server-https`, 구현 세션이 push하면 `git pull`. PR이 머지되면 돌아가기 전에 브랜치 끝 SHA를 적어 두고(`git rev-parse HEAD`) `git checkout main && git pull`로 돌아간다. merge commit으로 머지하므로 main의 커밋은 브랜치와 다르고, 그사이 main에 다른 `infra/` 변경이 머지됐을 수 있다. `git diff <브랜치 끝 SHA> HEAD -- infra`가 비어 있으면 설정이 같으므로 컨테이너를 다시 띄우지 않고, 차이가 있으면 `docker compose -f infra/docker-compose.prod.yml up -d --force-recreate`로 모든 서비스를 다시 만든다. Nginx 설정(`nginx.conf`·`conf.d/`, 12-4)은 마운트만 되어 있어 compose 정의가 같으면 `up -d`가 컨테이너를 다시 만들지 않고, 파일 하나를 마운트한 `nginx.conf`는 git이 파일을 교체하면 reload로도 반영되지 않기 때문이다. nginx로 좁히지 않는 이유: 같은 차이에 다른 서비스의 마운트 파일이 섞여도 놓치지 않고, 한 번뿐인 절차라 수 초 다운타임은 문제되지 않는다 (`infra/.env`·`infra/certbot/`은 git이 추적하지 않아 브랜치를 바꿔도 남는다).
   - `.env`: `infra/.env.example`을 `infra/.env`로 복사해 채우고 `chmod 600`. 같은 값을 GitHub Secrets(12-6 표)에도 등록한다. 첫 자동 배포부터 deploy가 이 파일을 다시 쓴다.
   - 첫 배포 이미지는 서버에서 빌드한다: `infra/.env`에 `IMAGE_TAG=local`을 두고 `docker compose -f infra/docker-compose.prod.yml up -d --build`. 서버도 arm64라 그대로 빌드된다. 로컬에서 빌드해 GHCR에 수동 push하는 방식은 쓰기 토큰(PAT)을 따로 만들어 관리해야 해 택하지 않았다. `IMAGE_TAG`를 셸이 아니라 `.env`에 두는 이유: 이후 `up`·`run`에서 빠지면 `latest`를 GHCR에서 받으려다 실패한다. 첫 자동 배포부터 deploy가 커밋 SHA로 바꾼다 (12-6).
-  - 순서: 서버 준비 → DNS(12-3) → `.env` → 인증서 최초 발급(12-3) → 첫 배포 → 갱신 cron(12-3). 인증서가 없으면 nginx가 기동하지 못하므로 발급이 배포보다 먼저다.
+  - 순서: 서버 준비 → DNS(12-3) → `.env` → 인증서 최초 발급(12-3) → 첫 배포 → 갱신 cron(12-3). 인증서가 없으면 nginx가 기동하지 못하므로 발급이 배포보다 먼저다. 기존 서버를 새 서버로 옮길 때(복구)는 첫 배포 대신 12-5 '복구'의 운영 DB 복구를 하고, 그 마지막 단계에서 백업 crontab을 다시 등록한다.
 - 모든 상주 서비스에 `restart: unless-stopped` (실행할 때만 뜨는 certbot은 제외, 12-3)
 - backend에 `healthcheck` 설정 (`/actuator/health`), nginx·frontend는 backend healthy 이후 기동 (`depends_on: condition: service_healthy`). nginx와 frontend 사이에는 순서를 두지 않는다: nginx는 업스트림 이름을 요청 때 확인하므로(12-4 '업스트림 이름 확인') frontend가 아직 없어도 기동하고, 그동안 `/`는 `502`다.
   - `curl -fsS http://localhost:8080/actuator/health`(JRE 이미지에 `curl`이 있다, 12-7), `interval: 10s`, `timeout: 3s`, `retries: 5`, `start_period: 60s`(작은 서버에서 JVM 기동과 Flyway가 끝나기 전 실패를 세지 않게)
@@ -138,9 +138,82 @@ nginx 이미지는 `nginx:1-alpine`(12-7과 같은 메이저 태그 원칙). `in
 - 로그 옵션: 각 컨테이너의 `docker inspect -f '{{.HostConfig.LogConfig}}'`가 `json-file`, `max-size:10m`, `max-file:3`.
 
 ### 12-5. DB 백업
-- `backup` 컨테이너(또는 호스트 cron)가 매일 `pg_dump` 실행 → gzip 압축 → OCI Object Storage 업로드
-- 보관 정책: 최근 14일 (Object Storage 수명 주기 규칙 또는 스크립트로 정리)
-- **복구 절차를 README에 문서화하고, 최소 한 번은 실제로 복구 테스트를 한다.**
+호스트 cron이 매일 `infra/backup/backup.sh`를 실행한다: postgres 컨테이너의 `pg_dump`(custom 형식) → 호스트 임시 파일 → compose `backup` 서비스(OCI CLI)가 Object Storage 버킷 `blog-backup`에 업로드. 보관은 버킷의 수명 주기 규칙(14일)이 한다. **복구 절차를 README에 적고, 최소 한 번은 실제로 복구 테스트를 한다.**
+
+**결정**
+- 호스트 cron: 인증서 갱신(12-3)과 같은 방식이라 명령이 crontab 한 줄로 드러난다. backup 컨테이너 안에서 cron을 돌리면 cron 데몬이 든 이미지를 따로 만들어야 한다. `pg_dump`는 postgres 컨테이너에서 `exec`로 실행해, 클라이언트 버전이 항상 서버와 같다 (`pg_dump`는 서버보다 낮은 버전이면 덤프를 거부한다).
+- 덤프 형식은 custom(`-Fc`): 기본으로 압축되어 gzip 단계가 필요 없고, `pg_restore`의 `--no-owner`·`--exit-on-error`·테이블 단위 복구를 쓸 수 있다. plain SQL + gzip은 읽기 쉽지만 `psql`이 오류 뒤에도 계속 진행해(`ON_ERROR_STOP`을 따로 줘야 한다) 택하지 않았다.
+- 업로드는 OCI CLI + **인스턴스 주체**(instance principal): 서버 인스턴스 자체가 권한을 받아, 저장하는 키가 없다 (AWS EC2의 IAM 역할과 같은 방식). S3 호환 API는 `aws` CLI로 익숙하지만 사용자에 묶인 고정 키(Customer Secret Key)를 `.env`·GitHub Secrets·deploy 동기화(12-6)로 관리해야 해 택하지 않았다. 그래서 `infra/.env.example`에 백업 값을 추가하지 않는다. 네임스페이스는 CLI가 요청 때 조회하고 리전은 인스턴스 리전을 쓴다.
+- 서버 권한은 객체 생성·조회·읽기만 준다 (삭제·덮어쓰기 없음). 서버가 털려도 지난 백업을 지우거나 덮어쓸 수 없고, 정리는 Object Storage 서비스의 수명 주기 규칙이 한다. 그래서 스크립트는 보관 정리를 하지 않는다.
+
+**compose `backup` 서비스** (`docker-compose.prod.yml`, certbot처럼 상주하지 않는다)
+```yaml
+  # 상주하지 않고 backup.sh가 `run --rm backup <oci 명령>`으로만 실행한다
+  backup:
+    image: ghcr.io/oracle/oci-cli:20261028
+    profiles: [backup]
+    environment:
+      OCI_CLI_AUTH: instance_principal
+    logging: *default-logging
+```
+- 이미지는 Oracle 공식 이미지(arm64 포함, 진입점 `oci`, 사용자 `oracle` uid 1000)를 날짜 태그로 고정한다. 메이저 태그 원칙(12-7)의 예외다: 태그는 주간 날짜 태그·`latest`·`main`·`sha-*`뿐이라 메이저 태그가 없고, `latest`는 CLI 메이저가 바뀌어도 따라가 명령·출력이 예고 없이 바뀔 수 있다. 버전을 올릴 때는 12-6 '수동 운영'대로 한다. `restart`·`depends_on`·`ports`는 두지 않는다.
+
+**`infra/backup/backup.sh`** (`set -Eeuo pipefail`, 저장소 루트에서 실행)
+1. 이름 `blog-<UTC 시각>.dump`(`date -u +%Y%m%dT%H%M%SZ`, 겹치지 않아 덮어쓸 일이 없다), 임시 파일은 `mktemp`(모드 600), `trap ... EXIT`로 항상 지운다.
+2. `docker compose -f infra/docker-compose.prod.yml exec -T postgres sh -c 'pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Fc' > 임시 파일`. 파이프로 바로 올리지 않는 이유: `pg_dump`가 중간에 실패해도 업로드가 끝까지 가 잘린 백업이 정상처럼 남는다. 파일로 받으면 덤프가 성공한 뒤에만 올린다.
+3. `docker compose ... run --rm -T --user "$(id -u):$(id -g)" -v "<임시 파일>:/tmp/<이름>:ro" backup os object put --bucket-name blog-backup --name <이름> --file /tmp/<이름> --no-overwrite --no-multipart`. `--user`: 임시 파일은 실행한 호스트 사용자 소유 600인데, 서버의 `ubuntu`는 uid 1001이라 이미지 사용자 `oracle`(uid 1000)로는 읽지 못한다. 호스트 uid로 실행하면 600을 유지한 채 읽고, 인스턴스 주체 인증은 홈 디렉터리의 설정 파일이 필요 없어 그대로 동작한다. 644로 열면 덤프가 같은 호스트의 다른 사용자에게 보이고, 표준 입력 업로드(`--file -`)는 `--no-multipart`와 함께 쓸 수 없어(CLI가 거부) 택하지 않았다. `--no-multipart`: 128MiB를 넘으면 기본이 멀티파트인데, 실패했을 때 남는 미완료 업로드를 지울 권한(삭제)을 주지 않으므로 한 번에 올린다 (덤프는 그보다 훨씬 작다).
+4. 성공: `<UTC 시각> 백업 완료: <이름> (<바이트> bytes)`를 출력, 종료 코드 0.
+5. 실패(2·3의 어느 명령이든): `trap ... ERR`로 `<UTC 시각> 백업 실패`를 출력하고 0이 아닌 코드로 끝난다. 재시도하지 않고 다음 날 실행을 기다린다 (관리자 1명의 블로그라 하루치 변경이 적다). 배포(12-6)가 postgres를 다시 만드는 중이면 `exec`가 실패하는데 같은 처리다.
+
+**예약** (`ubuntu` crontab, README에 같은 줄을 적는다. 서버 시간대는 UTC)
+```
+30 18 * * * cd $HOME/blog && bash infra/backup/backup.sh >> $HOME/backup.log 2>&1
+```
+- 18:30 UTC = 03:30 KST, 방문이 적은 시각이다. 성공하면 하루 한 줄이라 로그를 따로 정리하지 않는다.
+- `bash`로 실행해 실행 권한 비트에 기대지 않는다. 스크립트는 deploy가 체크아웃한 커밋의 것을 쓴다 (12-6).
+
+**OCI 설정** (콘솔. 절차는 README. 12-2 '서버 준비'의 첫 배포 뒤에 한다). 1·3·4는 테넌시에 남아 최초 1회만 하고, 2(규칙의 OCID)와 5(호스트 crontab)는 인스턴스에 묶여 새 서버마다 다시 한다 (아래 '복구' 0·5단계).
+1. 버킷 `blog-backup`: 인스턴스와 같은 리전·루트 컴파트먼트, Standard 계층, Private(기본값), 버전 관리 끔.
+2. 동적 그룹 `blog-backup`(Default 도메인): 규칙 `instance.id = '<인스턴스 OCID>'`. 인스턴스를 새로 만들면(새 서버) 규칙의 OCID를 새 인스턴스 것으로 바꾼다. 규칙이 그 OCID 하나뿐이라 이전 인스턴스는 그 즉시 권한을 잃는다 (백업도 실패한다). 두 서버를 함께 쓰는 기간은 없어 규칙에 둘을 같이 두지 않는다.
+3. 정책(루트 컴파트먼트) 두 줄. 두 번째는 수명 주기 규칙이 객체를 지우는 데 필요하다 (없으면 규칙 저장이 거부된다). `<리전>`은 리전 식별자(예: `ap-chuncheon-1`).
+   ```
+   Allow dynamic-group blog-backup to manage objects in tenancy where all {target.bucket.name='blog-backup', any {request.permission='OBJECT_CREATE', request.permission='OBJECT_INSPECT', request.permission='OBJECT_READ'}}
+   Allow service objectstorage-<리전> to manage object-family in tenancy
+   ```
+4. 버킷 수명 주기 정책 규칙: 대상 객체, 동작 삭제, 14일, 접두사 없음, 활성. 생성 뒤 14일이 지난 객체를 서비스가 비동기로 지워, 보관 개수는 14~15개다.
+5. 위 crontab 줄을 등록한다.
+
+**실패 알아채기**
+- 실패는 `~/backup.log`의 `백업 실패` 줄로 남고 메일 등 알림은 없다. M5의 Uptime Kuma에 Push 모니터(정해진 시간 안에 신호가 없으면 알림)를 만들고 crontab 줄 끝에 `&& curl -fsS <Push URL>`을 붙인다 (13장 M5). URL은 비밀값이 아니지만 저장소에 넣지 않고 crontab에만 둔다.
+- M5 전까지는 인증서 점검(12-3)과 같은 매주 월요일에 `docker compose -f infra/docker-compose.prod.yml run --rm -T backup os object list --bucket-name blog-backup --fields name,size,timeCreated`로 확인한다. 가장 최근 `time-created`가 24시간 안이고 지난 7일에 하루 하나씩 있으면 정상이다. 아니면 `~/backup.log`를 보고 고친 뒤 스크립트를 직접 한 번 실행한다. README의 백업 절차에 이 점검 명령과 기준을 함께 적는다.
+
+**복구** (README에 적는다. 모두 저장소 폴더 `~/blog`에서)
+- 받기: `os object list`(위)로 이름을 고르고 `(umask 077; docker compose -f infra/docker-compose.prod.yml run --rm -T backup os object get --bucket-name blog-backup --name <이름> --file - > ~/restore.dump)`.
+- 운영 DB 복구(데이터 손실·새 서버):
+  0. 새 서버만: 먼저 'OCI 설정' 2대로 동적 그룹 규칙의 OCID를 새 인스턴스로 바꾸고, '받기'의 `os object list`가 객체 목록을 출력할 때까지 기다린다 (IAM 변경 반영에 몇 분 걸릴 수 있다). 목록 조회는 `OBJECT_INSPECT` 권한이 있어야 성공해 반영을 보여 준다. `os ns get`은 권한 없이도 성공해 대기 조건으로 쓰지 않는다. 바꾸기 전에는 목록 조회가 `BucketNotFound`(404) 등 권한 오류로 실패한다 (Object Storage는 권한이 없을 때 버킷이 없다는 404를 돌려준다). 10분이 지나도 실패하면 규칙의 OCID와 정책을 콘솔에서 다시 확인한다. 그 뒤 출력된 목록에서 이름을 골라 '받기'를 이어 한다.
+  1. `docker compose -f infra/docker-compose.prod.yml up -d postgres` (새 서버는 '서버 준비'에서 첫 배포 대신 이것부터 한다), `docker compose ... stop backend`
+  2. `docker compose ... exec -T postgres sh -c 'dropdb -U "$POSTGRES_USER" "$POSTGRES_DB" && createdb -U "$POSTGRES_USER" "$POSTGRES_DB"'` (새 서버에서는 backend가 Flyway로 만든 빈 스키마가 있을 수 있어 항상 다시 만든다)
+  3. `docker compose ... exec -T postgres sh -c 'pg_restore -U "$POSTGRES_USER" -d "$POSTGRES_DB" --no-owner --exit-on-error' < ~/restore.dump`. 실패하면 DB가 일부만 복구된 상태이므로 원인(오류 줄)을 고친 뒤 2부터 다시 한다. 받은 파일이 깨졌으면 그 전날 백업을 받는다.
+  4. `docker compose ... up -d --no-build` → backend가 `healthy`가 된다 (Flyway 이력도 복구되어 마이그레이션이 이어진다). `rm ~/restore.dump`
+  5. 새 서버만: 'OCI 설정' 5대로 crontab 줄을 등록하고(M5 뒤에는 '실패 알아채기'의 Push URL을 붙인 줄) `crontab -l`로 확인한다. crontab은 이전 호스트에만 있어, 빠뜨리면 백업이 알림 없이 멈춘다. 등록 다음 날 '실패 알아채기'의 점검 명령으로 그날 객체가 생겼는지 본다.
+  - `admin` 행이 복구되므로 관리자 값 검사(5장 '관리자 계정 생성')는 건너뛰고, 로그인 비밀번호는 백업 시점의 것이다. `.env`의 값과 다르면 12-2 '관리자 비밀번호 변경'을 한다.
+- 복구 테스트(새 DB, 운영 DB는 건드리지 않는다):
+  1. 직접 백업: `bash infra/backup/backup.sh`가 종료 코드 0이고 출력한 이름을 받는다 (cron 백업 뒤 바뀐 글이 있어도 비교가 어긋나지 않게 새로 만든다).
+  2. 위 '받기'로 그 객체를 받는다.
+  3. 임시 DB: `docker run -d --rm --name restore-test -e POSTGRES_USER=blog -e POSTGRES_DB=blog -e POSTGRES_HOST_AUTH_METHOD=trust postgres:18` (포트를 열지 않고 compose 네트워크에도 붙지 않아 비밀번호를 두지 않는다), `until docker exec restore-test pg_isready -h localhost -U blog -d blog; do sleep 1; done`. `-h localhost`인 이유: 이미지의 초기화 단계 임시 서버는 소켓으로만 받아, 소켓으로 확인하면 초기화가 끝나기 전에 복구를 시작한다.
+  4. `docker exec -i restore-test pg_restore -U blog -d blog --no-owner --exit-on-error < ~/restore.dump`가 종료 코드 0.
+  5. 같은 질의 `SELECT (SELECT count(*) FROM post), (SELECT count(*) FROM category)`를 `docker exec restore-test psql -U blog -d blog -Atc '<질의>'`와 운영 `docker compose ... exec -T postgres sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Atc "<질의>"'`로 실행해 두 결과가 같다.
+  6. `docker stop restore-test`(`--rm`이라 컨테이너와 익명 볼륨이 지워진다), `rm ~/restore.dump`.
+
+**확인 방법** (서버, 이슈 완료 조건)
+- 머지 전에는 기능 브랜치로 확인한다: OCI 설정 뒤 서버에서 `git fetch -q origin && git checkout -q --detach origin/chore/#111-db-backup`(구현 세션이 push하면 다시 실행). 추가된 것은 profile 서비스와 스크립트뿐이라 실행 중인 서비스는 바뀌지 않는다. 그사이 main 배포가 있으면 서버가 main 커밋으로 돌아가 cron이 스크립트를 찾지 못하므로 다시 체크아웃한다. 머지 뒤 main 배포가 main 커밋으로 맞춘다.
+- 인증: `docker compose -f infra/docker-compose.prod.yml run --rm -T backup os ns get`이 네임스페이스를 출력한다. 컨테이너에서 인스턴스 메타데이터(`169.254.169.254`)에 닿지 못해 실패하면 구현을 멈추고 이슈에 설계 질문으로 남긴다.
+- 백업: `bash infra/backup/backup.sh`가 종료 코드 0과 `백업 완료` 줄을 출력하고, `os object list`(위)에 그 이름이 있다. 서버 `/tmp`에 덤프 임시 파일이 남지 않는다.
+- 권한: 그 객체에 `run --rm -T backup os object delete --bucket-name blog-backup --name <이름> --force`가 `BucketNotFound`(HTTP 404)로 실패하고 객체가 남아 있다. 버킷이 있는데 이 오류가 나므로 권한 거부를 뜻한다 (Object Storage는 권한이 없을 때 버킷이 없다는 404를 돌려준다).
+- 예약: crontab 등록 다음 날 `os object list`에 `time-created`가 그날 18:30 UTC 무렵인 객체가 있고 `~/backup.log`에 `백업 완료` 줄이 있다.
+- 보관: OCI Cloud Shell에서 `oci os object-lifecycle-policy get --bucket-name blog-backup`의 규칙이 `action: DELETE`, `time-amount: 14`, `time-unit: DAYS`, `is-enabled: true`다 (서버 권한에는 정책 조회가 없다). 실제 삭제는 14일 뒤라 이슈 범위에서는 설정으로 확인한다.
+- 실패 처리(로컬): `infra/.env`에 `POSTGRES_PASSWORD`를 두고 운영 compose의 postgres만 띄운 뒤(`up -d postgres`) 스크립트를 실행하면, 인스턴스 주체를 얻지 못해 업로드가 실패해 `백업 실패` 줄과 0이 아닌 종료 코드로 끝나고 임시 파일이 남지 않는다.
+- 복구 테스트: 위 '복구 테스트'대로 해 두 수가 같다. 이슈 코멘트에 객체 이름, 글·카테고리 수, 날짜를 남긴다 (네임스페이스·OCID는 적지 않는다).
 
 ### 12-6. CI/CD
 ```
@@ -189,8 +262,9 @@ main 머지 (deploy.yml)
 **수동 운영** (README에 적는다)
 - 이전 버전으로 되돌리기: Actions에서 되돌릴 커밋의 성공한 deploy 실행을 "Re-run all jobs"한다 (그 커밋으로 다시 빌드·배포). Re-run은 원래 실행 뒤 30일 안에만 되므로, 그보다 오래된 커밋은 `git revert` PR로 되돌린다. 이후 main 머지가 다시 배포하므로, 원인 커밋은 `git revert` PR로 고친다.
 - Secrets 변경 반영(관리자 비밀번호 등, 12-2): Secrets를 바꾸고 Actions에서 deploy를 `workflow_dispatch`로 실행한다. `.env` 값이 바뀐 서비스만 compose가 다시 만든다.
-- nginx·postgres·certbot 이미지 버전을 올린 뒤: 그 커밋의 배포가 성공하면 서버에서 `docker image ls <저장소>`(저장소 이름은 `nginx`·`postgres`·`certbot/certbot`)로 이전 태그를 확인하고 `docker image rm <저장소>:<이전 태그>`로 지운다.
+- nginx·postgres·certbot·backup 이미지 버전을 올린 뒤: 그 커밋의 배포가 성공하면 서버에서 `docker image ls <저장소>`(저장소 이름은 `nginx`·`postgres`·`certbot/certbot`·`ghcr.io/oracle/oci-cli`)로 이전 태그를 확인하고 `docker image rm <저장소>:<이전 태그>`로 지운다.
   - nginx·postgres: 실행 중인 컨테이너가 쓰는 이미지는 `rm`이 거부하므로 현재 버전은 지워지지 않는다.
+  - certbot·backup: 아래는 certbot 기준이고 backup도 같다 (`pull backup`).
   - certbot: 상주하지 않아 위 보호가 없고 배포가 새 이미지를 받지 않으므로, 먼저 `docker compose -f infra/docker-compose.prod.yml pull certbot`(서비스를 지정하면 profile을 켜지 않아도 받는다)으로 새 버전을 받고, 성공한 뒤에만 이전 태그를 지운다. 받기 전에 지우면 다음 갱신 cron의 `run`이 Docker Hub에서 받아야 하고, 받기에 실패하면 갱신도 실패한다. pull이 실패하면 이전 태그를 그대로 두고 나중에 다시 한다.
 - 배포 상태 확인: `docker compose -f infra/docker-compose.prod.yml ps --format '{{.Service}} {{.Image}}'`의 backend·frontend 태그가 배포한 SHA다.
 

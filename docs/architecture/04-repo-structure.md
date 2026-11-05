@@ -15,7 +15,7 @@ blog/
 │  │     └ blog.conf             # blog.도메인 server 블록
 │  ├ certbot/                    # 인증서·ACME 웹루트 (서버에서 생성, 커밋하지 않음)
 │  └ backup/
-│     └ backup.sh                # pg_dump → 압축 → Object Storage 업로드
+│     └ backup.sh                # pg_dump(custom) → Object Storage 업로드 (호스트 cron, 12-5)
 ├ docs/
 │  ├ architecture.md             # 설계 문서 목차
 │  ├ architecture/               # 설계 문서 장별 파일 (NN-*.md)
