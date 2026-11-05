@@ -190,7 +190,7 @@ nginx 이미지는 `nginx:1-alpine`(12-7과 같은 메이저 태그 원칙). `in
 **복구** (README에 적는다. 모두 저장소 폴더 `~/blog`에서)
 - 받기: `os object list`(위)로 이름을 고르고 `(umask 077; docker compose -f infra/docker-compose.prod.yml run --rm -T backup os object get --bucket-name blog-backup --name <이름> --file - > ~/restore.dump)`.
 - 운영 DB 복구(데이터 손실·새 서버):
-  0. 새 서버만: 먼저 'OCI 설정' 2대로 동적 그룹 규칙의 OCID를 새 인스턴스로 바꾸고, `run --rm -T backup os ns get`이 네임스페이스를 출력할 때까지 기다린다 (IAM 변경 반영에 몇 분 걸릴 수 있다). 바꾸기 전에는 '받기'가 `NotAuthorizedOrNotFound`로 실패한다. 10분이 지나도 실패하면 규칙의 OCID와 정책을 콘솔에서 다시 확인한다. 그 뒤 '받기'를 한다.
+  0. 새 서버만: 먼저 'OCI 설정' 2대로 동적 그룹 규칙의 OCID를 새 인스턴스로 바꾸고, `run --rm -T backup os ns get`이 네임스페이스를 출력할 때까지 기다린다 (IAM 변경 반영에 몇 분 걸릴 수 있다). 바꾸기 전에는 '받기'가 `BucketNotFound`(404) 등 권한 오류로 실패한다 (Object Storage는 권한이 없을 때 버킷이 없다는 404를 돌려준다). 10분이 지나도 실패하면 규칙의 OCID와 정책을 콘솔에서 다시 확인한다. 그 뒤 '받기'를 한다.
   1. `docker compose -f infra/docker-compose.prod.yml up -d postgres` (새 서버는 '서버 준비'에서 첫 배포 대신 이것부터 한다), `docker compose ... stop backend`
   2. `docker compose ... exec -T postgres sh -c 'dropdb -U "$POSTGRES_USER" "$POSTGRES_DB" && createdb -U "$POSTGRES_USER" "$POSTGRES_DB"'` (새 서버에서는 backend가 Flyway로 만든 빈 스키마가 있을 수 있어 항상 다시 만든다)
   3. `docker compose ... exec -T postgres sh -c 'pg_restore -U "$POSTGRES_USER" -d "$POSTGRES_DB" --no-owner --exit-on-error' < ~/restore.dump`. 실패하면 DB가 일부만 복구된 상태이므로 원인(오류 줄)을 고친 뒤 2부터 다시 한다. 받은 파일이 깨졌으면 그 전날 백업을 받는다.
@@ -209,7 +209,7 @@ nginx 이미지는 `nginx:1-alpine`(12-7과 같은 메이저 태그 원칙). `in
 - 머지 전에는 기능 브랜치로 확인한다: OCI 설정 뒤 서버에서 `git fetch -q origin && git checkout -q --detach origin/chore/#111-db-backup`(구현 세션이 push하면 다시 실행). 추가된 것은 profile 서비스와 스크립트뿐이라 실행 중인 서비스는 바뀌지 않는다. 그사이 main 배포가 있으면 서버가 main 커밋으로 돌아가 cron이 스크립트를 찾지 못하므로 다시 체크아웃한다. 머지 뒤 main 배포가 main 커밋으로 맞춘다.
 - 인증: `docker compose -f infra/docker-compose.prod.yml run --rm -T backup os ns get`이 네임스페이스를 출력한다. 컨테이너에서 인스턴스 메타데이터(`169.254.169.254`)에 닿지 못해 실패하면 구현을 멈추고 이슈에 설계 질문으로 남긴다.
 - 백업: `bash infra/backup/backup.sh`가 종료 코드 0과 `백업 완료` 줄을 출력하고, `os object list`(위)에 그 이름이 있다. 서버 `/tmp`에 덤프 임시 파일이 남지 않는다.
-- 권한: 그 객체에 `run --rm -T backup os object delete --bucket-name blog-backup --name <이름> --force`가 실패하고(`NotAuthorizedOrNotFound`) 객체가 남아 있다.
+- 권한: 그 객체에 `run --rm -T backup os object delete --bucket-name blog-backup --name <이름> --force`가 `BucketNotFound`(HTTP 404)로 실패하고 객체가 남아 있다. 버킷이 있는데 이 오류가 나므로 권한 거부를 뜻한다 (Object Storage는 권한이 없을 때 버킷이 없다는 404를 돌려준다).
 - 예약: crontab 등록 다음 날 `os object list`에 `time-created`가 그날 18:30 UTC 무렵인 객체가 있고 `~/backup.log`에 `백업 완료` 줄이 있다.
 - 보관: OCI Cloud Shell에서 `oci os object-lifecycle-policy get --bucket-name blog-backup`의 규칙이 `action: DELETE`, `time-amount: 14`, `time-unit: DAYS`, `is-enabled: true`다 (서버 권한에는 정책 조회가 없다). 실제 삭제는 14일 뒤라 이슈 범위에서는 설정으로 확인한다.
 - 실패 처리(로컬): `infra/.env`에 `POSTGRES_PASSWORD`를 두고 운영 compose의 postgres만 띄운 뒤(`up -d postgres`) 스크립트를 실행하면, 인스턴스 주체를 얻지 못해 업로드가 실패해 `백업 실패` 줄과 0이 아닌 종료 코드로 끝나고 임시 파일이 남지 않는다.
