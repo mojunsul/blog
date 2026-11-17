@@ -96,7 +96,60 @@ class PostControllerTest {
 
 		// then
 		result.andExpect(status().isOk());
-		then(postService).should().getPublishedPosts(new PostSearchRequest(page, size));
+		then(postService).should().getPublishedPosts(new PostSearchRequest(page, size, null, null, null));
+	}
+
+	@ParameterizedTest
+	@CsvSource(delimiter = '|', nullValues = "null", value = {"category=|null|null|null", "tag=%20|null|null|null",
+		"q=%20|null|null|null", "tag=%20Spring%20|null|spring|null", "q=%20spring%20|null|null|spring",
+		"category=%20backend%20|backend|null|null", "q=a&q=b|null|null|a,b", "tag=a&tag=b|null|a,b|null",
+		"q=&q=b|null|null|,b"})
+	void 필터_쿼리는_정리된_값으로_Service에_전달한다(String query, String category, String tag, String q) throws Exception {
+		// given
+		given(postService.getPublishedPosts(any())).willReturn(new PageResponse<>(List.of(), 0, 10, 0, 0, false));
+
+		// when
+		ResultActions result = mockMvc.perform(get(URI.create("/api/v1/posts?" + query)));
+
+		// then
+		result.andExpect(status().isOk());
+		then(postService).should().getPublishedPosts(new PostSearchRequest(null, null, category, tag, q));
+	}
+
+	@Test
+	void q가_정리_후_100자_이하이면_통과한다() throws Exception {
+		// given
+		given(postService.getPublishedPosts(any())).willReturn(new PageResponse<>(List.of(), 0, 10, 0, 0, false));
+
+		// when & then
+		mockMvc.perform(get(URI.create("/api/v1/posts?q=" + "a".repeat(100))))
+			.andExpect(status().isOk());
+		mockMvc.perform(get(URI.create("/api/v1/posts?q=%20" + "a".repeat(100) + "%20")))
+			.andExpect(status().isOk());
+	}
+
+	@Test
+	void q가_정리_후_100자를_넘으면_400으로_응답한다() throws Exception {
+		// when & then
+		mockMvc.perform(get(URI.create("/api/v1/posts?q=" + "a".repeat(101))))
+			.andExpect(status().isBadRequest())
+			.andExpect(jsonPath("$.code").value("INVALID_INPUT"))
+			.andExpect(jsonPath("$.errors[0].field").value("q"))
+			.andExpect(jsonPath("$.errors[0].reason").value("검색어는 100자 이하여야 합니다"));
+	}
+
+	@Test
+	void 목록_응답은_tags를_배열로_직렬화한다() throws Exception {
+		// given
+		PostSummaryResponse post = new PostSummaryResponse(1L, "제목", "slug", null, null, null,
+			List.of("spring", "jwt"), Instant.parse("2026-10-11T01:00:00Z"));
+		given(postService.getPublishedPosts(any()))
+			.willReturn(new PageResponse<>(List.of(post), 0, 10, 1, 1, false));
+
+		// when & then
+		mockMvc.perform(get("/api/v1/posts"))
+			.andExpect(jsonPath("$.content[0].tags[0]").value("spring"))
+			.andExpect(jsonPath("$.content[0].tags[1]").value("jwt"));
 	}
 
 	@ParameterizedTest
