@@ -79,6 +79,12 @@ backend/src/test/java/io/github/mojunsul/blog/
 - Spring Data `Page`를 그대로 직렬화하지 않고 `PageResponse`로 변환해서 반환한다.
 - 목록·검색 API의 쿼리 파라미터는 검증 어노테이션을 붙인 요청 record(`@Valid @ModelAttribute`, 예: `PostSearchRequest`)로 받는다. 컨트롤러에서 `Pageable`을 직접 받지 않는다 (임의 `sort` 노출 방지, M4 검색 조건 확장).
 - 목록 정렬은 Repository 쿼리에 고정해 Repository 테스트로 검증한다.
+- **QueryDSL**: 조건이 동적으로 붙는 조회만 쓴다 (M4 공개 글 검색, 8-1). 고정 조건은 Spring Data 파생 쿼리·JPQL로 둔다.
+  - `global/config/QuerydslConfig`가 `JPAQueryFactory(EntityManager)` 빈을 등록한다.
+  - QueryDSL 쿼리는 Spring Data 인터페이스에 붙이는 사용자 정의 구현(`PostRepositoryCustom`·`Impl`)이 아니라 별도 `@Repository` 클래스(`PostQueryRepository`)에 두고, 서비스가 `PostRepository`와 함께 주입받는다. 파생 쿼리와 섞이지 않아 어느 쿼리가 QueryDSL인지 클래스로 드러나고, 국내 실무에서도 흔한 방식이다.
+  - 조건 메서드는 값이 `null`이면 `null`을 돌려주는 `BooleanExpression` private 메서드로 나누고 `where(...)`에 나열한다 (QueryDSL이 `null` 조건을 무시한다).
+  - 페이지 조회는 목록 쿼리와 count 쿼리를 따로 만들고 `PageableExecutionUtils.getPage`로 묶는다 (deprecated된 `fetchResults`를 쓰지 않는다. 첫 페이지 글 수가 `size`보다 적으면 count를 생략한다). count 쿼리에는 fetch join을 걸지 않는다.
+  - Repository 테스트: `RepositoryTestSupport`가 `QuerydslConfig`를 `@Import`한다 (`@DataJpaTest` 슬라이스에 포함되지 않는다). `PostQueryRepository`는 JPA Repository 인터페이스가 아니라 슬라이스가 만들지 않으므로, 그 테스트 클래스가 `@Import(PostQueryRepository.class)`한다.
 - **로컬 시드 데이터**: `LocalDataInitializer`(`@Profile("local")`, `ApplicationRunner`)가 엔티티와 Repository로 저장한다. 글이 하나라도 있으면 아무것도 하지 않는다. Flyway 마이그레이션에는 스키마만 둔다 (시드를 SQL로 두면 엔티티·스키마 변경을 따라가지 못하고, 버전 번호가 실제 마이그레이션과 충돌한다).
 - **테스트 프로필**: DB를 쓰는 테스트는 Support 클래스의 `@ActiveProfiles("test")`로 `test` 프로필에서 실행한다 (`spring.profiles.default: local` 때문에 프로필을 지정하지 않으면 local 설정과 시드가 테스트에 섞인다).
   - 테스트 프로필은 `test` 하나로 둔다. 특정 테스트만 설정이 달라야 하면 프로필을 바꾸지 않고 `@SpringBootTest(properties = ...)`로 그 값만 바꾼다.

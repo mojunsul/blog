@@ -182,3 +182,9 @@
   - 저장은 글 저장 뒤 `findAllByNameIn`으로 있는 태그를 읽고 없는 것만 생성, 수정은 `deleteAllByPostId` 벌크 삭제 후 다시 연결(전체 교체), 연결이 없어진 태그는 남김, 동시 생성·삭제 경합은 `500`으로 받아들임
   - 관리자 단건·수정 응답 `tags`를 `findAllWithTagByPostIdIn`으로 채움, 태그 정규화 호출 위치를 서비스에서 `PostRequest` 생성자로 옮김(5장)
   - `tags` 검증 메시지 4종 확정(8-4), 태그만 바꾼 `PUT`은 `updatedAt` 유지(8-4), 태그 입력 전 폼 저장 시 태그 연결이 지워지는 과도기 동작 명시·태그 Zod는 태그 입력과 함께 추가(6장, 8-4, 11장 `postSchema` 머리말·디렉터리 주석도 tags 제외로 맞춤)
+- **v2.33**
+  - 공개 글 목록 필터(8-1): `category`(slug 정확히 같음)·`tag`(`Tag.normalize`)·`q`(제목·본문, 대소문자 무시, `%`·`_` 일반 문자) AND 조합, `PostSearchRequest` 생성자에서 `strip`·빈 값 `null`, `q` 100자 초과 `400`, 없는 카테고리·태그는 `200` 빈 목록, 같은 키 여러 개는 쉼표로 이어진 값
+  - 조회는 `PostQueryRepository.searchPublished`(QueryDSL)로 옮기고 파생 쿼리 `findAllByStatusOrderByPublishedAtDescIdDesc` 삭제, 태그 필터는 `exists` 서브쿼리, 전문 검색 인덱스는 쓰지 않음 (8-1)
+  - 공개 목록·상세 응답 `tags`를 `findAllWithTagByPostIdIn`으로 채움 (8-1)
+  - QueryDSL 사용 규칙: `QuerydslConfig`, 별도 `@Repository` 클래스, `null` 조건 `BooleanExpression`, count 쿼리 분리(`PageableExecutionUtils`), Repository 테스트 `@Import` (5장)
+  - 관리자 글 목록은 M4에도 파생 쿼리 유지 (8-4)
