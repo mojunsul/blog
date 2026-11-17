@@ -218,7 +218,14 @@ Location: /api/v1/admin/posts/12
 - **`categoryId`**: 값이 있으면 `CategoryRepository.findById`로 조회하고 없으면(`0`·음수 포함) `404` `CATEGORY_NOT_FOUND`다 (경로 `id`와 같은 방침: 값 범위는 검사하지 않고 없는 id로 본다).
 - **태그 처리** (`tags`)
   - **정규화와 중복 제거는 `PostRequest` 생성자에서 한다.** `null` 목록은 `List.of()`로 바꾸고, `null`이 아닌 항목은 `Tag.normalize`(5장)를 거친 뒤 `distinct()`로 중복을 지운다 (처음 나온 순서 유지, `null` 항목은 하나만 남아 `@NotBlank`에 걸린다). 검증이 저장될 값을 보게 하려는 것이다 (`title`의 `strip()`과 같은 이유): 개수는 중복을 지운 뒤 세어 `["Spring", "spring"]`은 1개이고, 길이·패턴은 소문자로 바꾼 값으로 검사해 `toLowerCase`로 모양이 바뀌는 문자(`İ` → `i̇`)도 저장 전에 거절된다. 길이는 Java 문자(UTF-16) 수로 센다 (`content`와 같은 이유로 컬럼을 넘지 않는다).
-  - `errors`의 `field`는 개수 위반이면 `tags`, 항목 위반이면 `tags[i]`다. `i`는 정규화·중복 제거 **후** 목록의 위치라 보낸 배열의 위치와 다를 수 있다 (프론트 Zod가 같은 규칙으로 먼저 거르므로 직접 요청에서만 나온다, 6장). 한 항목이 여러 규칙을 어기면(`" "`은 필수와 패턴) 같은 `field`로 여러 개 나온다.
+  - `errors`의 `field`는 개수 위반이면 `tags`, 항목 위반이면 `tags[i]`다. `i`는 정규화·중복 제거 **후** 목록의 위치라 보낸 배열의 위치와 다를 수 있다 (태그 입력이 생기면 프론트 Zod가 같은 규칙으로 먼저 걸러 직접 요청에서만 나온다, 11장 '관리자 글 작성·수정'). 한 항목이 여러 규칙을 어기면(`" "`은 필수와 패턴) 같은 `field`로 여러 개 나온다.
+  - `errors[].reason` 메시지 (프론트 Zod도 같은 문구를 쓴다, 11장 `postSchema`)
+    | 규칙 | 메시지 |
+    |---|---|
+    | 10개 초과 (`field` `tags`) | "태그는 10개 이하여야 합니다" |
+    | 항목 필수 | "빈 태그는 쓸 수 없습니다" |
+    | 항목 50자 초과 | "태그는 50자 이하여야 합니다" |
+    | 항목 패턴 위반 | "태그는 문자·숫자·하이픈만 쓸 수 있습니다" |
   - **허용 문자를 문자·숫자·하이픈으로 제한하는 이유**: 태그 이름이 `/tags/{name}` 경로(11장)와 `?tag=` 쿼리에 그대로 들어간다. `/`(`%2F`, Tomcat 거절)·`;`(Security 방화벽 거절, 10-5)는 그 주소가 열리지 않고, 공백·`.`·`+`·`#`은 인코딩된 주소가 지저분해지거나 경로 처리를 따로 확인해야 한다. 그래서 slug처럼 하이픈으로 잇는다(`node-js`, `cpp`). 한글 태그는 `\p{L}`로 받는다.
   - **저장 (작성·수정 공통)**: 글을 저장해 slug 중복(`409`)을 먼저 가린 뒤 태그를 연결한다 (작성은 `saveAndFlush`로 `id`를 받은 뒤, 수정은 `flush` 뒤). `TagRepository.findAllByNameIn(names)`로 있는 태그를 읽고, 없는 이름만 `Tag`로 만들어 `TagRepository.saveAll`한 뒤, 전부 `PostTag`로 만들어 `PostTagRepository.saveAll`한다 (5장). `tags`가 비어 있으면 조회·저장을 하지 않는다.
   - **수정은 연결을 전체 교체한다**: 위 연결 전에 `PostTagRepository.deleteAllByPostId(postId)`(`@Modifying` JPQL `delete from PostTag pt where pt.post.id = :postId`, 반환 `void`)로 그 글의 연결을 모두 지운다. 바뀐 태그만 골라 고치지 않는 이유: 글당 최대 10행이라 지우고 다시 넣어도 비용이 작고, 비교 분기가 없다. 수정은 `PostTag`를 영속성 컨텍스트로 읽지 않으므로 벌크 삭제 뒤 같은 키를 다시 저장해도 충돌하지 않는다 (`clearAutomatically`를 쓰지 않는다. 쓰면 이미 읽은 `Post`가 분리된다).
@@ -311,7 +318,7 @@ GET /api/v1/admin/posts?page=0&size=10&status=DRAFT
 - 본문은 작성과 같은 `PostRequest` (전체 교체, 7장). `200` + 수정된 `AdminPostDetailResponse` (단건 조회 응답과 같은 DTO).
 - 보낸 값으로 `title`, `slug`, `summary`, `content`, `thumbnailUrl`, `category`, `status`, `tags`를 모두 바꾼다. `summary`·`thumbnailUrl`·`categoryId`를 생략하거나 `null`로 보내면 그 값이 지워지고(카테고리 없는 글), `tags`를 생략하거나 `null`·`[]`로 보내면 연결이 모두 지워진다 (POST '태그 처리'). 응답의 `tags`는 단건 조회와 같은 쿼리로 다시 읽는다 (DB 정렬 순서를 그대로 쓰려고 요청 값을 정렬해 내려주지 않는다).
 - **slug 변경을 허용한다.** 자기 자신과 같은 slug로 보내는 것은 중복이 아니다 (다른 값만 바꾸는 경우). 다른 글이 쓰는 slug면 `409` (`DUPLICATE_SLUG`). PUBLISHED 글의 slug를 바꾸면 기존 `/posts/{slug}` 주소는 곧바로 `404`가 된다 (리다이렉트·이전 slug 보관 없음, 카테고리 slug와 같다. 개인 블로그라 외부 링크가 거의 없다). 바꿀 때의 확인 창은 11장 '관리자 글 작성·수정'.
-- 같은 내용으로 `PUT`하면 변경 감지에 걸리지 않아 `updatedAt`도 그대로다.
+- 같은 내용으로 `PUT`하면 변경 감지에 걸리지 않아 `updatedAt`도 그대로다. `updatedAt`은 `post` 행 컬럼이 바뀐 시각이라, 태그만 바꾼 `PUT`도 `updatedAt`이 그대로다 (`post_tag`만 바뀐다). 태그 구성이 바뀌었을 때 갱신하려면 이전 태그와 비교하는 분기가 생기고(위 '수정은 연결을 전체 교체한다'의 이유와 어긋난다), 관리자 목록의 수정일(11장 '관리자 글 목록')도 글 행의 수정 시각으로 보고 태그 변경은 반영하지 않는다. 테스트로 따로 고정하지 않는다 (이 동작을 만드는 코드가 없고 `@LastModifiedDate` 기본 동작이다).
 - 없는 `id`: `404` (`POST_NOT_FOUND`). 본문의 `categoryId`가 없는 카테고리면 `404` (`CATEGORY_NOT_FOUND`).
 
 #### DELETE `/api/v1/admin/posts/{id}`
