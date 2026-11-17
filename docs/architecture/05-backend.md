@@ -27,7 +27,9 @@ backend/src/main/java/io/github/mojunsul/blog/
    │  ├ repository/   # CategoryRepository
    │  ├ entity/       # Category
    │  └ dto/          # CategoryRequest, CategoryResponse, AdminCategoryResponse
-   ├ tag/             # Tag, PostTag
+   ├ tag/
+   │  ├ repository/   # TagRepository, PostTagRepository
+   │  └ entity/       # Tag, PostTag, PostTagId
    └ auth/            # AuthController, AuthService, Admin·AdminRepository, RefreshToken·RefreshTokenRepository,
                       # scheduler/RefreshTokenCleaner (@Scheduled)
 
@@ -55,6 +57,12 @@ backend/src/test/java/io/github/mojunsul/blog/
 - 엔티티를 API 응답으로 직접 반환하지 않는다. 요청·응답 DTO는 Java `record`로 작성한다.
 - 예외는 `BusinessException(ErrorCode)`로 던지고 `GlobalExceptionHandler`가 ProblemDetail 형식으로 변환한다 (9장).
 - `@ManyToMany`를 쓰지 않고 연결 엔티티(`PostTag`)로 매핑한다.
+  - `Tag`는 `id`, `name`만 있다 (`tag` 테이블에 시각 컬럼이 없어 `BaseTimeEntity`를 상속하지 않는다). 이름을 바꾸는 메서드는 두지 않는다.
+  - **태그 이름 정규화는 `Tag.normalize(String)`(static) 한 곳에서 한다**: `strip()` 후 `toLowerCase(Locale.ROOT)`. `Tag` 생성자도 이 메서드를 거친 값을 저장해 정규화되지 않은 이름이 DB에 들어갈 수 없게 하고, 서비스는 중복 제거와 기존 태그 조회 전에 같은 메서드를 호출한다. 규칙이 서비스 여러 곳(작성·수정, 검색 필터)에 흩어지지 않게 엔티티에 둔다. `Locale.ROOT`는 서버 기본 로케일이 터키어면 `I`가 `ı`로 바뀌는 것을 막는다.
+  - `PostTag`는 복합 키 `@EmbeddedId PostTagId(postId, tagId)`와 `@MapsId`를 붙인 `@ManyToOne(fetch = LAZY)` `post`·`tag`로 매핑한다 (`post_tag`에 대리 키가 없다). `PostTagId`는 `@Embeddable` 클래스(`Serializable`, `equals`·`hashCode`)다. 생성자는 저장된(`id`가 있는) `Post`·`Tag`를 받아 키를 채운다.
+  - 단방향으로 둔다: `Post`에 `@OneToMany postTags` 컬렉션을 두지 않는다. 글 목록이 페이지 쿼리라 컬렉션 fetch join을 쓸 수 없고, 글 삭제는 DB FK가 `post_tag`를 지우므로(8-4 글 삭제) `Post`가 연결을 알 필요가 없다.
+  - `PostTag` 저장은 `PostTagRepository.saveAll`로 한다. 키를 직접 채운 엔티티라 Spring Data가 새 엔티티로 보지 않고 `merge`해 행마다 SELECT가 한 번 더 나간다. 글당 최대 10개(6장)라 받아들이고 `Persistable`을 구현하지 않는다.
+  - **글 응답의 `tags`는 글을 먼저 조회한 뒤 `PostTagRepository.findAllWithTagByPostIdIn(postIds)` 한 번으로 채운다** (`select pt from PostTag pt join fetch pt.tag t where pt.post.id in :postIds order by t.name`). 목록은 그 페이지 글들의 `id`, 상세는 `List.of(id)`를 넘겨 글 수와 무관하게 쿼리가 하나 더 나간다. 서비스가 결과를 `postId`별로 묶어(`groupingBy`, 쿼리 순서 유지) 응답을 만들고, 태그가 없는 글은 `[]`다. 정렬은 8-1 `tags` 순서. 빈 목록을 넘기면 Hibernate가 `in`을 거짓 조건(`1=0`)으로 바꿔 빈 결과가 나온다 (Hibernate 7.4에서 확인). `default_batch_fetch_size`를 쓰지 않는 이유는 `Post`에 컬렉션이 필요해서다(위 단방향).
 - 시간 타입은 엔티티에서 `Instant`를 사용하고, 테스트 가능하도록 `Clock` 빈을 주입받는다.
 - 검증은 프론트(Zod)와 무관하게 **서버에서 반드시 다시 한다** (`@Valid` + Bean Validation).
 - Actuator는 `health`만 노출한다. Swagger는 `local` 프로필에서만 활성화한다.

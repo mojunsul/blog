@@ -174,3 +174,6 @@
   - 구현 중 발견 반영: 서버 `ubuntu`가 uid 1001이라 이미지 사용자 `oracle`(uid 1000)이 600 임시 파일을 읽지 못해, 업로드 `run`에 `--user "$(id -u):$(id -g)"`를 추가(644·표준 입력 업로드는 택하지 않은 이유 함께, 12-5)
   - 구현 중 발견 반영: 서버 권한으로 `os object delete`를 하면 `NotAuthorizedOrNotFound`가 아니라 `BucketNotFound`(404)로 실패해, '확인 방법' 권한 항목을 실제 값과 권한 거부라는 해석으로 고치고 새 서버 복구 0단계는 특정 코드 하나에 기대지 않게 고침(12-5)
   - 설계 검증 반영: 새 서버 복구 0단계의 대기 조건을 권한 없이도 성공하는 `os ns get`에서 `OBJECT_INSPECT`가 필요한 `os object list`로 바꿔 '받기'의 목록 조회와 합침, README 0단계·인증 확인 문구도 맞춤(12-5)
+- **v2.31**
+  - 태그 엔티티(5장): `Tag`·`PostTag`(`@EmbeddedId PostTagId` + `@MapsId`, 단방향) 패키지와 매핑, 정규화를 `Tag.normalize`(`strip` + `toLowerCase(Locale.ROOT)`) 한 곳에 두고 생성자도 거침, `PostTag` 저장 시 `merge` SELECT를 받아들임
+  - 글 응답 `tags`를 `PostTagRepository.findAllWithTagByPostIdIn` 한 번(fetch join)으로 채워 N+1 방지, `tags`는 이름 오름차순(8-1)
