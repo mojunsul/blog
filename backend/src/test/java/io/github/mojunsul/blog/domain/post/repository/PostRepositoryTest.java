@@ -16,8 +16,13 @@ import io.github.mojunsul.blog.domain.category.entity.Category;
 import io.github.mojunsul.blog.domain.category.repository.CategoryRepository;
 import io.github.mojunsul.blog.domain.post.entity.Post;
 import io.github.mojunsul.blog.domain.post.entity.PostStatus;
+import io.github.mojunsul.blog.domain.tag.entity.Tag;
+import io.github.mojunsul.blog.domain.tag.repository.PostTagRepository;
+import io.github.mojunsul.blog.domain.tag.repository.TagRepository;
 import io.github.mojunsul.blog.fixture.CategoryFixture;
 import io.github.mojunsul.blog.fixture.PostFixture;
+import io.github.mojunsul.blog.fixture.PostTagFixture;
+import io.github.mojunsul.blog.fixture.TagFixture;
 import io.github.mojunsul.blog.support.RepositoryTestSupport;
 import jakarta.persistence.EntityManager;
 
@@ -28,6 +33,12 @@ class PostRepositoryTest extends RepositoryTestSupport {
 
 	@Autowired
 	CategoryRepository categoryRepository;
+
+	@Autowired
+	TagRepository tagRepository;
+
+	@Autowired
+	PostTagRepository postTagRepository;
 
 	@Autowired
 	EntityManager em;
@@ -185,5 +196,22 @@ class PostRepositoryTest extends RepositoryTestSupport {
 		// when & then
 		assertThat(postRepository.deleteByIdReturningCount(post.getId())).isEqualTo(1);
 		assertThat(postRepository.deleteByIdReturningCount(post.getId())).isZero();
+	}
+
+	@Test
+	void 글을_지우면_post_tag_행도_지워지고_태그는_남는다() {
+		// given
+		Post post = postRepository.save(PostFixture.draft("post"));
+		Tag tag = tagRepository.save(TagFixture.tag("jpa"));
+		postTagRepository.saveAndFlush(PostTagFixture.postTag(post, tag));
+		em.clear();
+
+		// when
+		postRepository.deleteByIdReturningCount(post.getId());
+		em.clear();
+
+		// then
+		assertThat(postTagRepository.findAll()).isEmpty();
+		assertThat(tagRepository.findAll()).hasSize(1);
 	}
 }

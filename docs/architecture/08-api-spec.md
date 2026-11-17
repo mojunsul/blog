@@ -41,6 +41,7 @@ GET /api/v1/posts?page=0&size=10&tag=spring
 - 정렬: `publishedAt` 내림차순, 같으면 `id` 내림차순 (발행 시각이 같은 글이 페이지 사이에서 중복·누락되지 않도록).
 - 카테고리가 없는 글은 `"category": null`.
 - `category`, `tag`, `q` 필터와 `tags` 값은 M4에서 구현한다. 그 전까지 `tags`는 항상 `[]`.
+- `tags` 순서는 태그 이름 오름차순이다 (상세·관리자 상세도 같다). 연결 순서를 저장하는 컬럼이 없어 입력 순서는 보존하지 않는다.
 
 #### GET `/api/v1/posts/{slug}`
 `200 OK`
