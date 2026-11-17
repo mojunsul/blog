@@ -74,4 +74,23 @@ class PostTagRepositoryTest extends RepositoryTestSupport {
 		// when & then
 		assertThat(postTagRepository.findAllWithTagByPostIdIn(List.of())).isEmpty();
 	}
+
+	@Test
+	void 글의_연결만_지우고_다른_글의_연결과_태그는_남긴다() {
+		// given
+		Post post = postRepository.save(PostFixture.draft("post"));
+		Post other = postRepository.save(PostFixture.draft("other"));
+		Tag spring = tagRepository.save(TagFixture.tag("spring"));
+		postTagRepository.saveAll(List.of(PostTagFixture.postTag(post, spring), PostTagFixture.postTag(other, spring)));
+		em.flush();
+		em.clear();
+
+		// when
+		postTagRepository.deleteAllByPostId(post.getId());
+
+		// then
+		assertThat(postTagRepository.findAllWithTagByPostIdIn(List.of(post.getId()))).isEmpty();
+		assertThat(postTagRepository.findAllWithTagByPostIdIn(List.of(other.getId()))).hasSize(1);
+		assertThat(tagRepository.findAll()).hasSize(1);
+	}
 }

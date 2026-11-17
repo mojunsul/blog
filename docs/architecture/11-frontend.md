@@ -55,7 +55,7 @@ frontend/src/
 │  └ utils.ts
 ├ schemas/
 │  ├ auth.ts        # loginSchema - 서버 검증 규칙과 동일
-│  ├ post.ts        # postSchema - 서버 검증 규칙과 동일
+│  ├ post.ts        # postSchema - 서버 검증 규칙과 동일 (tags 제외)
 │  └ category.ts    # categorySchema - 서버 검증 규칙과 동일
 ├ types/
 │  └ api.d.ts       # openapi-typescript 생성 파일 (직접 수정 금지)
@@ -248,10 +248,10 @@ CI에서 프론트 이미지를 빌드할 때는 백엔드가 없다. `next buil
 | 썸네일 URL | `input` | `thumbnailUrl`, `null`이면 `""` |
 | 본문 | "작성"·"미리보기" 전환 버튼과 `textarea` | `content` |
 - 불러온 글의 `categoryId`가 카테고리 목록에 없으면(두 요청 사이에 카테고리가 삭제됨) 위 초기값 규칙으로 `""`이 되어 선택이 "카테고리 없음"으로 보이고, 그대로 저장하면 카테고리 없는 글이 된다. 목록에 없는 id를 그대로 두지 않는 이유: 맞는 `option`이 없는 `select`는 빈 칸으로 보이고, 저장하면 그 id가 전송되어 `404 CATEGORY_NOT_FOUND`가 된다. 카테고리 삭제가 글의 카테고리를 `NULL`로 만드므로(6장) 결과가 같아 따로 다루지 않는다.
-- 태그 입력은 두지 않는다. M2의 `PostRequest`에 `tags`가 없다 (8-4, M4에서 추가).
+- 태그 입력은 M4 글 작성·수정 화면 태그 입력에서 추가한다 (`postSchema`의 태그 규칙도 그때 더한다). 그 전까지 폼은 `tags`를 보내지 않아, 수정 폼으로 저장하면 그 글의 태그 연결이 모두 지워진다 (8-4 `PUT`). 관리자 1명이 태그 입력 전까지 API로 태그를 붙이지 않으면 생기지 않는 과도기 동작이라 따로 막지 않는다.
 - 폼 아래 "저장" 버튼 하나. 저장할 상태는 위 라디오가 정한다.
 
-**`postSchema`** (`schemas/post.ts`, Zod) — 서버 규칙(8-4 `PostRequest`)과 같고, 메시지도 서버의 검증 메시지와 같다
+**`postSchema`** (`schemas/post.ts`, Zod) — 서버 규칙(8-4 `PostRequest`)과 같고(`tags`는 제외, 위 태그 입력 항목), 메시지도 서버의 검증 메시지와 같다
 | 필드 | 규칙 | 메시지 |
 |---|---|---|
 | title | 앞뒤 공백 제거(`.trim()`) 후 1~200자, 제어 문자 금지(`/^\P{Cc}+$/u`) | "제목을 입력하세요", "제목은 200자 이하여야 합니다", "제목에 제어 문자를 쓸 수 없습니다" |

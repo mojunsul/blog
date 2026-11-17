@@ -58,7 +58,7 @@ backend/src/test/java/io/github/mojunsul/blog/
 - 예외는 `BusinessException(ErrorCode)`로 던지고 `GlobalExceptionHandler`가 ProblemDetail 형식으로 변환한다 (9장).
 - `@ManyToMany`를 쓰지 않고 연결 엔티티(`PostTag`)로 매핑한다.
   - `Tag`는 `id`, `name`만 있다 (`tag` 테이블에 시각 컬럼이 없어 `BaseTimeEntity`를 상속하지 않는다). 이름을 바꾸는 메서드는 두지 않는다.
-  - **태그 이름 정규화는 `Tag.normalize(String)`(static) 한 곳에서 한다**: `strip()` 후 `toLowerCase(Locale.ROOT)`. `Tag` 생성자도 이 메서드를 거친 값을 저장해 정규화되지 않은 이름이 DB에 들어갈 수 없게 하고, 서비스는 중복 제거와 기존 태그 조회 전에 같은 메서드를 호출한다. 규칙이 서비스 여러 곳(작성·수정, 검색 필터)에 흩어지지 않게 엔티티에 둔다. `Locale.ROOT`는 서버 기본 로케일이 터키어면 `I`가 `ı`로 바뀌는 것을 막는다.
+  - **태그 이름 정규화는 `Tag.normalize(String)`(static) 한 곳에서 한다**: `strip()` 후 `toLowerCase(Locale.ROOT)`. `Tag` 생성자도 이 메서드를 거친 값을 저장해 정규화되지 않은 이름이 DB에 들어갈 수 없게 하고, 글 요청은 `PostRequest` 생성자가 이 메서드로 정규화한 뒤 중복을 지운다 (8-4 글 작성 '태그 처리'). 규칙이 서비스 여러 곳(작성·수정, 검색 필터)에 흩어지지 않게 엔티티에 둔다. `Locale.ROOT`는 서버 기본 로케일이 터키어면 `I`가 `ı`로 바뀌는 것을 막는다.
   - `PostTag`는 복합 키 `@EmbeddedId PostTagId(postId, tagId)`와 `@MapsId`를 붙인 `@ManyToOne(fetch = LAZY)` `post`·`tag`로 매핑한다 (`post_tag`에 대리 키가 없다). `PostTagId`는 `@Embeddable` 클래스(`Serializable`, `equals`·`hashCode`)다. 생성자는 저장된(`id`가 있는) `Post`·`Tag`를 받아 키를 채운다.
   - 단방향으로 둔다: `Post`에 `@OneToMany postTags` 컬렉션을 두지 않는다. 글 목록이 페이지 쿼리라 컬렉션 fetch join을 쓸 수 없고, 글 삭제는 DB FK가 `post_tag`를 지우므로(8-4 글 삭제) `Post`가 연결을 알 필요가 없다.
   - `PostTag` 저장은 `PostTagRepository.saveAll`로 한다. 키를 직접 채운 엔티티라 Spring Data가 새 엔티티로 보지 않고 `merge`해 행마다 SELECT가 한 번 더 나간다. 글당 최대 10개(6장)라 받아들이고 `Persistable`을 구현하지 않는다.
