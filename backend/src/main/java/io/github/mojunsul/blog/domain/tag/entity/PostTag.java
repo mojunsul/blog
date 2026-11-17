@@ -27,7 +27,7 @@ public class PostTag {
 	@ManyToOne(fetch = FetchType.LAZY, optional = false)
 	private Tag tag;
 
-	// 저장된(id가 있는) Post·Tag만 받는다. 키를 여기서 채운다.
+	// 저장된(id가 있는) Post·Tag만 받는다.
 	@Builder
 	private PostTag(Post post, Tag tag) {
 		this.id = new PostTagId(post.getId(), tag.getId());
