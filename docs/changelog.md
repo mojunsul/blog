@@ -177,3 +177,7 @@
 - **v2.31**
   - 태그 엔티티(5장): `Tag`·`PostTag`(`@EmbeddedId PostTagId` + `@MapsId`, 단방향) 패키지와 매핑, 정규화를 `Tag.normalize`(`strip` + `toLowerCase(Locale.ROOT)`) 한 곳에 두고 생성자도 거침, `PostTag` 저장 시 `merge` SELECT를 받아들임
   - 글 응답 `tags`를 `PostTagRepository.findAllWithTagByPostIdIn` 한 번(fetch join)으로 채워 N+1 방지, `tags`는 이름 오름차순(8-1)
+- **v2.32**
+  - 관리자 글 작성·수정 `tags`(8-4): `PostRequest` 생성자에서 `Tag.normalize`·중복 제거 후 검증(최대 10개, 항목 필수·50자·문자/숫자/하이픈 패턴, 6장), `errors` `field`는 `tags`·`tags[i]`(정규화 후 위치), 본문 형식(배열만, 항목 숫자·불리언은 문자열 변환)
+  - 저장은 글 저장 뒤 `findAllByNameIn`으로 있는 태그를 읽고 없는 것만 생성, 수정은 `deleteAllByPostId` 벌크 삭제 후 다시 연결(전체 교체), 연결이 없어진 태그는 남김, 동시 생성·삭제 경합은 `500`으로 받아들임
+  - 관리자 단건·수정 응답 `tags`를 `findAllWithTagByPostIdIn`으로 채움, 태그 정규화 호출 위치를 서비스에서 `PostRequest` 생성자로 옮김(5장)
