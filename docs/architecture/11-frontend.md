@@ -398,7 +398,7 @@ CI에서 프론트 이미지를 빌드할 때는 백엔드가 없다. `next buil
 - 구성: `page.tsx`는 `Suspense`(fallback은 짧은 로딩 문구)만 두고, 그 안의 비동기 컴포넌트가 `searchParams`를 읽어 `getPosts(page)`(`lib/api/posts.ts`, `'use cache'` + `cacheLife({ revalidate: 60 })`)를 호출한다. 캐시는 인자(`page`)별로 나뉜다.
 - `PostCard` 표시 항목: 제목(`/posts/{slug}` 링크), 요약(있을 때), 카테고리 이름(있을 때, 텍스트만. 카테고리 페이지는 M4), 발행일(`formatDate`).
   - 썸네일은 M1에서 표시하지 않는다 (업로드는 M6이고, 외부 URL은 `next/image` 허용 도메인 설정이 필요하다).
-  - 태그는 M4 전까지 항상 `[]`이므로 표시하지 않는다.
+  - 태그는 표시하지 않는다. 태그 표시(`TagBadge`)는 카테고리·태그 페이지 이슈(#122)에서 더한다.
 - 페이지 이동(`Pagination`): "이전"·"다음" 링크와 현재 위치(`2 / 3`)만 둔다. 링크 주소는 `pageHref(page)` prop으로 받는다 (이 페이지는 위의 `/`·`/?page=N` 규칙, 관리자 목록은 '관리자 글 목록'). "이전"은 `page > 1`, "다음"은 `hasNext`일 때 보이고, 전체가 한 페이지 이내면 영역을 숨긴다. 페이지 번호 목록은 글이 많아지면 검토한다.
 - 글이 하나도 없으면(첫 페이지 `content`가 빔) "아직 작성된 글이 없습니다." 문구를 보여 준다.
 - 레이아웃: `app/page.tsx`를 `app/(public)/page.tsx`로 옮기고, `(public)/layout.tsx`에 블로그 이름(`/` 링크) 헤더를 둔다. 푸터는 넣을 내용(RSS 링크 등)이 생기는 M5에서 추가한다.

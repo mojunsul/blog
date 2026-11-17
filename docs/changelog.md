@@ -188,3 +188,4 @@
   - 공개 목록·상세 응답 `tags`를 `findAllWithTagByPostIdIn`으로 채움 (8-1)
   - QueryDSL 사용 규칙: `QuerydslConfig`, 별도 `@Repository` 클래스, `null` 조건 `BooleanExpression`, count 쿼리 분리(`PageableExecutionUtils`), Repository 테스트 `@Import` (5장)
   - 관리자 글 목록은 M4에도 파생 쿼리 유지 (8-4)
+  - 공개 글 목록 `PostCard`의 태그 미표시 이유를 "항상 `[]`"에서 "`TagBadge`는 #122에서 더함"으로 수정 (11장 '글 목록 페이지')
