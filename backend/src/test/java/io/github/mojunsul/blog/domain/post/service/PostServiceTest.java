@@ -7,6 +7,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.BDDMockito.then;
 import static org.mockito.BDDMockito.willThrow;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.never;
 
 import java.sql.SQLException;
@@ -21,6 +22,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
+import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -39,8 +41,14 @@ import io.github.mojunsul.blog.domain.post.dto.PostRequest;
 import io.github.mojunsul.blog.domain.post.entity.Post;
 import io.github.mojunsul.blog.domain.post.entity.PostStatus;
 import io.github.mojunsul.blog.domain.post.repository.PostRepository;
+import io.github.mojunsul.blog.domain.tag.entity.PostTag;
+import io.github.mojunsul.blog.domain.tag.entity.Tag;
+import io.github.mojunsul.blog.domain.tag.repository.PostTagRepository;
+import io.github.mojunsul.blog.domain.tag.repository.TagRepository;
 import io.github.mojunsul.blog.fixture.CategoryFixture;
 import io.github.mojunsul.blog.fixture.PostFixture;
+import io.github.mojunsul.blog.fixture.PostTagFixture;
+import io.github.mojunsul.blog.fixture.TagFixture;
 import io.github.mojunsul.blog.global.common.PageResponse;
 import io.github.mojunsul.blog.global.exception.BusinessException;
 import io.github.mojunsul.blog.global.exception.ErrorCode;
@@ -56,17 +64,31 @@ class PostServiceTest {
 	@Mock
 	CategoryRepository categoryRepository;
 
+	@Mock
+	TagRepository tagRepository;
+
+	@Mock
+	PostTagRepository postTagRepository;
+
 	Clock clock = Clock.fixed(NOW, ZoneOffset.UTC);
 
 	PostService postService;
 
 	@BeforeEach
 	void setUp() {
-		postService = new PostService(postRepository, categoryRepository, clock);
+		postService = new PostService(postRepository, categoryRepository, tagRepository, postTagRepository, clock);
 	}
 
 	private static PostRequest request(PostStatus status, Long categoryId) {
-		return new PostRequest("제목", "slug", null, "본문", null, categoryId, status);
+		return new PostRequest("제목", "slug", null, "본문", null, categoryId, status, null);
+	}
+
+	private static PostRequest request(List<String> tags) {
+		return new PostRequest("제목", "slug", null, "본문", null, null, PostStatus.DRAFT, tags);
+	}
+
+	private static PostTag postTag(Post post, String name) {
+		return PostTagFixture.postTag(post, TagFixture.tag(name));
 	}
 
 	private static DataIntegrityViolationException violation(String constraint) {
@@ -151,6 +173,112 @@ class PostServiceTest {
 		assertThat(response.categoryId()).isNull();
 		assertThat(response.category()).isNull();
 		assertThat(response.tags()).isEmpty();
+	}
+
+	@Test
+	void 관리자_단건의_tags는_findAllWithTagByPostIdIn_결과의_태그_이름이다() {
+		// given
+		Post post = PostFixture.draft("draft");
+		given(postRepository.findWithCategoryById(1L)).willReturn(Optional.of(post));
+		given(postTagRepository.findAllWithTagByPostIdIn(List.of(1L)))
+			.willReturn(List.of(postTag(post, "jpa"), postTag(post, "spring")));
+
+		// when
+		AdminPostDetailResponse response = postService.getAdminPost(1L);
+
+		// then
+		assertThat(response.tags()).containsExactly("jpa", "spring");
+	}
+
+	@Test
+	void 작성에_tags가_있으면_있는_태그는_두고_없는_이름만_만들어_연결한다() {
+		// given
+		given(postRepository.saveAndFlush(any(Post.class))).willAnswer(i -> i.getArgument(0));
+		given(tagRepository.findAllByNameIn(List.of("spring", "jwt"))).willReturn(List.of(TagFixture.tag("spring")));
+
+		// when
+		postService.create(request(List.of("spring", "jwt")));
+
+		// then
+		ArgumentCaptor<List<Tag>> created = ArgumentCaptor.captor();
+		then(tagRepository).should().saveAll(created.capture());
+		assertThat(created.getValue()).extracting(Tag::getName).containsExactly("jwt");
+		ArgumentCaptor<List<PostTag>> linked = ArgumentCaptor.captor();
+		then(postTagRepository).should().saveAll(linked.capture());
+		assertThat(linked.getValue()).extracting(pt -> pt.getTag().getName()).containsExactlyInAnyOrder("spring",
+			"jwt");
+		then(postTagRepository).should(never()).deleteAllByPostId(any());
+	}
+
+	@Test
+	void 작성에_tags가_비면_태그를_조회하거나_저장하지_않는다() {
+		// given
+		given(postRepository.saveAndFlush(any(Post.class))).willAnswer(i -> i.getArgument(0));
+
+		// when
+		postService.create(request(List.of()));
+
+		// then
+		then(tagRepository).shouldHaveNoInteractions();
+		then(postTagRepository).shouldHaveNoInteractions();
+	}
+
+	@Test
+	void 작성_flush에서_slug_위반이_나면_태그를_연결하지_않는다() {
+		// given
+		given(postRepository.saveAndFlush(any(Post.class))).willThrow(violation("post_slug_key"));
+
+		// when & then
+		assertThatThrownBy(() -> postService.create(request(List.of("spring")))).isInstanceOf(BusinessException.class);
+		then(tagRepository).shouldHaveNoInteractions();
+	}
+
+	@Test
+	void 수정은_연결을_모두_지운_뒤_새_목록으로_다시_연결하고_응답_tags는_다시_읽는다() {
+		// given
+		Post post = PostFixture.draft("old");
+		given(postRepository.findWithCategoryById(1L)).willReturn(Optional.of(post));
+		given(tagRepository.findAllByNameIn(List.of("spring"))).willReturn(List.of(TagFixture.tag("spring")));
+		given(postTagRepository.findAllWithTagByPostIdIn(List.of(1L)))
+			.willReturn(List.of(postTag(post, "spring")));
+
+		// when
+		AdminPostDetailResponse response = postService.update(1L, request(List.of("spring")));
+
+		// then
+		InOrder inOrder = inOrder(postRepository, postTagRepository);
+		inOrder.verify(postRepository).flush();
+		inOrder.verify(postTagRepository).deleteAllByPostId(1L);
+		inOrder.verify(postTagRepository).saveAll(any());
+		inOrder.verify(postTagRepository).findAllWithTagByPostIdIn(List.of(1L));
+		assertThat(response.tags()).containsExactly("spring");
+	}
+
+	@Test
+	void 수정에_tags가_비면_연결만_지우고_태그는_조회하지_않는다() {
+		// given
+		given(postRepository.findWithCategoryById(1L)).willReturn(Optional.of(PostFixture.draft("old")));
+
+		// when
+		AdminPostDetailResponse response = postService.update(1L, request(List.of()));
+
+		// then
+		then(postTagRepository).should().deleteAllByPostId(1L);
+		then(postTagRepository).should(never()).saveAll(any());
+		then(tagRepository).shouldHaveNoInteractions();
+		assertThat(response.tags()).isEmpty();
+	}
+
+	@Test
+	void 수정_flush가_실패하면_연결을_지우지_않는다() {
+		// given
+		given(postRepository.findWithCategoryById(1L)).willReturn(Optional.of(PostFixture.draft("old")));
+		willThrow(violation("post_slug_key")).given(postRepository).flush();
+
+		// when & then
+		assertThatThrownBy(() -> postService.update(1L, request(List.of("spring"))))
+			.isInstanceOf(BusinessException.class);
+		then(postTagRepository).should(never()).deleteAllByPostId(any());
 	}
 
 	@Test

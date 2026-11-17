@@ -2,6 +2,10 @@ package io.github.mojunsul.blog.domain.post.service;
 
 import java.time.Clock;
 import java.time.Instant;
+import java.util.List;
+import java.util.Set;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 import org.hibernate.exception.ConstraintViolationException;
 import org.slf4j.Logger;
@@ -26,6 +30,10 @@ import io.github.mojunsul.blog.domain.post.dto.PostSummaryResponse;
 import io.github.mojunsul.blog.domain.post.entity.Post;
 import io.github.mojunsul.blog.domain.post.entity.PostStatus;
 import io.github.mojunsul.blog.domain.post.repository.PostRepository;
+import io.github.mojunsul.blog.domain.tag.entity.PostTag;
+import io.github.mojunsul.blog.domain.tag.entity.Tag;
+import io.github.mojunsul.blog.domain.tag.repository.PostTagRepository;
+import io.github.mojunsul.blog.domain.tag.repository.TagRepository;
 import io.github.mojunsul.blog.global.common.PageResponse;
 import io.github.mojunsul.blog.global.exception.BusinessException;
 import io.github.mojunsul.blog.global.exception.ErrorCode;
@@ -42,6 +50,8 @@ public class PostService {
 
 	private final PostRepository postRepository;
 	private final CategoryRepository categoryRepository;
+	private final TagRepository tagRepository;
+	private final PostTagRepository postTagRepository;
 	private final Clock clock;
 
 	@Transactional(readOnly = true)
@@ -70,7 +80,7 @@ public class PostService {
 	@Transactional(readOnly = true)
 	public AdminPostDetailResponse getAdminPost(Long id) {
 		return postRepository.findWithCategoryById(id)
-			.map(AdminPostDetailResponse::from)
+			.map(post -> AdminPostDetailResponse.from(post, findTagNames(id)))
 			.orElseThrow(() -> new BusinessException(ErrorCode.POST_NOT_FOUND));
 	}
 
@@ -92,6 +102,7 @@ public class PostService {
 		} catch (DataIntegrityViolationException e) {
 			throw translate(e);
 		}
+		linkTags(post, request.tags());
 		log.info("Post created: id={}, slug={}", post.getId(), post.getSlug());
 		return PostCreateResponse.from(post);
 	}
@@ -112,8 +123,11 @@ public class PostService {
 			// 조회 뒤 flush 전에 다른 요청이 지운 경우
 			throw new BusinessException(ErrorCode.POST_NOT_FOUND);
 		}
+		// 벌크 삭제라 영속성 컨텍스트의 PostTag와 무관하다. flush 뒤에 해야 slug 위반으로 실패한 수정이 연결을 지우지 않는다.
+		postTagRepository.deleteAllByPostId(id);
+		linkTags(post, request.tags());
 		log.info("Post updated: id={}, slug={}", id, post.getSlug());
-		return AdminPostDetailResponse.from(post);
+		return AdminPostDetailResponse.from(post, findTagNames(id));
 	}
 
 	@Transactional
@@ -122,6 +136,29 @@ public class PostService {
 			throw new BusinessException(ErrorCode.POST_NOT_FOUND);
 		}
 		log.info("Post deleted: id={}", id);
+	}
+
+	private void linkTags(Post post, List<String> names) {
+		if (names.isEmpty()) {
+			return;
+		}
+		List<Tag> tags = tagRepository.findAllByNameIn(names);
+		Set<String> existing = tags.stream().map(Tag::getName).collect(Collectors.toSet());
+		List<Tag> created = names.stream()
+			.filter(name -> !existing.contains(name))
+			.map(name -> Tag.builder().name(name).build())
+			.toList();
+		tagRepository.saveAll(created);
+		postTagRepository.saveAll(Stream.concat(tags.stream(), created.stream())
+			.map(tag -> PostTag.builder().post(post).tag(tag).build())
+			.toList());
+	}
+
+	private List<String> findTagNames(Long postId) {
+		return postTagRepository.findAllWithTagByPostIdIn(List.of(postId))
+			.stream()
+			.map(postTag -> postTag.getTag().getName())
+			.toList();
 	}
 
 	private Category findCategory(Long categoryId) {

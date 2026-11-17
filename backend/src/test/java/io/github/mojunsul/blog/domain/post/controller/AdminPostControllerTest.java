@@ -7,6 +7,7 @@ import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.BDDMockito.then;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -18,6 +19,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import java.net.URI;
 import java.time.Instant;
 import java.util.List;
+import java.util.stream.Collectors;
+import java.util.stream.IntStream;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -122,7 +125,7 @@ class AdminPostControllerTest {
 	void 글_단건을_수정용_필드와_함께_응답한다() throws Exception {
 		// given
 		AdminPostDetailResponse post = new AdminPostDetailResponse(12L, "제목", "my-post", null, "# 본문", null,
-			PostStatus.DRAFT, null, null, List.of(), null, Instant.parse("2026-10-10T12:00:00Z"),
+			PostStatus.DRAFT, null, null, List.of("jwt", "spring"), null, Instant.parse("2026-10-10T12:00:00Z"),
 			Instant.parse("2026-10-11T03:30:00Z"));
 		given(postService.getAdminPost(12L)).willReturn(post);
 
@@ -132,7 +135,8 @@ class AdminPostControllerTest {
 			.andExpect(jsonPath("$.status").value("DRAFT"))
 			.andExpect(jsonPath("$.categoryId").value(nullValue()))
 			.andExpect(jsonPath("$.category").value(nullValue()))
-			.andExpect(jsonPath("$.tags").isEmpty())
+			.andExpect(jsonPath("$.tags[0]").value("jwt"))
+			.andExpect(jsonPath("$.tags[1]").value("spring"))
 			.andExpect(jsonPath("$.publishedAt").value(nullValue()))
 			.andExpect(jsonPath("$.createdAt").value("2026-10-10T12:00:00Z"))
 			.andExpect(jsonPath("$.viewCount").doesNotExist());
@@ -511,14 +515,122 @@ class AdminPostControllerTest {
 		create(body("categoryId", "-1")).andExpect(status().isCreated());
 	}
 
+	private ResultActions createWithTags(String tagsMember) throws Exception {
+		return create("{\"title\":\"t\",\"slug\":\"s\",\"content\":\"c\",\"status\":\"DRAFT\"" + tagsMember + "}");
+	}
+
+	private static String tagsJson(int count) {
+		return IntStream.range(0, count).mapToObj(i -> "\"t" + i + "\"")
+			.collect(Collectors.joining(",", ",\"tags\":[", "]"));
+	}
+
 	@Test
-	void tags를_보내도_무시한다() throws Exception {
+	void tags가_없거나_null이면_빈_목록이다() throws Exception {
+		// given
+		stubCreate();
+
+		// when
+		createWithTags("").andExpect(status().isCreated());
+		createWithTags(",\"tags\":null").andExpect(status().isCreated());
+
+		// then
+		ArgumentCaptor<PostRequest> captor = ArgumentCaptor.forClass(PostRequest.class);
+		then(postService).should(times(2)).create(captor.capture());
+		assertThat(captor.getAllValues()).extracting(PostRequest::tags).containsExactly(List.of(), List.of());
+	}
+
+	@Test
+	void tags는_정규화하고_중복을_지워_서비스에_전달한다() throws Exception {
+		// given
+		stubCreate();
+
+		// when
+		createWithTags(",\"tags\":[\" Spring \",\"jwt\",\"SPRING\",\"스프링-부트\"]").andExpect(status().isCreated());
+
+		// then
+		assertThat(captureCreated().tags()).containsExactly("spring", "jwt", "스프링-부트");
+	}
+
+	@Test
+	void tags는_중복을_지운_뒤_10개까지_통과하고_11개는_400이다() throws Exception {
 		// given
 		stubCreate();
 
 		// when & then
-		create("{\"title\":\"t\",\"slug\":\"s\",\"content\":\"c\",\"status\":\"DRAFT\",\"tags\":[\"a\"]}")
-			.andExpect(status().isCreated());
+		createWithTags(tagsJson(10).replace("]", ",\"T0\"]")).andExpect(status().isCreated());
+		createWithTags(tagsJson(11)).andExpect(status().isBadRequest())
+			.andExpect(jsonPath("$.errors[0].field").value("tags"))
+			.andExpect(jsonPath("$.errors[0].reason").value("태그는 10개 이하여야 합니다"));
+	}
+
+	@Test
+	void 태그는_50자까지_통과하고_51자는_400이다() throws Exception {
+		// given
+		stubCreate();
+
+		// when & then
+		createWithTags(",\"tags\":[\"" + "a".repeat(50) + "\"]").andExpect(status().isCreated());
+		createWithTags(",\"tags\":[\"" + "a".repeat(51) + "\"]").andExpect(status().isBadRequest())
+			.andExpect(jsonPath("$.errors[0].field").value("tags[0]"))
+			.andExpect(jsonPath("$.errors[0].reason").value("태그는 50자 이하여야 합니다"));
+	}
+
+	@Test
+	void 빈_태그는_400이다() throws Exception {
+		// when & then
+		createWithTags(",\"tags\":[\"ok\",null]").andExpect(status().isBadRequest())
+			.andExpect(jsonPath("$.errors[?(@.field=='tags[1]' && @.reason=='빈 태그는 쓸 수 없습니다')]").exists());
+		createWithTags(",\"tags\":[\" \"]").andExpect(status().isBadRequest())
+			.andExpect(jsonPath("$.errors[?(@.field=='tags[0]' && @.reason=='빈 태그는 쓸 수 없습니다')]").exists());
+	}
+
+	@ParameterizedTest
+	@ValueSource(strings = {"a b", "c++", "x--y", "-x", "x-", "a/b", "İ"})
+	void 패턴을_어기는_태그는_400이다(String tag) throws Exception {
+		// when & then
+		createWithTags(",\"tags\":[\"" + tag + "\"]").andExpect(status().isBadRequest())
+			.andExpect(jsonPath("$.errors[0].field").value("tags[0]"))
+			.andExpect(jsonPath("$.errors[0].reason").value("태그는 문자·숫자·하이픈만 쓸 수 있습니다"));
+	}
+
+	@Test
+	void 태그_오류_위치는_정규화와_중복_제거_뒤_목록_기준이다() throws Exception {
+		// when & then
+		createWithTags(",\"tags\":[\"a\",\"A\",\"b c\"]").andExpect(status().isBadRequest())
+			.andExpect(jsonPath("$.errors[0].field").value("tags[1]"));
+	}
+
+	@ParameterizedTest
+	@ValueSource(strings = {"\"spring\"", "{\"a\":1}", "[[\"a\"]]", "[{\"a\":1}]"})
+	void tags가_배열이_아니거나_항목이_배열_객체면_400이고_errors는_비어_있다(String tags) throws Exception {
+		// when & then
+		createWithTags(",\"tags\":" + tags).andExpect(status().isBadRequest())
+			.andExpect(jsonPath("$.code").value("INVALID_INPUT"))
+			.andExpect(jsonPath("$.errors").isEmpty());
+	}
+
+	@Test
+	void tags_항목의_숫자와_불리언은_문자열로_바뀐다() throws Exception {
+		// given
+		stubCreate();
+
+		// when
+		createWithTags(",\"tags\":[1,true]").andExpect(status().isCreated());
+
+		// then
+		assertThat(captureCreated().tags()).containsExactly("1", "true");
+	}
+
+	@Test
+	void tags_키가_여럿이면_마지막_배열을_쓴다() throws Exception {
+		// given
+		stubCreate();
+
+		// when
+		createWithTags(",\"tags\":[\"a\"],\"tags\":[\"b\"]").andExpect(status().isCreated());
+
+		// then
+		assertThat(captureCreated().tags()).containsExactly("b");
 	}
 
 	@Test
