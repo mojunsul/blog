@@ -59,6 +59,10 @@ class PostQueryRepositoryTest extends RepositoryTestSupport {
 		return postRepository.save(PostFixture.published(slug, title, content, category));
 	}
 
+	private Post savePublished(String slug, String title, Category category) {
+		return postRepository.save(PostFixture.published(slug, title, category));
+	}
+
 	private void link(Post post, String... tagNames) {
 		for (String name : tagNames) {
 			Tag tag = tagRepository.findAllByNameIn(List.of(name))
@@ -175,9 +179,9 @@ class PostQueryRepositoryTest extends RepositoryTestSupport {
 	@Test
 	void q의_퍼센트와_밑줄은_일반_문자로_찾는다() {
 		// given
-		savePublished("percent", "100% 달성", "c", null);
-		savePublished("underscore", "snake_case", "c", null);
-		savePublished("plain", "100 달성 snakeXcase", "c", null);
+		savePublished("percent", "100% 달성", null);
+		savePublished("underscore", "snake_case", null);
+		savePublished("plain", "100 달성 snakeXcase", null);
 
 		// when
 		Page<Post> percent = postQueryRepository.searchPublished(search(null, null, "%"));
@@ -192,9 +196,9 @@ class PostQueryRepositoryTest extends RepositoryTestSupport {
 	void 세_필터는_AND로_조합된다() {
 		// given
 		Category backend = categoryRepository.save(CategoryFixture.category("backend"));
-		Post match = savePublished("match", "Spring", "c", backend);
-		Post wrongTag = savePublished("wrong-tag", "Spring", "c", backend);
-		Post wrongCategory = savePublished("wrong-category", "Spring", "c", null);
+		Post match = savePublished("match", "Spring", backend);
+		Post wrongTag = savePublished("wrong-tag", "Spring", backend);
+		Post wrongCategory = savePublished("wrong-category", "Spring", null);
 		link(match, "jpa");
 		link(wrongTag, "jwt");
 		link(wrongCategory, "jpa");

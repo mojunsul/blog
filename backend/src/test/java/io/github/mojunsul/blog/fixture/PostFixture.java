@@ -27,6 +27,10 @@ public final class PostFixture {
 		return post;
 	}
 
+	public static Post published(String slug, String title, Category category) {
+		return published(slug, title, "본문", category);
+	}
+
 	public static Post published(String slug, Category category) {
 		return published(slug, Instant.parse("2026-10-13T01:00:00Z"), category);
 	}
