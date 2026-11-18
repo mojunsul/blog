@@ -26,3 +26,9 @@ export async function getPost(slug: string): Promise<PostDetail | null> {
     throw error;
   }
 }
+
+// 검색어는 캐시 키가 끝없이 늘어 캐시하지 않는다.
+export async function searchPosts(q: string, zeroBasedPage: number): Promise<PostSummaryPage> {
+  const params = new URLSearchParams({ q, page: String(zeroBasedPage) });
+  return apiGet<PostSummaryPage>(`/api/v1/posts?${params}`);
+}
