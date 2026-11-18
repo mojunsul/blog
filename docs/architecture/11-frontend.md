@@ -244,15 +244,18 @@ CI에서 프론트 이미지를 빌드할 때는 백엔드가 없다. `next buil
 | 제목 | `input` | `title` |
 | slug | `input`, 아래 안내 "영문 소문자·숫자·하이픈만 쓸 수 있습니다. 공개 주소 /posts/{slug}가 됩니다." | `slug` |
 | 카테고리 | `select`, 첫 항목 "카테고리 없음"(값 `""`), 이어서 목록 API 순서대로 "{name} ({slug})" (`name`은 중복될 수 있어 slug를 함께 보인다, 6장) | `categoryId`, `null`이거나 카테고리 목록에 없으면 `""` |
+| 태그 | `input`, 아래 안내 "쉼표(,)로 구분해 10개까지 입력합니다. 문자·숫자·하이픈만 쓸 수 있고 영문은 소문자로 저장됩니다." | `tags.join(", ")`, `[]`이면 `""` |
 | 상태 | 라디오 "작성 중"(`DRAFT`)·"발행됨"(`PUBLISHED`), 새 글 기본값 `DRAFT` | `status` |
 | 요약 | `textarea` | `summary`, `null`이면 `""` |
 | 썸네일 URL | `input` | `thumbnailUrl`, `null`이면 `""` |
 | 본문 | "작성"·"미리보기" 전환 버튼과 `textarea` | `content` |
 - 불러온 글의 `categoryId`가 카테고리 목록에 없으면(두 요청 사이에 카테고리가 삭제됨) 위 초기값 규칙으로 `""`이 되어 선택이 "카테고리 없음"으로 보이고, 그대로 저장하면 카테고리 없는 글이 된다. 목록에 없는 id를 그대로 두지 않는 이유: 맞는 `option`이 없는 `select`는 빈 칸으로 보이고, 저장하면 그 id가 전송되어 `404 CATEGORY_NOT_FOUND`가 된다. 카테고리 삭제가 글의 카테고리를 `NULL`로 만드므로(6장) 결과가 같아 따로 다루지 않는다.
-- 태그 입력은 M4 글 작성·수정 화면 태그 입력에서 추가한다 (`postSchema`의 태그 규칙도 그때 더한다). 그 전까지 폼은 `tags`를 보내지 않아, 수정 폼으로 저장하면 그 글의 태그 연결이 모두 지워진다 (8-4 `PUT`). 관리자 1명이 태그 입력 전까지 API로 태그를 붙이지 않으면 생기지 않는 과도기 동작이라 따로 막지 않는다.
+- **태그는 쉼표로 구분한 한 줄 `input`으로 받는다** (폼 값은 문자열 하나). 칩 입력(Enter로 추가, ×로 삭제)을 쓰지 않는 이유: 태그 배열 상태·삭제 버튼·키 처리가 더 필요하고, 한글 IME 조합 중 Enter가 두 번 처리되는 문제를 따로 막아야 한다. 관리자 1명이 글당 몇 개 입력하는 용도라 한 줄 입력으로 충분하다.
+  - 자동완성은 두지 않는다. 공개 태그 목록(8-1 `GET /tags`)은 DRAFT에만 달린 태그를 빼므로 관리자용 후보 목록으로 맞지 않고, 관리자용 목록 API를 더할 만큼 태그가 많지 않다.
+- 폼은 항상 `tags`를 보낸다 (입력이 비면 `[]`). 수정은 전체 교체라(8-4 `PUT`) 칸을 비우고 저장하면 그 글의 태그 연결이 모두 지워진다.
 - 폼 아래 "저장" 버튼 하나. 저장할 상태는 위 라디오가 정한다.
 
-**`postSchema`** (`schemas/post.ts`, Zod) — 서버 규칙(8-4 `PostRequest`)과 같고(`tags`는 제외, 위 태그 입력 항목), 메시지도 서버의 검증 메시지와 같다
+**`postSchema`** (`schemas/post.ts`, Zod) — 서버 규칙(8-4 `PostRequest`)과 같고, 메시지도 서버의 검증 메시지와 같다
 | 필드 | 규칙 | 메시지 |
 |---|---|---|
 | title | 앞뒤 공백 제거(`.trim()`) 후 1~200자, 제어 문자 금지(`/^\P{Cc}+$/u`) | "제목을 입력하세요", "제목은 200자 이하여야 합니다", "제목에 제어 문자를 쓸 수 없습니다" |
@@ -261,11 +264,17 @@ CI에서 프론트 이미지를 빌드할 때는 백엔드가 없다. `next buil
 | content | 공백만 있는 값 거절, 100,000자 이하, NUL 금지. 앞뒤 공백은 그대로 둔다 | "본문을 입력하세요", "본문은 100,000자 이하여야 합니다", "본문에 NUL 문자를 쓸 수 없습니다" |
 | thumbnailUrl | 앞뒤 공백 제거 후 빈 값 허용, 500자 이하, 값이 있으면 `/^https?:\/\/[^\s\p{Cc}]+$/u` | "썸네일 URL은 500자 이하여야 합니다", "썸네일 URL은 공백 없는 http(s) 주소여야 합니다" |
 | categoryId | 문자열(`""` 또는 목록의 id) | - |
+| tags | 문자열. `parseTags`로 나눈 목록을 `validateTags`로 검사해, 위반이 있으면 그 메시지 하나를 `tags` 필드 오류로 (`superRefine`) | 8-4 '태그 처리'의 `reason` 메시지 표와 같다 |
 | status | `DRAFT`·`PUBLISHED` | - |
 - slug 규칙은 `lib/slug.ts`가 `SLUG_PATTERN`·`MAX_SLUG_LENGTH`를 export해 `isValidSlug`와 스키마가 같은 상수를 쓴다. 스키마가 `isValidSlug` 하나로 검사하지 않는 이유: 필드 오류를 빈 값·길이·형식으로 나눠 서버와 같은 문구로 보인다.
+- 태그 규칙은 `lib/tags.ts`의 순수 함수 두 개가 서버(8-4 '태그 처리')와 같은 순서로 처리한다.
+  - `parseTags(value: string): string[]`: 쉼표로 나눠 각 조각을 `trim()`·`toLowerCase()`하고, 빈 조각을 버린 뒤 처음 나온 순서대로 중복을 지운다 (`"Spring, spring,, jwt,"` → `["spring", "jwt"]`). `toLowerCase()`는 로케일과 무관해 서버의 `toLowerCase(Locale.ROOT)`와 같다.
+  - 빈 조각을 오류로 보지 않고 버리는 이유: 끝의 쉼표나 `,,`는 입력 실수라 "빈 태그는 쓸 수 없습니다"로 막을 값이 아니다. 그래서 폼에서는 항목 필수 위반이 나오지 않고, 서버의 그 규칙은 직접 요청만 막는다.
+  - `validateTags(tags: string[]): string | null`: 개수(`MAX_TAGS` 10) 초과 → 앞에서부터 항목마다 길이(`MAX_TAG_LENGTH` 50) 초과 → 패턴(`TAG_PATTERN`, 6장 태그 규칙에 `u` 플래그) 위반 순으로 보고, 처음 걸린 규칙의 메시지(8-4 메시지 표), 없으면 `null`. 서버는 위반을 모두 `errors`로 내지만 폼은 한 칸이라 첫 위반 하나만 보인다.
+  - 요청 본문의 `tags`는 `parseTags(값)`이다 (서버가 다시 정규화해도 결과가 같다).
 - 길이는 JS 문자열 길이(UTF-16)로 세어 서버(Java 문자 수)와 같다. 공백 판정(`trim()`·`\s`)은 JS가 NBSP 등 유니코드 공백까지 포함해 Java(`strip()`·`\s`)와 조금 다를 수 있다 (`loginSchema`와 같다). 서버 검증이 최종이다.
 - 요청 본문: 스키마를 통과한 값(앞뒤 공백을 지운 `title`·`summary`·`thumbnailUrl`)을 보낸다. `summary`·`thumbnailUrl`의 `""`는 그대로 보내 서버가 `null`로 바꾼다 (8-4). `categoryId`는 `""`면 넣지 않고(수정에서는 카테고리가 지워진다, 8-4 `PUT`), 그 외는 `Number`로 바꾼다.
-- `postSchema`는 `loginSchema`와 같은 이유(라이브러리 규칙을 그대로 선언)로 단위 테스트하지 않고 아래 화면 확인 2번으로 표의 `title`부터 `thumbnailUrl`까지의 규칙을 모두 본다. `categoryId`·`status`는 `select`·라디오가 값을 정해 따로 보지 않는다.
+- `postSchema`는 `loginSchema`와 같은 이유(라이브러리 규칙을 그대로 선언)로 단위 테스트하지 않고 아래 화면 확인 2번으로 표의 `title`부터 `thumbnailUrl`까지의 규칙을 모두 본다. `tags`의 경계는 `parseTags`·`validateTags` 단위 테스트('프론트엔드 테스트')로 보고, 화면 확인 11번은 스키마 연결과 표시만 본다. `categoryId`·`status`는 `select`·라디오가 값을 정해 따로 보지 않는다.
 
 **미리보기** (`MarkdownPreview`, 클라이언트 컴포넌트)
 - `MarkdownRenderer`는 Shiki를 쓰는 async 서버 컴포넌트라 폼에서 쓸 수 없다. 미리보기는 브라우저에서 react-markdown의 동기 `Markdown`으로 렌더링하고 **코드 하이라이팅은 하지 않는다** (코드 블록은 글자만).
@@ -284,7 +293,7 @@ CI에서 프론트 이미지를 빌드할 때는 백엔드가 없다. `next buil
   | 결과 | 화면 |
   |---|---|
   | `201`(작성)·`200`(수정) | `router.push("/admin/posts")` (목록의 공개 반영 안내가 보인다) |
-  | `400` `INVALID_INPUT`이고 `errors`에 폼 필드(`title`·`slug`·`summary`·`content`·`thumbnailUrl`·`categoryId`·`status`)가 있음 | 그 필드 아래에 `reason` (같은 필드가 여러 개면 첫 항목, 폼 필드가 아닌 항목은 버린다) |
+  | `400` `INVALID_INPUT`이고 `errors`에 폼 필드(`title`·`slug`·`summary`·`content`·`thumbnailUrl`·`categoryId`·`status`·`tags`)가 있음 | 그 필드 아래에 `reason` (같은 필드가 여러 개면 첫 항목, 폼 필드가 아닌 항목은 버린다). 항목 위반의 `tags[i]`는 `tags`로 본다: `i`가 정규화 후 위치라(8-4) 입력의 몇 번째인지 가리킬 수 없고, 태그 칸이 하나다 |
   | `409` `DUPLICATE_SLUG` | slug 아래에 `detail`("이미 사용 중인 slug입니다.") |
   | `404` `CATEGORY_NOT_FOUND` (선택한 카테고리가 그 사이 삭제됨) | 카테고리 아래에 `detail`("카테고리를 찾을 수 없습니다.") |
   | `404` `POST_NOT_FOUND` (수정 중 다른 탭에서 삭제됨) | 폼 오류 "글이 삭제되어 저장하지 못했습니다." |
@@ -313,6 +322,7 @@ CI에서 프론트 이미지를 빌드할 때는 백엔드가 없다. `next buil
 8. 표·체크리스트·코드 블록·`<script>`·`<img onerror>`·`[x](javascript:alert(1))`가 든 본문 → "미리보기"에서 표·체크리스트가 보이고, raw HTML은 글자로 보이며 스크립트가 실행되지 않고, `javascript:` 링크의 `href`가 비어 있다 (DOM으로 확인). "작성"으로 돌아오면 입력이 남아 있다. 공백뿐인 본문 → "미리 볼 내용이 없습니다." 다른 항목을 채우고 본문을 비운 채 "미리보기" 상태에서 저장 → "작성"으로 바뀌고 본문 아래 "본문을 입력하세요", 포커스가 본문 `textarea`
 9. 값을 바꾼 뒤 새로고침 → 브라우저 확인 창, 바꾸지 않았으면 확인 창 없음. 수정 화면에서 값을 바꾼 뒤 `access_token`·`refresh_token`을 지우고 저장 → 확인 창, 떠나기 → `/admin/login?next=%2Fadmin%2Fposts%2F{id}%2Fedit`
 10. `.env.local` 없이 `npm run build`와 `npx next typegen` 성공 ('관리자 인증' 8번과 같다)
+11. 태그: 새 글에 ` Spring, jwt, spring,, 한글-태그,` 입력 후 저장 → `POST` 본문 `tags`가 `["spring","jwt","한글-태그"]`, 수정 화면에 `spring, jwt, 한글-태그`(순서는 8-1 `tags` 순서). 수정 화면에서 태그를 지우고 저장 → `PUT` 본문 `tags: []`, 다시 열면 빈 칸. 태그 11개, 51자 태그, `a_b` → 태그 아래 각 문구, `Network`에 요청 없음. 태그만 바꾸면 이탈 경고가 뜬다(`isDirty`). Local Overrides로 `PUT` 응답을 `400` `INVALID_INPUT`, `errors: [{"field":"tags[0]","reason":"태그는 50자 이하여야 합니다"}]`로 바꾸고 저장 → 태그 아래 그 문구
 
 ### 관리자 카테고리 (`/admin/categories`)
 **구성**
@@ -464,7 +474,8 @@ CI에서 프론트 이미지를 빌드할 때는 백엔드가 없다. `next buil
 - `MarkdownRenderer`는 async 서버 컴포넌트라 단위 테스트하지 않는다. 렌더링 결과는 글 상세 페이지에서 시드 글로 확인한다.
 
 ### 프론트엔드 테스트
-- Vitest로 `lib/`의 로직이 있는 순수 함수만 단위 테스트한다 (`date.ts`, `errors.ts`의 파싱 함수, `pagination.ts`, `post-status.ts`, `post-id.ts`, `slug.ts`, `cookie.ts`, `next-path.ts`, `single-flight.ts`, `search.ts`).
+- Vitest로 `lib/`의 로직이 있는 순수 함수만 단위 테스트한다 (`date.ts`, `errors.ts`의 파싱 함수, `pagination.ts`, `post-status.ts`, `post-id.ts`, `slug.ts`, `cookie.ts`, `next-path.ts`, `single-flight.ts`, `search.ts`, `tags.ts`).
+  - `tags.ts`: `parseTags`(쉼표·앞뒤 공백·빈 조각·대소문자·중복과 순서, `İ`처럼 소문자로 바꾸면 길어지는 문자), `validateTags`(10·11개, 50·51자는 소문자로 바꾼 뒤 기준, 한글·숫자·`node-js` 통과, `-a`·`a-`·`a--b`·`a_b`·`a b` 거절, 여러 규칙을 어기면 개수 → 앞 항목 길이 → 패턴 순의 첫 메시지)
   - `async` 서버 컴포넌트는 Vitest·Jest 모두 단위 테스트를 지원하지 않으므로 단위 테스트하지 않는다.
   - `server.ts`는 `server-only`가 테스트 환경에서 import 시 오류를 던지므로 단위 테스트하지 않는다 (실제 호출은 화면에서 확인).
   - `client.ts`와 `auth.ts`·`admin-posts.ts`·`admin-categories.ts`(브라우저 전역·`fetch`에 기대는 파일), `loginSchema`·`postSchema`·`categorySchema`(라이브러리 규칙을 그대로 선언)는 단위 테스트하지 않는다. 흐름은 '관리자 인증'·'관리자 글 목록'·'관리자 글 작성·수정'·'관리자 카테고리'의 화면 확인으로 본다.

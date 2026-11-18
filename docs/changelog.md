@@ -198,3 +198,7 @@
   - 공개 태그 목록(8-1): PUBLISHED 글이 없는 태그 제외, `postCount` 내림차순·같으면 `name` 오름차순, 배열 응답, `TagRepository.findAllWithPublishedPostCount` JPQL 생성자 표현식, `TagController`·`TagService` (5장 패키지 구조)
   - `GET /api/v1/tags` 인증 없이 허용 (10-5)
   - 8-4 '태그 처리'의 글 없는 태그 공개 여부를 8-1 결정으로 갱신
+- **v2.36**
+  - 관리자 글 폼 태그 입력(11장 '관리자 글 작성·수정'): 쉼표로 구분한 한 줄 `input`(칩 입력·자동완성 없음), 수정 폼 초기값 `tags.join(", ")`, 항상 `tags` 전송(빈 입력은 `[]`), 과도기 동작(태그 미전송) 설명 삭제
+  - `lib/tags.ts`의 `parseTags`(빈 조각은 버림)·`validateTags`(개수 → 길이 → 패턴 순 첫 메시지)와 `postSchema` `tags`, 서버 `400`의 `tags[i]`는 `tags` 칸에 표시
+  - '프론트엔드 테스트'의 Vitest 대상에 `tags.ts` 추가, 6장·8-4의 "태그 입력이 생기면" 문구를 현재형으로
