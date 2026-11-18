@@ -10,7 +10,7 @@ frontend/src/
 ├ app/
 │  ├ layout.tsx                     # 최상위 HTML, 폰트, 기본 metadata
 │  ├ (public)/
-│  │  ├ layout.tsx                  # 블로그 헤더 (푸터는 M5)
+│  │  ├ layout.tsx                  # 블로그 헤더·검색 입력 (푸터는 M5)
 │  │  ├ not-found.tsx               # 공개 페이지의 notFound() 화면 (헤더 포함)
 │  │  ├ page.tsx                    # /                  글 목록
 │  │  ├ posts/[slug]/page.tsx       # /posts/{slug}      글 상세 + Giscus
@@ -51,6 +51,7 @@ frontend/src/
 │  ├ pagination.ts  # URL의 page 쿼리 해석 (parsePageParam)
 │  ├ post-status.ts # URL의 status 쿼리 해석 (parseStatusParam)
 │  ├ post-id.ts     # URL의 글 id 경로 해석 (parsePostIdParam)
+│  ├ search.ts      # URL의 q 쿼리 해석·검색 페이지 주소 (parseSearchQuery, searchHref)
 │  ├ slug.ts        # slug 형식 검사 (isValidSlug, SLUG_PATTERN·MAX_SLUG_LENGTH, 6장 slug 규칙)
 │  └ utils.ts
 ├ schemas/
@@ -64,7 +65,7 @@ frontend/src/
 ### 렌더링 전략
 - **공개 페이지**: 서버 컴포넌트로 요청마다 렌더링하고, 아래 두 가지만 캐시한다. 공개 페이지의 캐시 기준은 이 항목에만 두고, 다른 곳은 여기를 가리킨다.
   - 캐시하는 것
-    - 데이터 함수(`lib/api/posts.ts`): `'use cache'` + `cacheLife({ revalidate: 60 })`. `server.ts`에는 캐시를 넣지 않는다.
+    - 데이터 함수(`lib/api/posts.ts`): `'use cache'` + `cacheLife({ revalidate: 60 })`. `server.ts`에는 캐시를 넣지 않는다. 검색(`searchPosts`)은 캐시하지 않는다 (이유는 '검색 페이지').
     - `MarkdownRenderer` 컴포넌트: `'use cache'` + `cacheLife('max')` (이유는 'Markdown 렌더링'). 컴포넌트 단위 캐시는 여기에만 둔다.
   - 캐시하지 않는 것: 페이지 전체. 응답은 빌드 때 만든 정적 셸(`Suspense` fallback 포함)과, 위 캐시로 그 자리에서 렌더링한 본문 스트리밍이다 (Next 16.4의 `next start`·standalone에서 확인). Partial Prefetching의 ISR 업그레이드는 `generateStaticParams`가 돌려준 `params`에만 적용되는데, 빌드 시 API 비의존 때문에 그 함수를 쓰지 않는다.
     - 본문은 같은 응답 안에서 스트리밍되어 검색엔진이 받는 HTML에 들어 있다. 매 요청 비용은 캐시된 결과로 컴포넌트를 렌더링하는 정도라 작은 서버에서도 충분하다고 본다. 운영에서 느리면 측정 후 다시 검토한다.
@@ -78,7 +79,7 @@ frontend/src/
 
 ### 빌드 시 API 의존 제거
 CI에서 프론트 이미지를 빌드할 때는 백엔드가 없다. `next build`가 데이터 fetch를 하는 페이지를 미리 렌더링하면 빌드가 실패한다.
-- 데이터를 가져오는 페이지(홈, 목록, 상세, sitemap, RSS)는 **빌드 시점에 프리렌더링하지 않고** 요청 시 렌더링한다 (캐시 기준은 '렌더링 전략'. Cache Components 모드에서는 요청 시점 데이터를 `Suspense` 안에서 읽는다).
+- 데이터를 가져오는 페이지(홈, 목록, 상세, 검색, sitemap, RSS)는 **빌드 시점에 프리렌더링하지 않고** 요청 시 렌더링한다 (캐시 기준은 '렌더링 전략'. Cache Components 모드에서는 요청 시점 데이터를 `Suspense` 안에서 읽는다).
 - `generateStaticParams`는 사용하지 않는다.
 - `next.config`에 `output: 'standalone'`을 설정해 Docker 이미지를 경량화한다.
 
@@ -419,6 +420,29 @@ CI에서 프론트 이미지를 빌드할 때는 백엔드가 없다. `next buil
 - 캐시: 기준은 '렌더링 전략'. 같은 글을 다시 요청하면 `getPost`와 `MarkdownRenderer`의 캐시로 백엔드 호출과 Shiki 하이라이팅이 다시 일어나지 않는다.
 - not-found 화면: `app/(public)/not-found.tsx`를 둔다. 공개 페이지에서 부른 `notFound()`(상세의 없는 글, 목록의 잘못된 `page`)가 블로그 헤더 안에서 "페이지를 찾을 수 없습니다." 문구와 `/` 링크로 표시된다.
   - 어느 경로에도 맞지 않는 URL(`/foo`)은 루트 `app/not-found.tsx`가 맡는데, 루트 레이아웃만 거쳐 헤더가 없다. M5의 not-found 페이지 작업에서 함께 정하고, 그 전까지는 Next 기본 404 화면을 쓴다.
+
+### 검색 페이지 (`/search`)
+- **검색 입력**: `(public)/layout.tsx` 헤더의 블로그 이름 오른쪽에 둔다. `next/form`의 `<Form action="/search">` 안에 `<input type="search" name="q" maxLength={100} aria-label="검색어" placeholder="검색">`과 "검색" 제출 버튼을 둔다.
+  - 문자열 `action`이라 GET으로 `/search?q=...`에 이동한다 (JS가 있으면 클라이언트 이동, 없으면 일반 폼 제출). 상태·이벤트 처리 코드를 두지 않아 레이아웃은 서버 컴포넌트로 남는다.
+  - `maxLength`는 API `q` 상한(8-1, 100자)과 같다. 둘 다 UTF-16 단위로 센다. 빈 값 제출은 막지 않는다 (아래 안내 문구가 나온다).
+  - 입력칸은 현재 검색어로 채우지 않는다. 사이트 안에서 검색하면 레이아웃이 유지되어 입력한 값이 남고, 주소로 바로 들어오면 비어 있다. 검색어는 결과 제목에 보인다.
+- **URL**: `/search?q=키워드&page=N`. `page` 규칙은 '글 목록 페이지'와 같다 (`parsePageParam`, 1부터, 첫 페이지는 `page` 없음).
+- **`q` 해석**: `lib/search.ts`의 순수 함수 `parseSearchQuery`. 앞뒤 공백을 지운(`trim()`) 값을 돌려준다. 없거나 공백만 있으면 `""`(검색어 없음), 같은 키가 여러 개이거나 지운 뒤 100자를 넘으면 `null`(잘못된 값).
+  - API에는 지운 값을 보내므로 서버 `strip()`(8-1)이 받는 값은 이미 100자 이하다. 범위 밖 값을 API 전에 거르는 이유와 API 400을 `notFound()`로 바꾸지 않는 이유는 '글 목록 페이지'의 `page`와 같다. `trim()`과 `strip()`이 지우는 공백 문자 범위가 조금 달라(`trim()`은 NBSP도 지운다) 생기는 결과 차이는 받아들인다.
+- **주소 만들기**: `searchHref(q, page)`(`lib/search.ts`)가 `URLSearchParams`로 `q`를 인코딩하고, `page`가 1이면 `page`를 붙이지 않는다. `Pagination`의 `pageHref`로 쓴다.
+- **구성**: '글 목록 페이지'와 같다. `page.tsx`는 `Suspense`만 두고, 그 안의 비동기 컴포넌트가 `searchParams`를 읽어 아래 순서로 처리한다.
+  | 입력 | 화면 |
+  |---|---|
+  | `page`가 잘못된 값, 또는 `q`가 `null` | `notFound()` |
+  | `q`가 `""` (`/search`, `?q=`, `?q=%20`) | "검색어를 입력하세요." (API 호출 없음) |
+  | 결과 있음 | 제목 "‘{q}’ 검색 결과 {totalElements}건", `PostList`, `Pagination` |
+  | 첫 페이지 결과 없음 | "‘{q}’에 대한 검색 결과가 없습니다." |
+  | `page` 2 이상인데 `content`가 빔 | `notFound()` |
+  - 검색어는 React가 텍스트로 이스케이프해 표시한다. `notFound()`의 상태 코드·`noindex`는 '글 목록 페이지'와 같다.
+  - `%`·`_`·`&`·`#`·한글도 그대로 검색된다 (`URLSearchParams` 인코딩, 일반 문자 검색은 8-1).
+- **데이터**: `lib/api/posts.ts`의 `searchPosts(q, zeroBasedPage)`가 `/api/v1/posts?q=...&page=...`(`URLSearchParams`)를 호출한다. 오류는 '에러 처리'대로 그대로 던진다.
+  - 캐시하지 않는다(`'use cache'` 없음). 검색어는 사용자가 마음대로 넣는 값이라 캐시 키가 끝없이 늘고 같은 키를 다시 쓸 일이 적다. 기본 캐시는 프로세스 메모리 LRU 하나(`cacheMaxMemorySize`)를 글 목록·상세·`MarkdownRenderer`와 나눠 쓰므로, 검색 결과가 그 항목들을 밀어낼 수 있다. 백엔드 검색은 수백 건 `like`(8-1)라 매번 호출해도 작다. 운영에서 느리면 측정 후 다시 검토한다.
+- **색인 제외**: `search/page.tsx`에 `export const metadata = { robots: { index: false } }`를 둔다. 검색어마다 URL이 생기고 내용이 글 목록과 겹친다. 그 외 metadata는 M5.
 
 ### Markdown 렌더링
 - `components/markdown/MarkdownRenderer`는 `content`(Markdown 문자열)만 받는 **서버 컴포넌트**다. react-markdown의 `MarkdownAsync`를 쓴다.
