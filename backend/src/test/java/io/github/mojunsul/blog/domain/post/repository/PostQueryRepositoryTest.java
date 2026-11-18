@@ -52,9 +52,7 @@ class PostQueryRepositoryTest extends RepositoryTestSupport {
 	}
 
 	private Post savePublished(String slug, String title, String content, Category category) {
-		Post post = Post.builder().title(title).slug(slug).content(content).category(category).build();
-		post.publish(PUBLISHED_AT);
-		return postRepository.save(post);
+		return postRepository.save(PostFixture.published(slug, title, content, category));
 	}
 
 	private void link(Post post, String... tagNames) {
@@ -85,8 +83,7 @@ class PostQueryRepositoryTest extends RepositoryTestSupport {
 	void DRAFT는_어떤_필터로도_나오지_않는다() {
 		// given
 		Category category = categoryRepository.save(CategoryFixture.category("backend"));
-		Post draft = postRepository.save(
-			Post.builder().title("spring").slug("draft").content("spring").category(category).build());
+		Post draft = postRepository.save(PostFixture.draft("draft", "spring", "spring", category));
 		link(draft, "spring");
 
 		// when
@@ -126,7 +123,7 @@ class PostQueryRepositoryTest extends RepositoryTestSupport {
 	}
 
 	@Test
-	void category로_조회하면_카테고리가_함께_로딩된다() {
+	void 목록_조회는_카테고리를_함께_로딩한다() {
 		// given
 		Category backend = categoryRepository.save(CategoryFixture.category("backend"));
 		savePublished("in-backend", "t", "c", backend);
@@ -150,10 +147,10 @@ class PostQueryRepositoryTest extends RepositoryTestSupport {
 		link(onlyJpa, "jpa");
 
 		// when
-		Page<Post> page = postQueryRepository.searchPublished(search(null, "jpa", null));
+		Page<Post> page = postQueryRepository.searchPublished(new PostSearchRequest(0, 1, null, "jpa", null));
 
 		// then
-		assertThat(page.getContent()).extracting(Post::getSlug).containsExactly("only-jpa", "both");
+		assertThat(page.getContent()).extracting(Post::getSlug).containsExactly("only-jpa");
 		assertThat(page.getTotalElements()).isEqualTo(2);
 	}
 
@@ -231,18 +228,18 @@ class PostQueryRepositoryTest extends RepositoryTestSupport {
 	}
 
 	@Test
-	void 두_번째_페이지와_전체_건수를_돌려준다() {
+	void 가득_찬_페이지는_전체_건수와_다음_페이지_여부를_돌려준다() {
 		// given
 		for (int i = 0; i < 3; i++) {
 			postRepository.save(PostFixture.published("post-" + i, PUBLISHED_AT.plusSeconds(i)));
 		}
 
 		// when
-		Page<Post> page = postQueryRepository.searchPublished(new PostSearchRequest(1, 2, null, null, null));
+		Page<Post> page = postQueryRepository.searchPublished(new PostSearchRequest(0, 2, null, null, null));
 
 		// then
-		assertThat(page.getContent()).extracting(Post::getSlug).containsExactly("post-0");
+		assertThat(page.getContent()).extracting(Post::getSlug).containsExactly("post-2", "post-1");
 		assertThat(page.getTotalElements()).isEqualTo(3);
-		assertThat(page.hasNext()).isFalse();
+		assertThat(page.hasNext()).isTrue();
 	}
 }
