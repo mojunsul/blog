@@ -31,6 +31,7 @@ class SecurityConfigTest extends IntegrationTestSupport {
 		// when & then
 		mockMvc.perform(get("/api/v1/posts")).andExpect(status().isOk());
 		mockMvc.perform(get("/api/v1/categories")).andExpect(status().isOk());
+		mockMvc.perform(get("/api/v1/tags")).andExpect(status().isOk());
 		mockMvc.perform(get("/actuator/health")).andExpect(status().isOk());
 	}
 
