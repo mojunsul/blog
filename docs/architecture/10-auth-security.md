@@ -51,7 +51,7 @@
   |---|---|
   | `/actuator/health/**`, Swagger(`/v3/api-docs/**`, `/swagger-ui/**`, `/swagger-ui.html`) | 모두 허용 (Swagger는 `local`에서만 켜짐, 5장. `/swagger-ui.html`은 springdoc의 진입 주소로 `/swagger-ui/index.html`로 이동시킨다) |
   | `/error` | 모두 허용 (아래 '`/error`') |
-  | `GET /api/v1/posts/**`, `GET /api/v1/categories`, `GET /api/v1/auth/csrf`, `POST /api/v1/auth/login`, `POST /api/v1/auth/refresh`, `POST /api/v1/auth/logout` | 모두 허용 (POST는 CSRF 검사를 받는다. 재발급은 Access 토큰이 만료된 상태로 부르고, 로그아웃은 만료 후에도 쿠키를 지울 수 있어야 해서 인증을 요구하지 않는다) |
+  | `GET /api/v1/posts/**`, `GET /api/v1/categories`, `GET /api/v1/tags`, `GET /api/v1/auth/csrf`, `POST /api/v1/auth/login`, `POST /api/v1/auth/refresh`, `POST /api/v1/auth/logout` | 모두 허용 (POST는 CSRF 검사를 받는다. 재발급은 Access 토큰이 만료된 상태로 부르고, 로그아웃은 만료 후에도 쿠키를 지울 수 있어야 해서 인증을 요구하지 않는다) |
   | `/api/v1/admin/**` | `ROLE_ADMIN` |
   | 그 외 | 인증 필요 |
   - `GET /api/v1/auth/me`는 '그 외'(인증 필요)에 걸리므로 따로 적지 않는다.

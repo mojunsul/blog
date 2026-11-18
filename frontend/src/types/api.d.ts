@@ -116,6 +116,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/tags": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["getTags"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/posts": {
         parameters: {
             query?: never;
@@ -258,6 +274,11 @@ export interface components {
             /** Format: int64 */
             id: number;
             slug: string;
+        };
+        TagResponse: {
+            name: string;
+            /** Format: int64 */
+            postCount: number;
         };
         PostSearchRequest: {
             /** Format: int32 */
@@ -608,6 +629,26 @@ export interface operations {
                 };
                 content: {
                     "*/*": components["schemas"]["AdminCategoryResponse"];
+                };
+            };
+        };
+    };
+    getTags: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["TagResponse"][];
                 };
             };
         };
