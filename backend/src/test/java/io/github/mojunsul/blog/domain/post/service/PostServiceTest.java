@@ -29,6 +29,7 @@ import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.orm.ObjectOptimisticLockingFailureException;
+import org.springframework.test.util.ReflectionTestUtils;
 
 import io.github.mojunsul.blog.domain.category.entity.Category;
 import io.github.mojunsul.blog.domain.category.repository.CategoryRepository;
@@ -38,8 +39,11 @@ import io.github.mojunsul.blog.domain.post.dto.AdminPostSummaryResponse;
 import io.github.mojunsul.blog.domain.post.dto.PostCreateResponse;
 import io.github.mojunsul.blog.domain.post.dto.PostDetailResponse;
 import io.github.mojunsul.blog.domain.post.dto.PostRequest;
+import io.github.mojunsul.blog.domain.post.dto.PostSearchRequest;
+import io.github.mojunsul.blog.domain.post.dto.PostSummaryResponse;
 import io.github.mojunsul.blog.domain.post.entity.Post;
 import io.github.mojunsul.blog.domain.post.entity.PostStatus;
+import io.github.mojunsul.blog.domain.post.repository.PostQueryRepository;
 import io.github.mojunsul.blog.domain.post.repository.PostRepository;
 import io.github.mojunsul.blog.domain.tag.entity.PostTag;
 import io.github.mojunsul.blog.domain.tag.entity.Tag;
@@ -62,6 +66,9 @@ class PostServiceTest {
 	PostRepository postRepository;
 
 	@Mock
+	PostQueryRepository postQueryRepository;
+
+	@Mock
 	CategoryRepository categoryRepository;
 
 	@Mock
@@ -76,7 +83,8 @@ class PostServiceTest {
 
 	@BeforeEach
 	void setUp() {
-		postService = new PostService(postRepository, categoryRepository, tagRepository, postTagRepository, clock);
+		postService = new PostService(postRepository, postQueryRepository, categoryRepository, tagRepository,
+			postTagRepository, clock);
 	}
 
 	private static PostRequest request(PostStatus status, Long categoryId) {
@@ -100,7 +108,10 @@ class PostServiceTest {
 	void 발행된_글이_있으면_상세_응답으로_변환한다() {
 		// given
 		Post post = PostFixture.published("my-post", Instant.parse("2026-10-11T01:00:00Z"));
+		ReflectionTestUtils.setField(post, "id", 1L);
 		given(postRepository.findBySlugAndStatus("my-post", PostStatus.PUBLISHED)).willReturn(Optional.of(post));
+		given(postTagRepository.findAllWithTagByPostIdIn(List.of(1L)))
+			.willReturn(List.of(postTag(post, "jpa"), postTag(post, "spring")));
 
 		// when
 		PostDetailResponse response = postService.getPublishedPost("my-post");
@@ -109,8 +120,44 @@ class PostServiceTest {
 		assertThat(response.slug()).isEqualTo("my-post");
 		assertThat(response.content()).isEqualTo(post.getContent());
 		assertThat(response.category()).isNull();
-		assertThat(response.tags()).isEmpty();
+		assertThat(response.tags()).containsExactly("jpa", "spring");
 		assertThat(response.publishedAt()).isEqualTo(Instant.parse("2026-10-11T01:00:00Z"));
+	}
+
+	@Test
+	void 공개_목록의_tags는_글별로_묶이고_태그가_없는_글은_빈_목록이다() {
+		// given
+		Post first = PostFixture.published("first", Instant.parse("2026-10-11T01:00:00Z"));
+		Post second = PostFixture.published("second", Instant.parse("2026-10-10T01:00:00Z"));
+		ReflectionTestUtils.setField(first, "id", 1L);
+		ReflectionTestUtils.setField(second, "id", 2L);
+		PostSearchRequest request = new PostSearchRequest(null, null, null, null, null);
+		given(postQueryRepository.searchPublished(request))
+			.willReturn(new PageImpl<>(List.of(first, second), PageRequest.of(0, 10), 2));
+		given(postTagRepository.findAllWithTagByPostIdIn(List.of(1L, 2L)))
+			.willReturn(List.of(postTag(first, "jpa"), postTag(first, "spring")));
+
+		// when
+		PageResponse<PostSummaryResponse> response = postService.getPublishedPosts(request);
+
+		// then
+		assertThat(response.content()).extracting(PostSummaryResponse::tags)
+			.containsExactly(List.of("jpa", "spring"), List.of());
+	}
+
+	@Test
+	void 공개_목록이_비어_있으면_태그를_조회하지_않는다() {
+		// given
+		PostSearchRequest request = new PostSearchRequest(null, null, "none", null, null);
+		given(postQueryRepository.searchPublished(request))
+			.willReturn(new PageImpl<>(List.of(), PageRequest.of(0, 10), 0));
+
+		// when
+		PageResponse<PostSummaryResponse> response = postService.getPublishedPosts(request);
+
+		// then
+		assertThat(response.content()).isEmpty();
+		then(postTagRepository).shouldHaveNoInteractions();
 	}
 
 	@Test

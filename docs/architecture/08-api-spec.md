@@ -40,7 +40,29 @@ GET /api/v1/posts?page=0&size=10&tag=spring
 - 목록에는 본문(`content` Markdown)을 포함하지 않는다.
 - 정렬: `publishedAt` 내림차순, 같으면 `id` 내림차순 (발행 시각이 같은 글이 페이지 사이에서 중복·누락되지 않도록).
 - 카테고리가 없는 글은 `"category": null`.
-- `category`, `tag`, `q` 필터와 `tags` 값은 M4에서 구현한다. 그 전까지 `tags`는 항상 `[]`.
+- 응답의 `tags`는 5장 '글 응답의 `tags`' 방식(페이지 글들의 `id`로 쿼리 한 번)으로 채우고, 태그가 없는 글은 `[]`다.
+- **필터** (`category`, `tag`, `q`): 준 것만 적용하고, 여러 개를 주면 모두 만족하는 글(AND)만 나온다. 공개 조건(PUBLISHED, 6장)·정렬·페이지네이션은 필터와 무관하게 같다.
+  - 요청은 `PostSearchRequest(page, size, category, tag, q)` record(`@Valid @ModelAttribute`, 5장)로 받는다. 세 값은 **record 생성자에서** 앞뒤 공백을 지우고(`strip()`), 비거나 공백만 남으면 `null`(필터 없음)로 바꾼다. `tag`는 `strip()` 대신 `Tag.normalize`(5장)를 거친다. 검증(`q` 길이)이 정리된 값을 보게 하려는 것이다 (글 작성 `title`의 `strip()`과 같은 이유, 8-4).
+  - **`category`**: 카테고리 `slug`와 정확히 같은 글만. 대소문자를 바꾸지 않는다 (`Backend`는 `backend`와 다르다, 상세 경로 `slug`와 같은 방침). 카테고리 없는 글은 나오지 않는다.
+  - **`tag`**: 정규화한 이름의 태그가 연결된 글만. `?tag=%20Spring%20`은 `spring`이다.
+  - **`q`**: 제목 또는 본문(`content` Markdown 원문)에 키워드가 들어 있는 글만. 대소문자를 구분하지 않고(`lower(...) like`), 키워드를 나누지 않고 한 덩어리로 찾는다 (`spring jwt`는 그 문자열 그대로). `%`·`_`도 일반 문자로 찾는다 (`q=%`는 `%`가 든 글만). 요약(`summary`)·태그 이름은 찾지 않는다. 본문 Markdown 문법(`#`, 코드 블록)도 검색 대상에 들어가는 것은 받아들인다.
+  - 입력별 결과
+    | 입력 | 결과 |
+    |---|---|
+    | 없음, 빈 값(`?q=`), 공백만 있는 값(`?q=%20`) | 그 필터 없음 |
+    | 없는 카테고리 slug, 없는 태그, 태그 규칙(6장)에 맞지 않는 값 | `200`, `content: []` |
+    | `q`가 정리 후 100자 이하 | 검색 |
+    | `q`가 정리 후 100자 초과 | `400` `INVALID_INPUT` (`errors`의 `field`는 `q`, `reason`은 "검색어는 100자 이하여야 합니다") |
+    - 없는 카테고리·태그를 `404`로 하지 않는 이유: 이 API는 "조건에 맞는 글 목록"이라 맞는 글이 없는 것과 같다. 존재 여부를 가리려면 필터마다 조회와 분기가 더 생긴다. 카테고리·태그 페이지가 없는 이름을 어떻게 보여 줄지는 그 화면 이슈가 정한다 (11장).
+    - `category`·`tag`에 길이 검사를 두지 않는 이유: 같음 비교라 긴 값은 맞는 글이 없을 뿐이고, 요청 길이는 Tomcat 헤더 한도(8KB)가 막는다. `q`만 100자로 막는 이유: 사용자가 검색창에 직접 입력하는 값이고, 한 덩어리 검색이라 긴 키워드는 쓸모가 없다. 길이는 Java 문자(UTF-16) 수로 센다 (태그와 같다).
+  - **같은 키가 여러 개**면 Spring 바인딩 기본 동작대로 값이 쉼표로 이어진 한 문자열이 된다 (문자열 대상은 `ArrayToStringConverter`. `page`·`status`처럼 첫 값만 쓰는 것과 다르다). 그 뒤 위 정리·검증을 그대로 거친다: `?q=a&q=b`는 `q=a,b` 검색, `?tag=a&tag=b`는 `a,b`라 태그 패턴에 맞는 이름이 없어 `content: []`, `?q=&q=b`는 `,b`. 직접 파싱하지 않는 이유는 7장 페이지네이션과 같다 (프론트는 키를 하나만 보낸다).
+  - 위 정리(빈 값·공백·`tag` 정규화), `q` 길이 경계(100·101자, 앞뒤 공백 포함 102자), 같은 키 동작은 Controller 테스트로 고정한다 (인코딩된 쿼리 문자열을 `URI`로 그대로 보낸다, 7장). 같은 키 동작이 위와 다르면 구현을 멈추고 이슈에 남긴다.
+- **조회 방식**: `PostQueryRepository.searchPublished(PostSearchRequest)`(QueryDSL, 5장)가 조건을 동적으로 붙인다. 조건이 셋이라 파생 쿼리로는 조합마다 메서드가 필요하다. 이 메서드로 바꾸면서 `PostRepository.findAllByStatusOrderByPublishedAtDescIdDesc`는 지운다.
+  - `category`: `post.category`를 left join한 별칭의 `slug` 같음 비교. 목록 쿼리는 이 join에 fetch join을 걸어 카테고리를 함께 읽는다 (지금의 `@EntityGraph`와 같은 목적).
+  - `tag`: `exists (select 1 from PostTag pt where pt.post = post and pt.tag.name = :tag)`. join하지 않는 이유: 글 행이 늘지 않아 `distinct`가 필요 없고 count가 정확하다.
+  - `q`: `title.containsIgnoreCase(q) or content.containsIgnoreCase(q)`. QueryDSL이 상수의 `%`·`_`를 이스케이프해 `like ... escape '!'`로 보낸다. `%`·`_`를 일반 문자로 찾는 것은 Repository 테스트로 고정하고(`%`·`_`가 든 글과 안 든 글), 결과가 다르면 구현을 멈추고 이슈에 남긴다.
+  - 전문 검색(PostgreSQL `tsvector`, `pg_trgm` 인덱스)은 쓰지 않는다. 글이 수백 건인 개인 블로그라 `like` 전체 스캔으로 충분하고, 인덱스·마이그레이션·한국어 형태소 처리 비용이 크다. 운영에서 느리면 측정 후 다시 검토한다.
+  - 정렬(위 '정렬')은 이 쿼리에 고정하고, 필터별·조합·정렬·DRAFT 제외·count(태그 여러 개 글이 중복되지 않음)를 Repository 테스트로 검증한다 (5장).
 - `tags` 순서는 태그 이름 오름차순이다 (상세·관리자 상세도 같다). 연결 순서를 저장하는 컬럼이 없어 입력 순서는 보존하지 않는다.
 
 #### GET `/api/v1/posts/{slug}`
@@ -60,6 +82,7 @@ GET /api/v1/posts?page=0&size=10&tag=spring
 }
 ```
 - 없거나 DRAFT인 글: `404` (`POST_NOT_FOUND`)
+- `tags`는 목록과 같은 쿼리에 `List.of(id)`를 넘겨 채운다 (5장).
 - 조회수는 이 API에서 증가시키지 않는다 (프론트 캐시 때문에 실제 방문 수와 맞지 않고, GET이 상태를 바꾸면 안 되기 때문).
 - 경로의 `slug`는 형식을 검사하지 않고 그대로 조회한다. 규칙에 맞지 않거나 대소문자가 다른 값(`Spring-Jwt`)도 `404`다 (식별자라서 "그런 글이 없다"가 맞는 응답이다).
   - 단, 서버가 경로 형식을 거절하는 값은 조회 전에 `400`이다 (10-5): Spring Security 방화벽이 거절하는 값(`;` 등)은 ProblemDetail `INVALID_INPUT`, Tomcat이 먼저 거절하는 인코딩된 `/`(`%2F`)는 Tomcat 기본 응답.
@@ -280,7 +303,7 @@ GET /api/v1/admin/posts?page=0&size=10&status=DRAFT
   - 위 표와 같은 키 동작은 Spring Boot 4.1.1에서 `@WebMvcTest`로 확인한 결과다 (인코딩된 쿼리 문자열을 `URI`로 그대로 보내 디코딩까지 포함). Controller 테스트로 고정해 프레임워크 업그레이드로 바뀌면 드러나게 한다 (7장).
 - **정렬: `id` 내림차순** (최근에 만든 글이 먼저). `publishedAt`은 DRAFT가 `null`이라 쓰지 않는다. `id`는 유일해 같은 값이 없으므로 페이지 사이에서 중복·누락이 없고, 관리자 목록은 발행 순서가 아니라 작성한 순서로 찾기 때문이다. `createdAt`을 쓰지 않는 이유: `id`가 작성 순서와 같고, 보조 정렬 키가 필요 없다. `(status, published_at)` 인덱스는 이 쿼리가 쓰지 않는다. 글이 수백 건인 개인 블로그라 순차 스캔으로 충분해 인덱스를 더하지 않는다.
 - 범위 밖 페이지(`page`가 `totalPages` 이상)는 오류가 아니라 `200`에 `content: []`다.
-- **조회 방식**: QueryDSL 없이 Spring Data 파생 쿼리 두 개(`findAllByOrderByIdDesc`, `findAllByStatusOrderByIdDesc`)로 하고, `status`가 없으면 앞의 것을 부른다 (서비스가 분기). 필터가 `status` 하나라 동적 쿼리가 필요 없다. 검색 조건이 늘어나는 M4에서 `PostQueryRepository`(QueryDSL, 5장)로 옮긴다. 카테고리는 `@EntityGraph(attributePaths = "category")`로 함께 읽어 글마다 쿼리가 나가지 않게 한다 (공개 목록과 같다).
+- **조회 방식**: QueryDSL 없이 Spring Data 파생 쿼리 두 개(`findAllByOrderByIdDesc`, `findAllByStatusOrderByIdDesc`)로 하고, `status`가 없으면 앞의 것을 부른다 (서비스가 분기). 필터가 `status` 하나라 동적 쿼리가 필요 없다. M4에서도 관리자 목록에 필터를 더하지 않으므로 그대로 두고, `PostQueryRepository`(QueryDSL, 5장)는 공개 목록 검색(8-1)만 맡는다. 카테고리는 `@EntityGraph(attributePaths = "category")`로 함께 읽어 글마다 쿼리가 나가지 않게 한다 (공개 목록과 같다).
 - 정렬은 Repository 메서드 이름에 고정하고 Repository 테스트로 검증한다 (5장). 조회 로그는 남기지 않는다 (5장).
 
 #### GET `/api/v1/admin/posts/{id}`

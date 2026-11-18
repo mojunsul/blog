@@ -17,6 +17,24 @@ public final class PostFixture {
 		return Post.builder().title("제목").slug(slug).content("본문").category(category).build();
 	}
 
+	public static Post draft(String slug, String title, String content, Category category) {
+		return Post.builder().title(title).slug(slug).content(content).category(category).build();
+	}
+
+	public static Post published(String slug, String title, String content, Category category) {
+		Post post = draft(slug, title, content, category);
+		post.publish(Instant.parse("2026-10-13T01:00:00Z"));
+		return post;
+	}
+
+	public static Post published(String slug, String title, Category category) {
+		return published(slug, title, "본문", category);
+	}
+
+	public static Post published(String slug, Category category) {
+		return published(slug, Instant.parse("2026-10-13T01:00:00Z"), category);
+	}
+
 	public static Post published(String slug, Instant publishedAt) {
 		return published(slug, publishedAt, null);
 	}

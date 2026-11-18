@@ -3,6 +3,7 @@ package io.github.mojunsul.blog.domain.post.service;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
@@ -29,6 +30,7 @@ import io.github.mojunsul.blog.domain.post.dto.PostSearchRequest;
 import io.github.mojunsul.blog.domain.post.dto.PostSummaryResponse;
 import io.github.mojunsul.blog.domain.post.entity.Post;
 import io.github.mojunsul.blog.domain.post.entity.PostStatus;
+import io.github.mojunsul.blog.domain.post.repository.PostQueryRepository;
 import io.github.mojunsul.blog.domain.post.repository.PostRepository;
 import io.github.mojunsul.blog.domain.tag.entity.PostTag;
 import io.github.mojunsul.blog.domain.tag.entity.Tag;
@@ -49,6 +51,7 @@ public class PostService {
 	private static final String SLUG_CONSTRAINT = "post_slug_key";
 
 	private final PostRepository postRepository;
+	private final PostQueryRepository postQueryRepository;
 	private final CategoryRepository categoryRepository;
 	private final TagRepository tagRepository;
 	private final PostTagRepository postTagRepository;
@@ -56,15 +59,16 @@ public class PostService {
 
 	@Transactional(readOnly = true)
 	public PageResponse<PostSummaryResponse> getPublishedPosts(PostSearchRequest request) {
-		return PageResponse.from(
-			postRepository.findAllByStatusOrderByPublishedAtDescIdDesc(PostStatus.PUBLISHED, request.toPageable())
-				.map(PostSummaryResponse::from));
+		Page<Post> posts = postQueryRepository.searchPublished(request);
+		Map<Long, List<String>> tagNames = findTagNamesByPostId(posts.map(Post::getId).getContent());
+		return PageResponse
+			.from(posts.map(post -> PostSummaryResponse.from(post, tagNames.getOrDefault(post.getId(), List.of()))));
 	}
 
 	@Transactional(readOnly = true)
 	public PostDetailResponse getPublishedPost(String slug) {
 		return postRepository.findBySlugAndStatus(slug, PostStatus.PUBLISHED)
-			.map(PostDetailResponse::from)
+			.map(post -> PostDetailResponse.from(post, findTagNames(post.getId())))
 			.orElseThrow(() -> new BusinessException(ErrorCode.POST_NOT_FOUND));
 	}
 
@@ -152,6 +156,16 @@ public class PostService {
 		postTagRepository.saveAll(Stream.concat(tags.stream(), created.stream())
 			.map(tag -> PostTag.builder().post(post).tag(tag).build())
 			.toList());
+	}
+
+	private Map<Long, List<String>> findTagNamesByPostId(List<Long> postIds) {
+		if (postIds.isEmpty()) {
+			return Map.of();
+		}
+		return postTagRepository.findAllWithTagByPostIdIn(postIds)
+			.stream()
+			.collect(Collectors.groupingBy(postTag -> postTag.getPost().getId(),
+				Collectors.mapping(postTag -> postTag.getTag().getName(), Collectors.toList())));
 	}
 
 	private List<String> findTagNames(Long postId) {

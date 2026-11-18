@@ -210,6 +210,7 @@ export interface components {
             categoryId?: number;
             /** @enum {string} */
             status: "DRAFT" | "PUBLISHED";
+            tags?: string[];
         };
         AdminPostDetailResponse: {
             /** Format: int64 */
@@ -263,6 +264,9 @@ export interface components {
             page?: number;
             /** Format: int32 */
             size?: number;
+            category?: string;
+            tag?: string;
+            q?: string;
         };
         PageResponsePostSummaryResponse: {
             content: components["schemas"]["PostSummaryResponse"][];
@@ -312,9 +316,9 @@ export interface components {
             postCount: number;
         };
         CsrfToken: {
+            parameterName?: string;
             token?: string;
             headerName?: string;
-            parameterName?: string;
         };
         AdminPostSearchRequest: {
             /** Format: int32 */
