@@ -193,3 +193,4 @@
 - **v2.34**
   - 검색 페이지(11장 '검색 페이지'): 헤더의 `next/form` GET 폼(`q`, `maxLength` 100), `/search?q=&page=` URL, `parseSearchQuery`(`trim`, 빈 값은 안내 문구, 같은 키 여러 개·100자 초과는 `notFound()`)·`searchHref`, 결과 없음·범위 밖 `page` 처리, `noindex`
   - 검색 데이터 함수 `searchPosts`는 캐시하지 않음 (검색어 키가 끝없이 늘어 공용 메모리 LRU를 밀어냄) — '렌더링 전략'에 예외 명시
+  - '프론트엔드 테스트'의 Vitest 대상에 `search.ts` 추가

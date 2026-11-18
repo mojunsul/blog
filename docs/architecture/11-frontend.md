@@ -464,7 +464,7 @@ CI에서 프론트 이미지를 빌드할 때는 백엔드가 없다. `next buil
 - `MarkdownRenderer`는 async 서버 컴포넌트라 단위 테스트하지 않는다. 렌더링 결과는 글 상세 페이지에서 시드 글로 확인한다.
 
 ### 프론트엔드 테스트
-- Vitest로 `lib/`의 로직이 있는 순수 함수만 단위 테스트한다 (`date.ts`, `errors.ts`의 파싱 함수, `pagination.ts`, `post-status.ts`, `post-id.ts`, `slug.ts`, `cookie.ts`, `next-path.ts`, `single-flight.ts`).
+- Vitest로 `lib/`의 로직이 있는 순수 함수만 단위 테스트한다 (`date.ts`, `errors.ts`의 파싱 함수, `pagination.ts`, `post-status.ts`, `post-id.ts`, `slug.ts`, `cookie.ts`, `next-path.ts`, `single-flight.ts`, `search.ts`).
   - `async` 서버 컴포넌트는 Vitest·Jest 모두 단위 테스트를 지원하지 않으므로 단위 테스트하지 않는다.
   - `server.ts`는 `server-only`가 테스트 환경에서 import 시 오류를 던지므로 단위 테스트하지 않는다 (실제 호출은 화면에서 확인).
   - `client.ts`와 `auth.ts`·`admin-posts.ts`·`admin-categories.ts`(브라우저 전역·`fetch`에 기대는 파일), `loginSchema`·`postSchema`·`categorySchema`(라이브러리 규칙을 그대로 선언)는 단위 테스트하지 않는다. 흐름은 '관리자 인증'·'관리자 글 목록'·'관리자 글 작성·수정'·'관리자 카테고리'의 화면 확인으로 본다.
