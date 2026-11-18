@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import { MAX_SLUG_LENGTH, SLUG_PATTERN } from "@/lib/slug";
+import { parseTags, validateTags } from "@/lib/tags";
 
 const hasNoNul = (value: string) => !value.includes("\u0000");
 
@@ -18,6 +19,10 @@ export const postSchema = z.object({
     .max(MAX_SLUG_LENGTH, `slug는 ${MAX_SLUG_LENGTH}자 이하여야 합니다`)
     .regex(SLUG_PATTERN, "slug는 영문 소문자·숫자·하이픈만 쓸 수 있습니다"),
   categoryId: z.string(),
+  tags: z.string().superRefine((value, ctx) => {
+    const message = validateTags(parseTags(value));
+    if (message) ctx.addIssue({ code: "custom", message });
+  }),
   status: z.enum(["DRAFT", "PUBLISHED"]),
   summary: z
     .string()

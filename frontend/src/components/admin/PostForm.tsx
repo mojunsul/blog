@@ -10,6 +10,7 @@ import { MarkdownPreview } from "@/components/admin/MarkdownPreview";
 import { getCategories } from "@/lib/api/admin-categories";
 import { createPost, getAdminPost, updatePost } from "@/lib/api/admin-posts";
 import { ApiError } from "@/lib/api/errors";
+import { parseTags } from "@/lib/tags";
 import { type PostValues, postSchema } from "@/schemas/post";
 import type { components } from "@/types/api";
 
@@ -23,6 +24,7 @@ const DEFAULT_VALUES: PostValues = {
   title: "",
   slug: "",
   categoryId: "",
+  tags: "",
   status: "DRAFT",
   summary: "",
   thumbnailUrl: "",
@@ -53,6 +55,7 @@ function toValues(post: AdminPostDetail, categories: Category[]): PostValues {
     title: post.title,
     slug: post.slug,
     categoryId: categoryExists ? String(post.categoryId) : "",
+    tags: post.tags.join(", "),
     status: post.status,
     summary: post.summary ?? "",
     thumbnailUrl: post.thumbnailUrl ?? "",
@@ -60,8 +63,9 @@ function toValues(post: AdminPostDetail, categories: Category[]): PostValues {
   };
 }
 
-function toRequest({ categoryId, ...values }: PostValues): PostRequest {
-  return categoryId === "" ? values : { ...values, categoryId: Number(categoryId) };
+function toRequest({ categoryId, tags, ...values }: PostValues): PostRequest {
+  const body = { ...values, tags: parseTags(tags) };
+  return categoryId === "" ? body : { ...body, categoryId: Number(categoryId) };
 }
 
 export function PostForm({ id }: { id?: number }) {
@@ -222,6 +226,14 @@ export function PostForm({ id }: { id?: number }) {
           ))}
         </select>
         {errors.categoryId && <span className="text-red-600">{errors.categoryId.message}</span>}
+      </label>
+      <label className="flex flex-col gap-1 text-sm">
+        태그
+        <input {...register("tags")} type="text" className={INPUT_CLASS} />
+        <span className="text-zinc-500">
+          쉼표(,)로 구분해 10개까지 입력합니다. 문자·숫자·하이픈만 쓸 수 있고 영문은 소문자로 저장됩니다.
+        </span>
+        {errors.tags && <span className="text-red-600">{errors.tags.message}</span>}
       </label>
       <fieldset className="flex flex-col gap-1 text-sm">
         <legend className="mb-1">상태</legend>
