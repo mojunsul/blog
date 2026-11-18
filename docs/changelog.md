@@ -194,3 +194,7 @@
   - 검색 페이지(11장 '검색 페이지'): 헤더의 `next/form` GET 폼(`q`, `maxLength` 100), `/search?q=&page=` URL, `parseSearchQuery`(`trim`, 빈 값은 안내 문구, 같은 키 여러 개·100자 초과는 `notFound()`)·`searchHref`, 결과 없음·범위 밖 `page` 처리, `noindex`
   - 검색 데이터 함수 `searchPosts`는 캐시하지 않음 (검색어 키가 끝없이 늘어 공용 메모리 LRU를 밀어냄) — '렌더링 전략'에 예외 명시
   - '프론트엔드 테스트'의 Vitest 대상에 `search.ts` 추가
+- **v2.35**
+  - 공개 태그 목록(8-1): PUBLISHED 글이 없는 태그 제외, `postCount` 내림차순·같으면 `name` 오름차순, 배열 응답, `TagRepository.findAllWithPublishedPostCount` JPQL 생성자 표현식, `TagController`·`TagService` (5장 패키지 구조)
+  - `GET /api/v1/tags` 인증 없이 허용 (10-5)
+  - 8-4 '태그 처리'의 글 없는 태그 공개 여부를 8-1 결정으로 갱신

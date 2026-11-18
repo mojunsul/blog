@@ -105,7 +105,11 @@ GET /api/v1/posts?page=0&size=10&tag=spring
   { "name": "jwt", "postCount": 2 }
 ]
 ```
-- `postCount`는 PUBLISHED 글 기준.
+- `postCount`는 PUBLISHED 글 기준. **PUBLISHED 글이 하나도 없는 태그는 넣지 않는다** (카테고리와 다르다). 이유: 연결이 없어진 태그를 지우지 않아(8-4 '태그 처리') 글 없는 태그가 쌓이고, DRAFT에만 달린 태그 이름은 작성 중인 글의 주제를 공개하게 된다. 카테고리는 관리자가 직접 만들고 관리자 화면도 이 API를 써서(위) 0개를 보여야 하지만, 태그는 관리자 화면에서 목록을 쓰지 않는다.
+- 정렬: `postCount` 내림차순, 같으면 `name` 오름차순. 많이 쓴 태그를 앞에 보이려는 것이다. 페이지네이션 없이 배열로 응답한다 (개인 블로그라 태그가 수십 개, 카테고리와 같다).
+- 조회는 `TagRepository.findAllWithPublishedPostCount()` JPQL 한 번이다: `PostTag`에서 `tag`·`post`를 inner join하고 `post.status = PUBLISHED`로 거른 뒤 `group by t.id, t.name`, `count(pt)`를 `TagResponse(name, postCount)` record로 생성자 표현식(`select new`, 카테고리 목록과 같다) 조회한다. inner join이라 글 없는 태그는 자연히 빠진다. 같은 태그를 한 글에 두 번 연결할 수 없어(`post_tag` PK) `count(pt)`가 글 수다.
+- 계층은 카테고리 공개 목록과 같다: `TagController`(`tag/controller`) → `TagService.getTags()`(`tag/service`, `@Transactional(readOnly = true)`) → Repository. 분기가 없어 Service 테스트는 두지 않는다 (CLAUDE.md 테스트). 인증 없이 허용한다 (10-5 경로 표).
+- 테스트: Repository 테스트로 DRAFT 글은 세지 않음, PUBLISHED 글이 없는 태그(DRAFT에만 달림·연결 없음) 제외, 정렬(개수 내림차순·같으면 이름 오름차순)을 고정한다. Controller 테스트(`@WebMvcTest`)로 `200`과 배열 응답 형식, `SecurityConfigTest`에 비로그인 `GET /api/v1/tags` `200`을 더한다.
 
 ### 8-2. 조회수 API (M6)
 | Method | URL | 설명 |
@@ -252,7 +256,7 @@ Location: /api/v1/admin/posts/12
   - **허용 문자를 문자·숫자·하이픈으로 제한하는 이유**: 태그 이름이 `/tags/{name}` 경로(11장)와 `?tag=` 쿼리에 그대로 들어간다. `/`(`%2F`, Tomcat 거절)·`;`(Security 방화벽 거절, 10-5)는 그 주소가 열리지 않고, 공백·`.`·`+`·`#`은 인코딩된 주소가 지저분해지거나 경로 처리를 따로 확인해야 한다. 그래서 slug처럼 하이픈으로 잇는다(`node-js`, `cpp`). 한글 태그는 `\p{L}`로 받는다.
   - **저장 (작성·수정 공통)**: 글을 저장해 slug 중복(`409`)을 먼저 가린 뒤 태그를 연결한다 (작성은 `saveAndFlush`로 `id`를 받은 뒤, 수정은 `flush` 뒤). `TagRepository.findAllByNameIn(names)`로 있는 태그를 읽고, 없는 이름만 `Tag`로 만들어 `TagRepository.saveAll`한 뒤, 전부 `PostTag`로 만들어 `PostTagRepository.saveAll`한다 (5장). `tags`가 비어 있으면 조회·저장을 하지 않는다.
   - **수정은 연결을 전체 교체한다**: 위 연결 전에 `PostTagRepository.deleteAllByPostId(postId)`(`@Modifying` JPQL `delete from PostTag pt where pt.post.id = :postId`, 반환 `void`)로 그 글의 연결을 모두 지운다. 바뀐 태그만 골라 고치지 않는 이유: 글당 최대 10행이라 지우고 다시 넣어도 비용이 작고, 비교 분기가 없다. 수정은 `PostTag`를 영속성 컨텍스트로 읽지 않으므로 벌크 삭제 뒤 같은 키를 다시 저장해도 충돌하지 않는다 (`clearAutomatically`를 쓰지 않는다. 쓰면 이미 읽은 `Post`가 분리된다).
-  - **연결이 없어진 태그는 지우지 않는다.** 지우려면 수정·삭제마다 고아 태그를 찾는 쿼리가 더 필요하고, 같은 이름은 다음 글에서 다시 쓰인다. 개인 블로그라 남아도 수십 개다. 공개 태그 목록에 글 없는 태그를 보일지는 공개 태그 목록 API(8-1)에서 정한다.
+  - **연결이 없어진 태그는 지우지 않는다.** 지우려면 수정·삭제마다 고아 태그를 찾는 쿼리가 더 필요하고, 같은 이름은 다음 글에서 다시 쓰인다. 개인 블로그라 남아도 수십 개다. 공개 태그 목록은 PUBLISHED 글이 없는 태그를 빼고 보인다 (8-1).
   - **동시 요청**: 두 요청이 같은 새 태그를 동시에 만들면 늦은 쪽이 `tag.name` 유니크 위반으로, 내용이 바뀌지 않은 수정 중에 다른 요청이 그 글을 지우면 `post_tag` FK 위반으로 `500`이다 (slug 변환은 제약 이름으로 가려 이 위반을 `409`로 바꾸지 않는다). 관리자 1명이고 폼이 요청 중 "저장"을 막아(11장) 겹칠 일이 거의 없어 받아들인다. 다시 저장하면 성공한다 (먼저 커밋된 태그를 읽는다).
 - **본문 형식** (Jackson 3.1.5 기본 변환을 확인한 결과이고, 카테고리 요청과 같은 방침이라 직접 파싱하지 않는다. Controller 테스트로 고정해 프레임워크 업그레이드로 바뀌면 드러나게 한다)
   - 본문이 없거나 JSON 파싱에 실패하면 `400` `INVALID_INPUT` (`errors` `[]`), JSON이 아닌 `Content-Type`은 `415`, 같은 키가 여러 개면 마지막 값, 알 수 없는 필드는 무시한다 (카테고리 8-4와 같다). 필드가 `null`이거나 없으면 그 필드의 필수 규칙을 따른다 (`title`·`slug`·`content`·`status`는 `400`, `summary`·`thumbnailUrl`·`categoryId`는 값 없음, `tags`는 `[]`).

@@ -28,8 +28,11 @@ backend/src/main/java/io/github/mojunsul/blog/
    │  ├ entity/       # Category
    │  └ dto/          # CategoryRequest, CategoryResponse, AdminCategoryResponse
    ├ tag/
+   │  ├ controller/   # TagController(공개)
+   │  ├ service/      # TagService
    │  ├ repository/   # TagRepository, PostTagRepository
-   │  └ entity/       # Tag, PostTag, PostTagId
+   │  ├ entity/       # Tag, PostTag, PostTagId
+   │  └ dto/          # TagResponse
    └ auth/            # AuthController, AuthService, Admin·AdminRepository, RefreshToken·RefreshTokenRepository,
                       # scheduler/RefreshTokenCleaner (@Scheduled)
 
