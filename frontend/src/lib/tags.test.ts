@@ -38,6 +38,8 @@ describe("validateTags", () => {
   it("51자는 길이 메시지이고 소문자로 바꾼 뒤 길이를 센다", () => {
     expect(validateTags(["x".repeat(51)])).toBe(LENGTH);
     expect(validateTags(parseTags("İ".repeat(26)))).toBe(LENGTH);
+    expect(validateTags(parseTags("İ".repeat(25)))).toBe(PATTERN);
+    expect(validateTags(parseTags("İ".repeat(25) + "x"))).toBe(LENGTH);
   });
 
   it.each(["한글-태그", "123", "node-js", "cpp"])("'%s'는 통과한다", (tag) => {

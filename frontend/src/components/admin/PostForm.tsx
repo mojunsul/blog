@@ -169,7 +169,8 @@ export function PostForm({ id }: { id?: number }) {
     if (isUnauthorized(error)) return;
     if (hasCode(error, 400, "INVALID_INPUT")) {
       const shown = new Set<string>();
-      for (const { field, reason } of error.errors) {
+      for (const { field: rawField, reason } of error.errors) {
+        const field = /^tags\[\d+\]$/.test(rawField) ? "tags" : rawField;
         if (!isFormField(field) || shown.has(field)) continue;
         shown.add(field);
         setError(field, { type: "server", message: reason });
