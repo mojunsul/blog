@@ -7,7 +7,6 @@ import type { components } from "@/types/api";
 
 type Category = components["schemas"]["PostCategoryResponse"];
 
-// 목록 카드와 상세가 같은 형식을 쓴다: 카테고리·발행일 줄, 그 아래 태그 줄.
 export function PostMeta({
   category,
   publishedAt,
