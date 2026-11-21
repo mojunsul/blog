@@ -2,8 +2,8 @@ import { notFound } from "next/navigation";
 import { Suspense } from "react";
 
 import { MarkdownRenderer } from "@/components/markdown/MarkdownRenderer";
+import { PostMeta } from "@/components/post/PostMeta";
 import { getPost } from "@/lib/api/posts";
-import { formatDate } from "@/lib/date";
 import { isValidSlug } from "@/lib/slug";
 
 export default function PostPage({ params }: PageProps<"/posts/[slug]">) {
@@ -24,10 +24,7 @@ async function Post({ params }: { params: PageProps<"/posts/[slug]">["params"] }
   return (
     <article>
       <h1 className="text-3xl font-semibold">{post.title}</h1>
-      <p className="mt-3 mb-8 text-sm text-zinc-500">
-        {post.category && <span>{post.category.name} · </span>}
-        <time dateTime={post.publishedAt}>{formatDate(post.publishedAt)}</time>
-      </p>
+      <PostMeta category={post.category} publishedAt={post.publishedAt} tags={post.tags} className="mt-3 mb-8" />
       <MarkdownRenderer content={post.content} />
     </article>
   );
