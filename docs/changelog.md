@@ -203,3 +203,8 @@
   - `lib/tags.ts`의 `parseTags`(빈 조각은 버림)·`validateTags`(개수 초과 → 앞 항목부터 항목마다 길이 → 패턴 순 첫 메시지)와 `postSchema` `tags`, 서버 `400`의 `tags[i]`는 `tags` 칸에 표시
   - 화면 확인 11번: 수정 화면 태그는 8-1 이름 오름차순(입력 순서 보존 안 됨)
   - '프론트엔드 테스트'의 Vitest 대상에 `tags.ts` 추가, 6장·8-4의 "태그 입력이 생기면" 문구를 현재형으로
+- **v2.37**
+  - 카테고리·태그 페이지(11장 '카테고리·태그 페이지'): `/categories/{slug}`·`/tags/{name}`, 목록 API(`getPublicCategories`·`getPublicTags`, `lib/api/taxonomy.ts`)로 존재 확인 후 없는 값·PUBLISHED 글 없는 태그는 `notFound()`, 상태별 화면 표, `getPosts`에 `category`·`tag` 필터 인자(캐시함)
+  - Next 16.4 `params`가 퍼센트 인코딩을 풀지 않아 태그 경로는 `parseTagNameParam`(`decodeURIComponent`, 실패는 `null`)으로 해석, 정규화하지 않고 정확히 같은 이름만 받음. 주소는 `categoryHref`·`tagHref`(`lib/taxonomy.ts`)
+  - `TagBadge`, `PostCard`·글 상세에 카테고리 링크와 태그 표시, 글 목록(`/`) 위 태그 목록 `nav`(`/tags` 페이지·헤더 메뉴·카테고리 메뉴는 두지 않음)
+  - '프론트엔드 테스트'의 Vitest 대상에 `taxonomy.ts` 추가
