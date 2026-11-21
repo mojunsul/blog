@@ -8,10 +8,17 @@ type PostSummaryPage = components["schemas"]["PageResponsePostSummaryResponse"];
 type PostDetail = components["schemas"]["PostDetailResponse"];
 
 // 호출자는 요청 시점 API(searchParams) 뒤에서 호출해야 한다. 아니면 빌드 중에 실행되어 백엔드를 호출한다.
-export async function getPosts(zeroBasedPage: number): Promise<PostSummaryPage> {
+// filter 값은 목록 API로 존재를 확인한 카테고리 slug·태그 이름만 넘긴다. 캐시 키가 실제 분류 수로 묶인다.
+export async function getPosts(
+  zeroBasedPage: number,
+  filter: { category?: string; tag?: string } = {},
+): Promise<PostSummaryPage> {
   "use cache";
   cacheLife({ revalidate: 60 });
-  return apiGet<PostSummaryPage>(`/api/v1/posts?page=${zeroBasedPage}`);
+  const params = new URLSearchParams({ page: String(zeroBasedPage) });
+  if (filter.category) params.set("category", filter.category);
+  if (filter.tag) params.set("tag", filter.tag);
+  return apiGet<PostSummaryPage>(`/api/v1/posts?${params}`);
 }
 
 // 호출자는 slug가 isValidSlug를 통과한 뒤에 호출해야 한다. 규칙 밖 값은 API 경로를 바꾸거나 400을 일으킬 수 있다.

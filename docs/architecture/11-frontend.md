@@ -32,7 +32,7 @@ frontend/src/
 │  └ rss.xml/route.ts
 ├ components/
 │  ├ ui/            # Button, Input 등 공통
-│  ├ post/          # PostCard, PostList, Pagination, TagBadge(M4)
+│  ├ post/          # PostCard, PostList, Pagination, TagBadge
 │  ├ markdown/      # MarkdownRenderer (서버 컴포넌트)
 │  └ admin/         # LoginForm, AdminAuthGuard, LogoutButton, AdminPostList, PostForm, MarkdownPreview, AdminCategoryManager, CategoryForm
 ├ lib/
@@ -41,6 +41,7 @@ frontend/src/
 │  │  ├ client.ts   # (M2) 브라우저용 fetch (/api/v1, CSRF 헤더, 401 시 refresh 후 재시도)
 │  │  ├ errors.ts   # ProblemDetail 타입(명세에 없어 직접 정의)·파싱, ApiError
 │  │  ├ posts.ts
+│  │  ├ taxonomy.ts # 서버 컴포넌트용 카테고리·태그 목록 (getPublicCategories, getPublicTags)
 │  │  ├ auth.ts     # 브라우저용 login·logout·getMe (client.ts 사용)
 │  │  ├ admin-posts.ts # 브라우저용 관리자 글 API (getAdminPosts, getAdminPost, createPost, updatePost, deletePost, client.ts 사용)
 │  │  └ admin-categories.ts # 브라우저용 카테고리 API (getCategories, createCategory, updateCategory, deleteCategory, client.ts 사용)
@@ -52,6 +53,7 @@ frontend/src/
 │  ├ post-status.ts # URL의 status 쿼리 해석 (parseStatusParam)
 │  ├ post-id.ts     # URL의 글 id 경로 해석 (parsePostIdParam)
 │  ├ search.ts      # URL의 q 쿼리 해석·검색 페이지 주소 (parseSearchQuery, searchHref)
+│  ├ taxonomy.ts    # 카테고리·태그 페이지 주소와 태그 경로 해석 (categoryHref, tagHref, parseTagNameParam)
 │  ├ slug.ts        # slug 형식 검사 (isValidSlug, SLUG_PATTERN·MAX_SLUG_LENGTH, 6장 slug 규칙)
 │  └ utils.ts
 ├ schemas/
@@ -65,7 +67,7 @@ frontend/src/
 ### 렌더링 전략
 - **공개 페이지**: 서버 컴포넌트로 요청마다 렌더링하고, 아래 두 가지만 캐시한다. 공개 페이지의 캐시 기준은 이 항목에만 두고, 다른 곳은 여기를 가리킨다.
   - 캐시하는 것
-    - 데이터 함수(`lib/api/posts.ts`): `'use cache'` + `cacheLife({ revalidate: 60 })`. `server.ts`에는 캐시를 넣지 않는다. 검색(`searchPosts`)은 캐시하지 않는다 (이유는 '검색 페이지').
+    - 데이터 함수(`lib/api/posts.ts`·`lib/api/taxonomy.ts`): `'use cache'` + `cacheLife({ revalidate: 60 })`. `server.ts`에는 캐시를 넣지 않는다. 검색(`searchPosts`)은 캐시하지 않는다 (이유는 '검색 페이지').
     - `MarkdownRenderer` 컴포넌트: `'use cache'` + `cacheLife('max')` (이유는 'Markdown 렌더링'). 컴포넌트 단위 캐시는 여기에만 둔다.
   - 캐시하지 않는 것: 페이지 전체. 응답은 빌드 때 만든 정적 셸(`Suspense` fallback 포함)과, 위 캐시로 그 자리에서 렌더링한 본문 스트리밍이다 (Next 16.4의 `next start`·standalone에서 확인). Partial Prefetching의 ISR 업그레이드는 `generateStaticParams`가 돌려준 `params`에만 적용되는데, 빌드 시 API 비의존 때문에 그 함수를 쓰지 않는다.
     - 본문은 같은 응답 안에서 스트리밍되어 검색엔진이 받는 HTML에 들어 있다. 매 요청 비용은 캐시된 결과로 컴포넌트를 렌더링하는 정도라 작은 서버에서도 충분하다고 본다. 운영에서 느리면 측정 후 다시 검토한다.
@@ -332,7 +334,7 @@ CI에서 프론트 이미지를 빌드할 때는 백엔드가 없다. `next buil
 - API: `lib/api/admin-categories.ts`에 더한다 (`client.ts` 사용, 타입은 `api.d.ts`의 `CategoryRequest`·`AdminCategoryResponse`): `createCategory(body)`(`POST /admin/categories`), `updateCategory(id, body)`(`PUT /admin/categories/{id}`), `deleteCategory(id)`(`DELETE /admin/categories/{id}`). 저장 응답은 쓰지 않고 목록을 다시 불러온다 (`postCount`가 없다, 8-4).
 
 **화면**
-- 제목 아래 안내 한 줄: "변경한 내용은 1분이 지난 뒤 공개 페이지를 열면 갱신되며, 한 번 더 새로고침해야 보일 수 있습니다." ('관리자 글 목록'과 같은 문구. 공개 글 화면의 카테고리 이름은 `posts.ts` 캐시를 거친다, '렌더링 전략'. 즉시 반영은 하지 않는다)
+- 제목 아래 안내 한 줄: "변경한 내용은 1분이 지난 뒤 공개 페이지를 열면 갱신되며, 한 번 더 새로고침해야 보일 수 있습니다." ('관리자 글 목록'과 같은 문구. 공개 글 화면의 카테고리 이름은 `posts.ts`·`taxonomy.ts` 캐시를 거친다, '렌더링 전략'. 즉시 반영은 하지 않는다)
 - 표 열: 이름, slug, 발행 글 수(`postCount`), 수정 버튼, 삭제 버튼. 순서는 API 정렬(`name` 오름차순, 8-1) 그대로다. `name`은 중복될 수 있어 slug 열로 구분한다 (6장). 열 이름을 "발행 글 수"로 하는 이유: `postCount`는 PUBLISHED만 세어(8-1) 작성 중 글이 빠진다.
 - 목록 상태별 표시 (제목·안내·폼은 항상 보인다)
   | 상태 | 화면 |
@@ -406,12 +408,14 @@ CI에서 프론트 이미지를 빌드할 때는 백엔드가 없다. `next buil
   - 상한은 API `page` 범위(7장)에 맞춘 것이다. API를 호출하기 전에 걸러, 범위 밖 값이 API 400으로 오류 화면이 되지 않게 한다. API의 400을 `notFound()`로 바꾸지는 않는다 (프론트가 잘못된 파라미터를 보내는 버그가 404로 가려진다).
 - 잘못된 `page`, 범위를 넘은 `page`(2 이상인데 `content`가 비어 있음)는 `notFound()`. 첫 페이지로 보정하지 않는다 (API와 같은 기준이고, 같은 내용이 여러 URL로 색인되지 않게).
   - `searchParams`를 `Suspense` 안에서 읽으므로 응답은 이미 스트리밍 중이라 상태 코드는 `200`으로 남고 Next가 `noindex`를 넣는다. 실제 `404` 상태가 필요하면 `proxy.ts`에서 미리 걸러야 하는데, 화면과 색인 결과가 같아 하지 않는다.
-- 구성: `page.tsx`는 `Suspense`(fallback은 짧은 로딩 문구)만 두고, 그 안의 비동기 컴포넌트가 `searchParams`를 읽어 `getPosts(page)`(`lib/api/posts.ts`, `'use cache'` + `cacheLife({ revalidate: 60 })`)를 호출한다. 캐시는 인자(`page`)별로 나뉜다.
-- `PostCard` 표시 항목: 제목(`/posts/{slug}` 링크), 요약(있을 때), 카테고리 이름(있을 때, 텍스트만. 카테고리 페이지는 M4), 발행일(`formatDate`).
+- 구성: `page.tsx`는 `Suspense`(fallback은 짧은 로딩 문구)만 두고, 그 안의 비동기 컴포넌트가 `searchParams`를 읽어 `getPosts(page - 1)`(`lib/api/posts.ts`, `'use cache'` + `cacheLife({ revalidate: 60 })`)와 태그 목록용 `getPublicTags()`(아래 '태그 목록 노출')를 함께(`Promise.all`) 호출한다. 캐시는 인자(`page`)별로 나뉜다. `getPosts`의 필터 인자는 '카테고리·태그 페이지'.
+- `PostCard` 표시 항목: 제목(`/posts/{slug}` 링크), 요약(있을 때), 카테고리 이름(있을 때, `categoryHref(slug, 1)` 링크), 발행일(`formatDate`), 태그(`tags`가 `[]`가 아닐 때, 카테고리·발행일 줄 아래에 응답 순서대로 `TagBadge`, 개수 없음). `TagBadge`와 주소 함수는 '카테고리·태그 페이지'.
   - 썸네일은 M1에서 표시하지 않는다 (업로드는 M6이고, 외부 URL은 `next/image` 허용 도메인 설정이 필요하다).
-  - 태그는 표시하지 않는다. 태그 표시(`TagBadge`)는 카테고리·태그 페이지 이슈(#122)에서 더한다.
 - 페이지 이동(`Pagination`): "이전"·"다음" 링크와 현재 위치(`2 / 3`)만 둔다. 링크 주소는 `pageHref(page)` prop으로 받는다 (이 페이지는 위의 `/`·`/?page=N` 규칙, 관리자 목록은 '관리자 글 목록'). "이전"은 `page > 1`, "다음"은 `hasNext`일 때 보이고, 전체가 한 페이지 이내면 영역을 숨긴다. 페이지 번호 목록은 글이 많아지면 검토한다.
 - 글이 하나도 없으면(첫 페이지 `content`가 빔) "아직 작성된 글이 없습니다." 문구를 보여 준다.
+- **태그 목록 노출**: 글 목록 위에 `<nav aria-label="태그">`로 `getPublicTags()` 전체를 응답 순서(글 많은 순, 8-1)대로 `TagBadge`(개수 포함)로 보인다. 모든 페이지에 같게 보이고, 태그가 없으면 `nav`를 그리지 않는다. `page`가 잘못되어 `notFound()`이면 그리지 않는다. 태그 목록 조회가 실패하면 글 목록과 같이 오류 화면이다 ('에러 처리').
+  - `/tags` 목록 페이지나 헤더 메뉴는 두지 않는다. 태그가 수십 개(8-1)라 한 묶음이면 충분하고, 헤더에 두면 모든 공개 페이지(상세·검색)가 태그 API를 부른다.
+  - 카테고리 목록 메뉴는 두지 않는다. 카테고리 진입은 `PostCard`·상세의 카테고리 링크로 한다. 필요해지면 다시 검토한다.
 - 레이아웃: `app/page.tsx`를 `app/(public)/page.tsx`로 옮기고, `(public)/layout.tsx`에 블로그 이름(`/` 링크) 헤더를 둔다. 푸터는 넣을 내용(RSS 링크 등)이 생기는 M5에서 추가한다.
 
 ### 글 상세 페이지 (`/posts/{slug}`)
@@ -423,9 +427,9 @@ CI에서 프론트 이미지를 빌드할 때는 백엔드가 없다. `next buil
   - 관리자 폼의 Zod 스키마도 같은 상수(`SLUG_PATTERN`·`MAX_SLUG_LENGTH`)를 쓴다 ('관리자 글 작성·수정').
 - `getPost`는 404(없는 글, DRAFT)면 `null`을 돌려주고('에러 처리'), 페이지는 `null`이면 `notFound()`. 그 외 오류는 그대로 던진다.
   - 목록 페이지와 같은 이유로 상태 코드는 `200`으로 남고 `noindex`가 붙는다.
-- 표시 항목: 제목(`h1`), 카테고리 이름(있을 때, 텍스트만)과 발행일(`formatDate`)을 `PostCard`와 같은 형식으로, 본문(`MarkdownRenderer`).
-  - 요약·썸네일·태그·수정일은 표시하지 않는다. 요약은 목록과 M5의 OG 설명용이고, 썸네일은 목록 페이지와 같은 이유다.
-  - 태그는 응답에 채워져 오지만 이 페이지에서는 아직 표시하지 않는다. 상세 페이지의 태그 표시 여부와 방식은 `TagBadge`를 만드는 카테고리·태그 페이지 이슈(#122)의 설계에서 함께 정한다 (`TagBadge`와 태그 페이지 링크가 그 이슈에서 생긴다).
+- 표시 항목: 제목(`h1`), 카테고리 이름(있을 때, 카테고리 페이지 링크)·발행일과 그 아래 태그(`TagBadge`)를 `PostCard`와 같은 형식으로, 본문(`MarkdownRenderer`).
+  - 요약·썸네일·수정일은 표시하지 않는다. 요약은 목록과 M5의 OG 설명용이고, 썸네일은 목록 페이지와 같은 이유다.
+  - 태그를 목록과 같은 형식으로 둔다: 글에서 같은 태그의 다른 글로 가는 길이 상세에도 있어야 하고, 형식이 같아야 `PostCard`와 컴포넌트를 나눠 쓴다.
   - 글별 `<title>`·OG 태그(`generateMetadata`)는 M5에서 추가한다. Giscus도 M5.
 - 캐시: 기준은 '렌더링 전략'. 같은 글을 다시 요청하면 `getPost`와 `MarkdownRenderer`의 캐시로 백엔드 호출과 Shiki 하이라이팅이 다시 일어나지 않는다.
 - not-found 화면: `app/(public)/not-found.tsx`를 둔다. 공개 페이지에서 부른 `notFound()`(상세의 없는 글, 목록의 잘못된 `page`)가 블로그 헤더 안에서 "페이지를 찾을 수 없습니다." 문구와 `/` 링크로 표시된다.
@@ -454,6 +458,44 @@ CI에서 프론트 이미지를 빌드할 때는 백엔드가 없다. `next buil
   - 캐시하지 않는다(`'use cache'` 없음). 검색어는 사용자가 마음대로 넣는 값이라 캐시 키가 끝없이 늘고 같은 키를 다시 쓸 일이 적다. 기본 캐시는 프로세스 메모리 LRU 하나(`cacheMaxMemorySize`)를 글 목록·상세·`MarkdownRenderer`와 나눠 쓰므로, 검색 결과가 그 항목들을 밀어낼 수 있다. 백엔드 검색은 수백 건 `like`(8-1)라 매번 호출해도 작다. 운영에서 느리면 측정 후 다시 검토한다.
 - **색인 제외**: `search/page.tsx`에 `export const metadata = { robots: { index: false } }`를 둔다. 검색어마다 URL이 생기고 내용이 글 목록과 겹친다. 그 외 metadata는 M5.
 
+### 카테고리·태그 페이지 (`/categories/{slug}`, `/tags/{name}`)
+- **URL**: `/categories/{slug}?page=N`, `/tags/{name}?page=N`. `page` 규칙은 '글 목록 페이지'와 같다 (`parsePageParam`, 1부터, 첫 페이지는 `page` 없음).
+- **주소 만들기**: `lib/taxonomy.ts`의 `categoryHref(slug, page)`·`tagHref(name, page)`. `page`가 1이면 `page`를 붙이지 않는다. `Pagination`의 `pageHref`, `PostCard`·상세의 카테고리 링크, `TagBadge`가 쓴다.
+  - `tagHref`는 이름을 `encodeURIComponent`로 넣는다 (한글 태그). `categoryHref`는 slug가 영문 소문자·숫자·하이픈뿐(6장)이라 그대로 넣는다.
+- **경로 값 해석**: Next 16.4의 `params`는 퍼센트 인코딩을 풀지 않은 값이다 (`/tags/스프링`의 `params.name`은 `%EC%8A%A4%ED%94%84%EB%A7%81`, `/tags/a%20b`는 `a%20b`. 16.4.2 `next dev`에서 확인).
+  - 태그: `parseTagNameParam(value: string): string | null`(`lib/taxonomy.ts`)이 `decodeURIComponent`한 값을 돌려주고, 디코딩이 실패하면(`URIError`) `null`이다. 잘못된 인코딩(`%E0%A4%A`, `%`)은 Next가 페이지 전에 `400`으로 거절해 보통 오지 않지만, 오면 오류 화면 대신 `notFound()`가 되게 한다.
+  - 태그 이름은 정규화(공백 제거·소문자)하지 않고 그대로 비교한다. `/tags/Spring`·`/tags/%20spring`은 목록에 없는 이름이라 `notFound()`다. 이유: 태그 이름이 경로의 식별자라 상세 `slug`(8-1)처럼 정확히 같은 값만 받고, 같은 내용이 여러 URL이 되지 않게 한다. 사이트 안 링크는 항상 API가 준 정규화된 이름으로 만든다.
+  - 카테고리: 디코딩하지 않고 그대로 비교한다. slug에는 인코딩되는 문자가 없어 인코딩이 든 값은 어떤 slug와도 같지 않다 (`notFound()`).
+- **존재 확인**: 글 목록 API는 없는 카테고리·태그도 `200` 빈 목록이라(8-1) "없음"과 "글 없음"을 가리지 못하므로, 페이지가 목록 API로 먼저 확인한다.
+  - 카테고리: `getPublicCategories()`(`GET /api/v1/categories`)에서 `slug`가 같은 항목. 글이 0개인 카테고리도 목록에 있어(8-1) 페이지가 열린다.
+  - 태그: `getPublicTags()`(`GET /api/v1/tags`)에서 `name`이 같은 항목. PUBLISHED 글이 없는 태그는 목록에 없어(8-1) `notFound()`다. 그래서 DRAFT에만 달린 태그 이름이 페이지 존재 여부로도 드러나지 않는다.
+  - 찾은 항목의 `slug`·`name`만 `getPosts`의 필터로 넘긴다. 필터 캐시 키가 실제 카테고리·태그 수로 묶이므로 검색(`searchPosts`)과 달리 캐시한다 ('렌더링 전략').
+- **데이터**
+  - `lib/api/taxonomy.ts`(새 파일, `server.ts` 사용): `getPublicCategories()`, `getPublicTags()`. 캐시는 '렌더링 전략'의 데이터 함수와 같다. `Public`을 붙인 이유는 브라우저용 `admin-categories.ts`의 `getCategories`(캐시 없음)와 이름이 겹치지 않게 하려는 것이다.
+  - `getPosts(zeroBasedPage, filter = {})`(`filter: { category?: string; tag?: string }`): `URLSearchParams`로 `page`와 값이 있는 필터만 붙인다. '글 목록 페이지'는 `filter` 없이 부른다.
+  - 오류는 '에러 처리'대로 그대로 던진다 (오류 화면). 목록 조회 404는 없으므로 `null` 변환을 두지 않는다.
+- **구성**: '글 목록 페이지'와 같다. `page.tsx`는 `Suspense`만 두고, 그 안의 비동기 컴포넌트가 `params`·`searchParams`를 읽어 아래 순서로 처리한다 (앞 줄에 걸리면 뒤는 하지 않는다).
+  | 입력 | 화면 |
+  |---|---|
+  | `page`가 잘못된 값 | `notFound()` (API 호출 없음) |
+  | 태그: `parseTagNameParam`이 `null` | `notFound()` (API 호출 없음) |
+  | 목록(`getPublicCategories`·`getPublicTags`)에 없는 slug·이름 | `notFound()` (글 API 호출 없음) |
+  | 결과 있음 | 제목(`h1`) "{name} 카테고리 글 {totalElements}건" / "#{name} 태그 글 {totalElements}건", `PostList`, `Pagination` |
+  | 첫 페이지 결과 없음 | "{name} 카테고리에 아직 글이 없습니다." / "#{name} 태그가 달린 글이 없습니다." |
+  | `page` 2 이상인데 `content`가 빔 | `notFound()` |
+  - `{name}`은 목록 API의 카테고리 `name`, 태그 `name`이다. React가 텍스트로 이스케이프해 표시한다.
+  - 태그 페이지의 첫 페이지 빈 결과는 태그 목록과 글 목록의 캐시가 따로 갱신되어(각 60초) 생길 수 있다 (태그가 달린 유일한 글을 DRAFT로 바꾼 직후 등). 카테고리도 같은 이유로 지운 카테고리가 잠시 빈 페이지로 열릴 수 있다. 반영 지연은 '렌더링 전략'과 같이 받아들인다.
+  - `notFound()`의 상태 코드·`noindex`는 '글 목록 페이지'와 같다. 검색 페이지와 달리 색인을 막지 않는다 (분류마다 고정된 주소 하나다). 그 외 metadata는 M5.
+- **`TagBadge`** (`components/post/TagBadge.tsx`, 상태 없는 서버 컴포넌트): `name`과 선택 `postCount`를 받아 `tagHref(name, 1)`로 가는 `Link` "#{name}"을 그린다. `postCount`가 있으면 "#{name} ({postCount})". 글 목록·상세의 태그(개수 없음)와 '글 목록 페이지'의 태그 목록(개수 있음)이 쓴다.
+
+**화면 확인** (백엔드 `local` 프로필 + 시드 데이터 + 관리자 계정으로 `next dev`를 띄워 DOM·`curl`로 본다. 완료 조건의 확인 수단이다. 시드에는 태그가 없으므로 먼저 관리자 글 수정 화면에서 PUBLISHED 시드 글 하나(Backend 카테고리)에 `spring, 스프링`, 다른 PUBLISHED 글 하나에 `spring`, DRAFT 시드 글에 `draft-only`를 붙이고, 데이터 캐시(60초)가 지난 뒤 새로고침해서 본다)
+1. `/`: 글 목록 위 `nav[aria-label="태그"]`에 "#spring (2)", "#스프링 (1)" 순서, `draft-only` 없음. `PostCard`의 카테고리 이름 `href`가 `/categories/backend`, 태그 `href`가 `/tags/spring`·`/tags/%EC%8A%A4%ED%94%84%EB%A7%81`이고 태그 없는 글은 태그 줄이 없다. `/?page=abc` → not-found 화면, 태그 `nav` 없음
+2. `/categories/backend` → "Backend 카테고리 글 {n}건"과 Backend 글만. `/categories/infra`(시드의 글 없는 카테고리) → "Infra 카테고리에 아직 글이 없습니다." `/categories/Backend`, `/categories/nope`, `/categories/backend?page=0`, `/categories/backend?page=2` → not-found 화면
+3. 태그 링크 `#스프링` 클릭 → "#스프링 태그 글 1건". `/tags/spring` → 2건. `/tags/Spring`, `/tags/%20spring`, `/tags/draft-only`, `/tags/nope`, `/tags/spring?page=2` → not-found 화면
+4. 글 상세: 카테고리 이름이 `/categories/{slug}` 링크, 그 아래 태그 `TagBadge`가 `PostCard`와 같은 순서로 보인다. 태그 없는 글은 태그 줄이 없다
+5. `.env.local` 없이 `npm run build`와 `npx next typegen` 성공 ('관리자 인증' 8번과 같다)
+- 페이지 이동 링크는 `categoryHref`·`tagHref` 단위 테스트와 기존 `Pagination`으로 보고 화면에서 따로 보지 않는다 (시드 글이 한 페이지 크기 10개보다 적다).
+
 ### Markdown 렌더링
 - `components/markdown/MarkdownRenderer`는 `content`(Markdown 문자열)만 받는 **서버 컴포넌트**다. react-markdown의 `MarkdownAsync`를 쓴다.
   - `@shikijs/rehype`는 하이라이터를 비동기로 만드는 플러그인이라 동기 컴포넌트(`Markdown`)에서는 쓸 수 없다. 서버에서 렌더링하므로 Shiki와 문법 파일이 브라우저 번들에 들어가지 않는다.
@@ -474,8 +516,9 @@ CI에서 프론트 이미지를 빌드할 때는 백엔드가 없다. `next buil
 - `MarkdownRenderer`는 async 서버 컴포넌트라 단위 테스트하지 않는다. 렌더링 결과는 글 상세 페이지에서 시드 글로 확인한다.
 
 ### 프론트엔드 테스트
-- Vitest로 `lib/`의 로직이 있는 순수 함수만 단위 테스트한다 (`date.ts`, `errors.ts`의 파싱 함수, `pagination.ts`, `post-status.ts`, `post-id.ts`, `slug.ts`, `cookie.ts`, `next-path.ts`, `single-flight.ts`, `search.ts`, `tags.ts`).
+- Vitest로 `lib/`의 로직이 있는 순수 함수만 단위 테스트한다 (`date.ts`, `errors.ts`의 파싱 함수, `pagination.ts`, `post-status.ts`, `post-id.ts`, `slug.ts`, `cookie.ts`, `next-path.ts`, `single-flight.ts`, `search.ts`, `tags.ts`, `taxonomy.ts`).
   - `tags.ts`: `parseTags`(쉼표·앞뒤 공백·빈 조각·대소문자·중복과 순서, `İ`처럼 소문자로 바꾸면 길어지는 문자), `validateTags`(10·11개, 50·51자는 소문자로 바꾼 뒤 기준, 한글·숫자·`node-js` 통과, `-a`·`a-`·`a--b`·`a_b`·`a b` 거절, 여러 규칙을 어기면 개수 초과가 먼저이고 그다음은 항목 순서대로 항목마다 길이 → 패턴인 첫 메시지: 11개 중 첫 항목이 51자면 개수 메시지, `["a_b", "x"×51]`이면 "태그는 문자·숫자·하이픈만 쓸 수 있습니다", `["x"×51 + "_", "a_b"]`이면 "태그는 50자 이하여야 합니다")
+  - `taxonomy.ts`: `categoryHref`·`tagHref`(`page` 1이면 `page` 없음, 2면 `?page=2`, 한글 태그는 `encodeURIComponent`, `node-js`는 그대로), `parseTagNameParam`(인코딩된 한글 → 한글, `a%20b` → `a b`, `Spring`은 바꾸지 않음, `%E0%A4%A`·`%` → `null`)
   - `async` 서버 컴포넌트는 Vitest·Jest 모두 단위 테스트를 지원하지 않으므로 단위 테스트하지 않는다.
   - `server.ts`는 `server-only`가 테스트 환경에서 import 시 오류를 던지므로 단위 테스트하지 않는다 (실제 호출은 화면에서 확인).
   - `client.ts`와 `auth.ts`·`admin-posts.ts`·`admin-categories.ts`(브라우저 전역·`fetch`에 기대는 파일), `loginSchema`·`postSchema`·`categorySchema`(라이브러리 규칙을 그대로 선언)는 단위 테스트하지 않는다. 흐름은 '관리자 인증'·'관리자 글 목록'·'관리자 글 작성·수정'·'관리자 카테고리'의 화면 확인으로 본다.
