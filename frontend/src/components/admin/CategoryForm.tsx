@@ -60,6 +60,15 @@ export function CategoryForm({
   }, [editing, setFocus]);
 
   async function onValid(values: CategoryValues) {
+    if (
+      editing &&
+      values.slug !== editing.slug &&
+      !window.confirm(
+        `slug를 바꾸면 기존 주소 /categories/${editing.slug}는 더 이상 열리지 않습니다. 저장할까요?`,
+      )
+    ) {
+      return;
+    }
     onSubmittingChange(true);
     try {
       if (editing) {
