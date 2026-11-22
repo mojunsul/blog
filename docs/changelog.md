@@ -208,3 +208,5 @@
   - Next 16.4 `params`가 퍼센트 인코딩을 풀지 않아 태그 경로는 `parseTagNameParam`(`decodeURIComponent`, 실패는 `null`)으로 해석, 정규화하지 않고 정확히 같은 이름만 받음. 주소는 `categoryHref`·`tagHref`(`lib/taxonomy.ts`)
   - `TagBadge`, `PostCard`·글 상세에 카테고리 링크와 태그 표시, 글 목록(`/`) 위 태그 목록 `nav`(`/tags` 페이지·헤더 메뉴·카테고리 메뉴는 두지 않음)
   - '프론트엔드 테스트'의 Vitest 대상에 `taxonomy.ts` 추가
+- **v2.38**
+  - 관리자 카테고리 slug 변경 확인 창(11장 '관리자 카테고리' '저장'): 수정 모드에서 slug를 바꾸면 Zod 검증 뒤 `window.confirm`, 취소하면 요청 없음. M4 카테고리 페이지로 공개 주소가 생겨 "M4에서 다시 검토" 문구를 결정으로 바꿈
