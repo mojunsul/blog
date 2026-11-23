@@ -210,3 +210,6 @@
   - '프론트엔드 테스트'의 Vitest 대상에 `taxonomy.ts` 추가
 - **v2.38**
   - 관리자 카테고리 slug 변경 확인 창(11장 '관리자 카테고리' '저장'): 수정 모드에서 slug를 바꾸면 Zod 검증 뒤 `window.confirm`, 취소하면 요청 없음. M4 카테고리 페이지로 공개 주소가 생겨 "M4에서 다시 검토" 문구를 결정으로 바꿈
+- **v2.39**
+  - Giscus 댓글(11장 '글 상세 페이지'): 이 저장소 Discussions의 `Comments`(Announcement) 카테고리, `specific` 매핑 `post-{id}` + `strict`(slug 변경에도 유지), 설정값은 컴포넌트 상수(공개 식별자), `useEffect`로 스크립트 삽입(`@giscus/react` 미사용), 로드 실패 시 빈 영역, `giscus.json` 미사용
+  - 12-4: CSP 설계 때 Giscus `script-src`·`frame-src` 포함
