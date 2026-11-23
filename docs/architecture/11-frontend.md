@@ -431,21 +431,22 @@ CI에서 프론트 이미지를 빌드할 때는 백엔드가 없다. `next buil
   - 요약·썸네일·수정일은 표시하지 않는다. 요약은 목록과 M5의 OG 설명용이고, 썸네일은 목록 페이지와 같은 이유다.
   - 태그를 목록과 같은 형식으로 둔다: 글에서 같은 태그의 다른 글로 가는 길이 상세에도 있어야 하고, 형식이 같아야 `PostCard`와 컴포넌트를 나눠 쓴다.
   - 글별 `<title>`·OG 태그(`generateMetadata`)는 M5에서 추가한다.
-- 댓글(Giscus): 본문 아래 `<section aria-label="댓글">`에 `components/post/Comments.tsx`(클라이언트 컴포넌트)를 둔다. 글을 찾았을 때만 그리므로 not-found 화면에는 없다.
+- 댓글(Giscus): `<article>` 안의 `MarkdownRenderer` 뒤에 `<section aria-label="댓글" className="mt-12">`을 두고 그 안에 `components/post/Comments.tsx`(클라이언트 컴포넌트)를 둔다. 글을 찾았을 때만 그리므로 not-found 화면에는 없다.
+  - `<article>` 안에 두는 이유: 댓글은 그 글에 딸린 내용이라(HTML 명세도 글의 댓글을 `<article>` 안에 둔다) 같은 요소로 묶고, `Post`가 요소 하나를 반환하는 구조도 그대로다. `mt-12`는 본문 끝과 댓글을 떼어 놓는 간격이다.
   - 저장소는 이 저장소(`mojunsul/blog`)의 Discussions, 카테고리는 `Comments`(Announcement 형식: 방문자는 새 Discussion을 직접 만들 수 없고 giscus 앱이 첫 댓글 때 만든다). 관리할 저장소를 늘리지 않으려고 별도 댓글 저장소를 두지 않는다. Discussions 활성화, giscus 앱 설치, 카테고리 생성은 관리자가 GitHub에서 하고, giscus.app 설정 화면에서 얻은 `repoId`·`categoryId`를 구현 전에 이슈에 남긴다.
   - 설정값(`repo`, `repoId`, `category`, `categoryId`)은 `Comments.tsx`의 상수로 둔다. 브라우저에 그대로 노출되는 공개 식별자라 비밀이 아니고, 환경변수(`NEXT_PUBLIC_*`)로 두면 빌드 때 값이 박히므로 이미지 빌드(12-7)에 값을 넘기는 절차만 늘어난다. 그래서 CI·빌드에 필요한 환경변수도 없다.
   - 매핑: `data-mapping="specific"`, `data-term="post-{id}"`(`PostDetailResponse.id`), `data-strict="1"`. slug는 바꿀 수 있어(8-4 'PUT') `pathname` 매핑이면 slug를 바꿀 때 댓글이 끊긴다. id는 바뀌지 않는다. giscus는 제목을 부분 일치로 찾으므로 `strict`가 없으면 `post-1`이 `post-12`의 Discussion과 섞일 수 있다 (`strict`는 term의 SHA-1로 정확히 찾는다).
   - 그 밖의 속성: `data-reactions-enabled="1"`, `data-emit-metadata="0"`, `data-input-position="bottom"`, `data-theme="preferred_color_scheme"`(사이트가 `prefers-color-scheme`로 다크 모드를 따르므로 같은 기준), `data-lang="ko"`, `data-loading="lazy"`, `crossorigin="anonymous"`, `async`.
-  - 불러오기: `useEffect`에서 `https://giscus.app/client.js` `<script>`를 만들어 컨테이너 `div`에 붙인다. JSX의 `<script>`는 실행되지 않고, 몇 줄이라 `@giscus/react` 의존성을 더하지 않는다. 다른 글로 클라이언트 이동할 때 새 글의 댓글을 불러오도록 상세 페이지에서 `key={post.id}`로 다시 마운트한다.
+  - 불러오기: `useEffect`에서 `https://giscus.app/client.js` `<script>`를 만들어 컨테이너 `div`(`ref`)에 붙이고, 정리 함수에서 그 컨테이너를 비운다(`replaceChildren()`). 비우면 스크립트와 giscus가 그 뒤에 만든 `.giscus` 컨테이너·iframe이 함께 지워진다. 정리가 없으면 `npm run dev`(React StrictMode가 effect를 마운트→정리→마운트로 두 번 실행)와 재마운트 때 스크립트·iframe이 겹쳐 붙는다. JSX의 `<script>`는 실행되지 않고, 몇 줄이라 `@giscus/react` 의존성을 더하지 않는다. 다른 글로 클라이언트 이동할 때 새 글의 댓글을 불러오도록 상세 페이지에서 `key={post.id}`로 다시 마운트한다.
   - 실패 처리: 스크립트를 받지 못하면(giscus.app 장애, 차단) 댓글 영역이 빈 채로 남고 글은 그대로 보인다. 재시도·오류 문구는 두지 않는다 (댓글은 부가 기능이고, iframe 안의 오류는 giscus가 직접 표시한다).
   - 글을 삭제해도 Discussion은 남는다. 관리자가 필요하면 GitHub에서 지운다.
   - `giscus.json`(댓글을 불러올 수 있는 origin 제한)은 두지 않는다. 다른 사이트가 공개 Discussion을 불러오는 것뿐이라 막을 이득이 작고, 로컬 개발(`localhost`)도 허용 목록에 넣어야 한다.
   - 로컬 개발도 같은 Discussions를 쓰고, 시드 글 id가 운영 글 id와 겹치면 같은 댓글이 보인다. 그래서 화면 확인에서 쓴 댓글의 Discussion은 확인 뒤 지운다.
   - 화면 확인 (로컬 `npm run dev` + 백엔드, 이슈 완료 조건):
-    1. 글 상세 본문 아래 `section[aria-label="댓글"]` 안에 `iframe.giscus-frame`(`src`가 `https://giscus.app/ko/widget`으로 시작)이 생기고, 스크립트 요소의 `data-term`이 `post-{그 글 id}`, `data-strict`가 `1`이다.
+    1. 글 상세 본문 아래 `section[aria-label="댓글"]` 안에 `iframe.giscus-frame`(`src`가 `https://giscus.app/ko/widget`으로 시작)이 생기고, 스크립트 요소의 `data-term`이 `post-{그 글 id}`, `data-strict`가 `1`이다. dev(StrictMode)에서도 그 안의 `script[src="https://giscus.app/client.js"]`와 `iframe.giscus-frame`은 하나씩이다.
     2. GitHub 로그인 후 댓글을 쓰면 Discussions의 `Comments` 카테고리에 제목 `post-{id}` Discussion이 생긴다.
     3. 관리자 화면에서 그 글의 slug를 바꾼 뒤 새 주소의 상세에 같은 댓글이 보인다. 확인 후 slug를 되돌리고 Discussion을 지운다.
-    4. 상세에서 다른 글로 이동하면(목록으로 갔다가 다른 글) 스크립트 요소의 `data-term`이 새 글 id로 바뀐다.
+    4. 상세에서 다른 글로 이동하면(목록으로 갔다가 다른 글) `section[aria-label="댓글"]` 안 스크립트 요소(하나)의 `data-term`이 새 글 id로 바뀐다.
     5. 없는 글(`/posts/nope`)의 not-found 화면에는 댓글 영역이 없다.
 - 캐시: 기준은 '렌더링 전략'. 같은 글을 다시 요청하면 `getPost`와 `MarkdownRenderer`의 캐시로 백엔드 호출과 Shiki 하이라이팅이 다시 일어나지 않는다.
 - not-found 화면: `app/(public)/not-found.tsx`를 둔다. 공개 페이지에서 부른 `notFound()`(상세의 없는 글, 목록의 잘못된 `page`)가 블로그 헤더 안에서 "페이지를 찾을 수 없습니다." 문구와 `/` 링크로 표시된다.
