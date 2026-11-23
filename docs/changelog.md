@@ -210,3 +210,8 @@
   - '프론트엔드 테스트'의 Vitest 대상에 `taxonomy.ts` 추가
 - **v2.38**
   - 관리자 카테고리 slug 변경 확인 창(11장 '관리자 카테고리' '저장'): 수정 모드에서 slug를 바꾸면 Zod 검증 뒤 `window.confirm`, 취소하면 요청 없음. M4 카테고리 페이지로 공개 주소가 생겨 "M4에서 다시 검토" 문구를 결정으로 바꿈
+- **v2.39**
+  - Metadata(11장 'Metadata'): 사이트 주소는 실행 시점 환경변수 `SITE_URL`(`lib/site.ts`의 `siteUrl()`, 기본값 없음, `server-only`). 루트 layout에서 읽으면 빌드 때 실행되므로 `metadataBase`는 글 상세 `generateMetadata`에만 둔다. `Host` 헤더로 주소를 만들지 않음
+  - 루트 `title` 템플릿 `%s | Blog`, 공통 `description`·`openGraph`(`siteName`·`locale`·`type`, `og:title` 없음), 페이지별 `title`(상세·카테고리·태그·검색), 확인에 걸린 경로는 `{}`, 목록·카테고리·태그에는 canonical 없음
+  - 글 상세: `description`은 요약(없으면 사이트 설명), canonical·`og:url` `/posts/{slug}`, `og:type` `article`·`publishedTime`. `og:image`·`twitter:*`는 두지 않음
+  - 운영 compose frontend에 `SITE_URL: ${SITE_URL:?...}`(12-2), GitHub Secrets에 `SITE_URL` 추가(12-6), 이미지 실행 환경변수(12-7)
