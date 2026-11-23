@@ -239,7 +239,7 @@ main 머지 (deploy.yml)
   | `DEPLOY_HOST` | 예약 공인 IP |
   | `DEPLOY_SSH_KEY` | 배포 전용 ed25519 개인 키 (공개 키는 서버 `ubuntu`의 `authorized_keys`, 비밀번호 없음) |
   | `DEPLOY_KNOWN_HOSTS` | `ssh-keyscan -t ed25519 <IP>` 결과 (호스트 키 고정, `StrictHostKeyChecking`을 끄지 않는다) |
-  | `POSTGRES_PASSWORD`, `JWT_SECRET`, `ADMIN_USERNAME`, `ADMIN_PASSWORD`, `SITE_URL` | 서버 `.env` 값 (12-2). `SITE_URL`은 이 값을 쓰는 변경이 main에 머지되기 전에 등록한다 (없으면 배포의 `up`이 실패한다) |
+  | `POSTGRES_PASSWORD`, `JWT_SECRET`, `ADMIN_USERNAME`, `ADMIN_PASSWORD`, `SITE_URL` | 서버 `.env` 값 (12-2). `SITE_URL`은 이 값을 쓰는 변경이 main에 머지되기 전에 등록한다 (없으면 배포 스크립트 3단계의 첫 compose 명령인 `pull`이 변수 검사에서 실패해 6단계 롤백으로 간다) |
 - GitHub 러너의 IP는 고정되지 않으므로 22 포트는 `0.0.0.0/0`에 연다 (12-2 '서버 준비'). 비밀번호 로그인은 OCI Ubuntu 이미지 기본값대로 꺼져 있어 키로만 들어온다.
 
 **`.env` 동기화**: 원본은 GitHub Secrets 하나다. 배포마다 워크플로가 Secrets로 `.env` 내용을 만들어 서버로 보내고, 서버의 `.env`를 손으로 고치지 않는다 (고쳐도 다음 배포에서 덮어써진다). `POSTGRES_DB`·`POSTGRES_USER`는 compose 기본값(`blog`)을 쓰므로 보내지 않는다.
