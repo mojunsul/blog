@@ -8,7 +8,7 @@ import { searchPosts } from "@/lib/api/posts";
 import { parsePageParam } from "@/lib/pagination";
 import { parseSearchQuery, searchHref } from "@/lib/search";
 
-export const metadata: Metadata = { robots: { index: false } };
+export const metadata: Metadata = { title: "검색", robots: { index: false } };
 
 export default function SearchPage({ searchParams }: PageProps<"/search">) {
   return (

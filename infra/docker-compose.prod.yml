@@ -47,6 +47,7 @@ services:
     restart: unless-stopped
     environment:
       API_INTERNAL_URL: http://backend:8080
+      SITE_URL: ${SITE_URL:?SITE_URL is required}
     depends_on:
       backend:
         condition: service_healthy

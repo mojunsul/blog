@@ -1,10 +1,37 @@
+import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { Suspense } from "react";
 
 import { MarkdownRenderer } from "@/components/markdown/MarkdownRenderer";
 import { PostMeta } from "@/components/post/PostMeta";
 import { getPost } from "@/lib/api/posts";
+import { SITE_DESCRIPTION, SITE_OPEN_GRAPH, siteUrl } from "@/lib/site";
 import { isValidSlug } from "@/lib/slug";
+
+export async function generateMetadata({ params }: PageProps<"/posts/[slug]">): Promise<Metadata> {
+  const { slug } = await params;
+  if (!isValidSlug(slug)) return {};
+
+  const post = await getPost(slug);
+  if (post === null) return {};
+
+  const description = post.summary ?? SITE_DESCRIPTION;
+  const path = `/posts/${slug}`;
+  return {
+    metadataBase: siteUrl(),
+    title: post.title,
+    description,
+    alternates: { canonical: path },
+    openGraph: {
+      ...SITE_OPEN_GRAPH,
+      type: "article",
+      title: post.title,
+      description,
+      url: path,
+      publishedTime: post.publishedAt,
+    },
+  };
+}
 
 export default function PostPage({ params }: PageProps<"/posts/[slug]">) {
   return (
