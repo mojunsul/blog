@@ -16,7 +16,7 @@
   - backend: 12-7의 환경변수를 `env_file`이 아니라 `environment`에 `${VAR}` 치환으로 넣는다 (값은 `infra/.env`). postgres healthy 이후 기동.
     - DB 값은 postgres와 같은 식을 쓴다: `DB_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-blog}`, `POSTGRES_USER: ${POSTGRES_USER:-blog}`, `POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?...}`. `infra/.env`에서 `POSTGRES_DB`·`POSTGRES_USER`를 비워도 두 서비스가 같은 기본값을 받는다 (`env_file`이면 빈 값이 backend에만 그대로 들어가 어긋난다).
     - `JWT_SECRET`·`ADMIN_USERNAME`·`ADMIN_PASSWORD`는 기본값 없이 `${VAR}`. 비면 빈 문자열이 들어가 12-7대로 backend 기동이 멈춘다.
-  - frontend: `API_INTERNAL_URL: http://backend:8080` (11장 'API 주소 처리'), `SITE_URL: ${SITE_URL}` (11장 'sitemap·robots'. 비면 빈 문자열이 들어가 sitemap·robots만 `500`이다)
+  - frontend: `API_INTERNAL_URL: http://backend:8080` (11장 'API 주소 처리'), `SITE_URL: ${SITE_URL}` (11장 'sitemap·robots'. 비면 빈 문자열이 들어가 sitemap·robots만 `500`이다. 연결 확인은 그 절 화면 확인 5)
 - PostgreSQL 데이터는 named volume으로 영속화
 - 비밀값은 서버의 `infra/.env`에만 둔다. 원본은 GitHub Secrets이고, 자동 배포부터는 deploy가 매번 `.env`를 다시 쓴다 (12-6 '`.env` 동기화')
   - `POSTGRES_PASSWORD`, `JWT_SECRET`, `ADMIN_USERNAME`, `ADMIN_PASSWORD` (Object Storage는 인스턴스 주체로 인증해 키가 없다, 12-5)

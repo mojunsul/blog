@@ -529,6 +529,7 @@ CI에서 프론트 이미지를 빌드할 때는 백엔드가 없다. `next buil
 2. `curl -s localhost:3000/sitemap.xml`: `<loc>http://localhost:3000/</loc>`(lastmod 없음), PUBLISHED 시드 글마다 `<loc>…/posts/{slug}</loc>`와 그 글 상세 API의 `updatedAt`과 같은 `<lastmod>`, DRAFT 글 없음, `/categories/backend` 있음·`/categories/infra`(글 없는 카테고리) 없음, `/tags/%EC%8A%A4%ED%94%84%EB%A7%81` 있음·`draft-only` 없음
 3. `SITE_URL`을 빼고 `next dev`를 다시 띄우면 두 경로가 `500`이고 `/`는 정상
 4. `.env.local` 없이 `npm run build` 성공 ('관리자 인증' 8번과 같다)
+5. 운영 연결(머지 전, 로컬): `POSTGRES_PASSWORD=x SITE_URL=https://example.test docker compose -f infra/docker-compose.prod.yml config frontend` 출력의 frontend `environment`에 `SITE_URL: https://example.test`가 있다. `deploy.yml`은 PR diff에서 `.env` 생성 스텝의 `env:`에 `SITE_URL: ${{ secrets.SITE_URL }}`, `printf` 형식에 `SITE_URL=%s\n`, 인자에 `"$SITE_URL"`이 있고 형식의 `%s`와 인자 순서가 맞는지 본다. 빠져도 deploy 헬스체크(12-6 4단계)는 `/`·`/api/v1/posts`만 봐 배포가 성공하므로 여기서 막는다.
 - 51건 이상(두 번째 페이지 호출)은 시드 글이 적어 화면에서 보지 않는다. 반복 조건은 `PageResponse`의 `hasNext` 하나다.
 
 ### Markdown 렌더링
