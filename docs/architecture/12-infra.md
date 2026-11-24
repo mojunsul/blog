@@ -16,10 +16,11 @@
   - backend: 12-7의 환경변수를 `env_file`이 아니라 `environment`에 `${VAR}` 치환으로 넣는다 (값은 `infra/.env`). postgres healthy 이후 기동.
     - DB 값은 postgres와 같은 식을 쓴다: `DB_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-blog}`, `POSTGRES_USER: ${POSTGRES_USER:-blog}`, `POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?...}`. `infra/.env`에서 `POSTGRES_DB`·`POSTGRES_USER`를 비워도 두 서비스가 같은 기본값을 받는다 (`env_file`이면 빈 값이 backend에만 그대로 들어가 어긋난다).
     - `JWT_SECRET`·`ADMIN_USERNAME`·`ADMIN_PASSWORD`는 기본값 없이 `${VAR}`. 비면 빈 문자열이 들어가 12-7대로 backend 기동이 멈춘다.
-  - frontend: `API_INTERNAL_URL: http://backend:8080` (11장 'API 주소 처리')
+  - frontend: `API_INTERNAL_URL: http://backend:8080` (11장 'API 주소 처리'), `SITE_URL: ${SITE_URL}` (11장 'sitemap·robots'. 비면 빈 문자열이 들어가 sitemap·robots만 `500`이다)
 - PostgreSQL 데이터는 named volume으로 영속화
 - 비밀값은 서버의 `infra/.env`에만 둔다. 원본은 GitHub Secrets이고, 자동 배포부터는 deploy가 매번 `.env`를 다시 쓴다 (12-6 '`.env` 동기화')
   - `POSTGRES_PASSWORD`, `JWT_SECRET`, `ADMIN_USERNAME`, `ADMIN_PASSWORD` (Object Storage는 인스턴스 주체로 인증해 키가 없다, 12-5)
+  - 비밀값이 아닌 `SITE_URL`(`https://blog.도메인`, 11장 'sitemap·robots')도 같은 경로로 둔다. 실제 도메인을 저장소에 두지 않으려는 것이라(아래 '도메인·DNS') `.env.example`에는 값을 비워 두고, 원본은 다른 값과 같이 GitHub Secret이다.
   - 비밀값이 아닌 `IMAGE_TAG`(비우면 `latest`)도 `infra/.env.example`에 둔다. 로컬은 셸에서 `IMAGE_TAG=local`로 덮어쓴다. 서버 첫 배포(deploy 이슈 전)에는 `infra/.env`에 `IMAGE_TAG=local`을 둔다는 안내(아래 '서버 준비')도 같은 주석에 적는다.
   - `infra/.env.example`의 기본값 안내 주석은 로컬 compose 기준이므로, 운영 compose는 `POSTGRES_PASSWORD`가 필수라는 점을 함께 적는다.
   - `JWT_SECRET`은 `openssl rand -base64 32`로 만든다 (Base64, 디코딩 후 32바이트 이상, 10-6). 바꾸면 발급된 Access 토큰이 모두 무효가 된다.
@@ -239,7 +240,7 @@ main 머지 (deploy.yml)
   | `DEPLOY_HOST` | 예약 공인 IP |
   | `DEPLOY_SSH_KEY` | 배포 전용 ed25519 개인 키 (공개 키는 서버 `ubuntu`의 `authorized_keys`, 비밀번호 없음) |
   | `DEPLOY_KNOWN_HOSTS` | `ssh-keyscan -t ed25519 <IP>` 결과 (호스트 키 고정, `StrictHostKeyChecking`을 끄지 않는다) |
-  | `POSTGRES_PASSWORD`, `JWT_SECRET`, `ADMIN_USERNAME`, `ADMIN_PASSWORD` | 서버 `.env` 값 (12-2) |
+  | `POSTGRES_PASSWORD`, `JWT_SECRET`, `ADMIN_USERNAME`, `ADMIN_PASSWORD`, `SITE_URL` | 서버 `.env` 값 (12-2) |
 - GitHub 러너의 IP는 고정되지 않으므로 22 포트는 `0.0.0.0/0`에 연다 (12-2 '서버 준비'). 비밀번호 로그인은 OCI Ubuntu 이미지 기본값대로 꺼져 있어 키로만 들어온다.
 
 **`.env` 동기화**: 원본은 GitHub Secrets 하나다. 배포마다 워크플로가 Secrets로 `.env` 내용을 만들어 서버로 보내고, 서버의 `.env`를 손으로 고치지 않는다 (고쳐도 다음 배포에서 덮어써진다). `POSTGRES_DB`·`POSTGRES_USER`는 compose 기본값(`blog`)을 쓰므로 보내지 않는다.
@@ -308,7 +309,7 @@ main 머지 (deploy.yml)
 - 실행 스테이지에는 `.next/standalone`(→ `./`), `.next/static`(→ `./.next/static`), `public`(→ `./public`)만 복사한다. standalone 서버가 `.next/cache`에 쓰므로 `--chown=node:node`로 복사한다.
   - `public`은 지금 비어 있어 git에 없다. CI 체크아웃에도 폴더가 있도록 `frontend/public/.gitkeep`을 커밋한다.
 - `ENV NODE_ENV=production`, `PORT=3000`, `HOSTNAME=0.0.0.0`, `EXPOSE 3000`, `CMD ["node", "server.js"]`. `HOSTNAME`을 주지 않으면 Docker가 넣는 컨테이너 ID 호스트명에만 바인딩되어 다른 컨테이너(Nginx)에서 접속하지 못한다.
-- `API_INTERNAL_URL`은 실행 시 compose `environment`로 준다 (11장 'API 주소 처리').
+- `API_INTERNAL_URL`·`SITE_URL`은 실행 시 compose `environment`로 준다 (11장 'API 주소 처리'·'sitemap·robots'). 빌드에는 둘 다 필요 없다.
 
 **확인 방법** (로컬, 이슈 완료 조건)
 - 빌드: `docker buildx build --platform linux/arm64 -t blog-backend:local --load backend`, frontend도 같다. 로컬 PostgreSQL·백엔드를 끈 상태에서 성공해야 한다.

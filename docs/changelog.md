@@ -210,3 +210,8 @@
   - '프론트엔드 테스트'의 Vitest 대상에 `taxonomy.ts` 추가
 - **v2.38**
   - 관리자 카테고리 slug 변경 확인 창(11장 '관리자 카테고리' '저장'): 수정 모드에서 slug를 바꾸면 Zod 검증 뒤 `window.confirm`, 취소하면 요청 없음. M4 카테고리 페이지로 공개 주소가 생겨 "M4에서 다시 검토" 문구를 결정으로 바꿈
+- **v2.39**
+  - sitemap·robots(11장 'sitemap·robots'): `/`, 모든 PUBLISHED 글(`lastModified` = `updatedAt`), 글 있는 카테고리, 공개 태그 목록. 목록·분류는 `lastModified` 없음. robots는 `/admin`·`/api/` 차단(`/search`는 `noindex`라 막지 않음). 둘 다 `connection()` 뒤 실행, API 오류는 `500`
+  - 전체 글은 공개 목록 API를 `size=50`으로 `hasNext`까지 읽는 `getAllPublishedPosts()`(별도 백엔드 API 없음), 항목은 `buildSitemap`(`lib/sitemap.ts`, Vitest)
+  - 공개 글 목록 응답에 `updatedAt` 추가(8-1)
+  - 사이트 주소 환경변수 `SITE_URL`(`lib/site.ts`, 없으면 호출 시점 오류): 운영은 compose `environment`·GitHub Secret·deploy `.env` 동기화(12장)
