@@ -41,7 +41,7 @@ export async function searchPosts(q: string, zeroBasedPage: number): Promise<Pos
   return apiGet<PostSummaryPage>(`/api/v1/posts?${params}`);
 }
 
-// 모든 PUBLISHED 글을 최대 크기(50)로 hasNext가 false일 때까지 읽는다. 호출자는 요청 시점 API(connection) 뒤에서 호출해야 한다.
+// 요청 시점 API(connection) 뒤에서 호출해야 한다. 아니면 빌드 중에 실행되어 백엔드를 호출한다. 50은 공개 목록 API의 size 최대값이다.
 export async function getAllPublishedPosts(): Promise<PostSummary[]> {
   "use cache";
   cacheLife({ revalidate: 60 });
