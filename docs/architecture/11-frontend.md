@@ -54,6 +54,7 @@ frontend/src/
 │  ├ post-id.ts     # URL의 글 id 경로 해석 (parsePostIdParam)
 │  ├ search.ts      # URL의 q 쿼리 해석·검색 페이지 주소 (parseSearchQuery, searchHref)
 │  ├ taxonomy.ts    # 카테고리·태그 페이지 주소와 태그 경로 해석 (categoryHref, tagHref, parseTagNameParam)
+│  ├ site.ts        # 사이트 이름·설명·주소 (SITE_NAME, SITE_DESCRIPTION, SITE_OPEN_GRAPH, siteUrl, server-only)
 │  ├ slug.ts        # slug 형식 검사 (isValidSlug, SLUG_PATTERN·MAX_SLUG_LENGTH, 6장 slug 규칙)
 │  └ utils.ts
 ├ schemas/
@@ -428,9 +429,9 @@ CI에서 프론트 이미지를 빌드할 때는 백엔드가 없다. `next buil
 - `getPost`는 404(없는 글, DRAFT)면 `null`을 돌려주고('에러 처리'), 페이지는 `null`이면 `notFound()`. 그 외 오류는 그대로 던진다.
   - 목록 페이지와 같은 이유로 상태 코드는 `200`으로 남고 `noindex`가 붙는다.
 - 표시 항목: 제목(`h1`), 카테고리 이름(있을 때, 카테고리 페이지 링크)·발행일과 그 아래 태그(`TagBadge`)를 `PostCard`와 같은 형식으로, 본문(`MarkdownRenderer`).
-  - 요약·썸네일·수정일은 표시하지 않는다. 요약은 목록과 M5의 OG 설명용이고, 썸네일은 목록 페이지와 같은 이유다.
+  - 요약·썸네일·수정일은 표시하지 않는다. 요약은 목록과 `description`·OG 설명용이고('Metadata'), 썸네일은 목록 페이지와 같은 이유다.
   - 태그를 목록과 같은 형식으로 둔다: 글에서 같은 태그의 다른 글로 가는 길이 상세에도 있어야 하고, 형식이 같아야 `PostCard`와 컴포넌트를 나눠 쓴다.
-  - 글별 `<title>`·OG 태그(`generateMetadata`)는 M5에서 추가한다.
+  - 글별 `<title>`·OG 태그는 'Metadata'.
 - 댓글(Giscus): `<article>` 안의 `MarkdownRenderer` 뒤에 `<section aria-label="댓글" className="mt-12">`을 두고 그 안에 `components/post/Comments.tsx`(클라이언트 컴포넌트)를 둔다. 글을 찾았을 때만 그리므로 not-found 화면에는 없다.
   - `<article>` 안에 두는 이유: 댓글은 그 글에 딸린 내용이라(HTML 명세도 글의 댓글을 `<article>` 안에 둔다) 같은 요소로 묶고, `Post`가 요소 하나를 반환하는 구조도 그대로다. `mt-12`는 본문 끝과 댓글을 떼어 놓는 간격이다.
   - 저장소는 이 저장소(`mojunsul/blog`)의 Discussions, 카테고리는 `Comments`(Announcement 형식: 방문자는 새 Discussion을 직접 만들 수 없고 giscus 앱이 첫 댓글 때 만든다). 관리할 저장소를 늘리지 않으려고 별도 댓글 저장소를 두지 않는다. Discussions 활성화, giscus 앱 설치, 카테고리 생성은 관리자가 GitHub에서 하고, giscus.app 설정 화면에서 얻은 `repoId`·`categoryId`를 구현 전에 이슈에 남긴다.
@@ -473,7 +474,7 @@ CI에서 프론트 이미지를 빌드할 때는 백엔드가 없다. `next buil
   - `%`·`_`·`&`·`#`·한글도 그대로 검색된다 (`URLSearchParams` 인코딩, 일반 문자 검색은 8-1).
 - **데이터**: `lib/api/posts.ts`의 `searchPosts(q, zeroBasedPage)`가 `/api/v1/posts?q=...&page=...`(`URLSearchParams`)를 호출한다. 오류는 '에러 처리'대로 그대로 던진다.
   - 캐시하지 않는다(`'use cache'` 없음). 검색어는 사용자가 마음대로 넣는 값이라 캐시 키가 끝없이 늘고 같은 키를 다시 쓸 일이 적다. 기본 캐시는 프로세스 메모리 LRU 하나(`cacheMaxMemorySize`)를 글 목록·상세·`MarkdownRenderer`와 나눠 쓰므로, 검색 결과가 그 항목들을 밀어낼 수 있다. 백엔드 검색은 수백 건 `like`(8-1)라 매번 호출해도 작다. 운영에서 느리면 측정 후 다시 검토한다.
-- **색인 제외**: `search/page.tsx`에 `export const metadata = { robots: { index: false } }`를 둔다. 검색어마다 URL이 생기고 내용이 글 목록과 겹친다. 그 외 metadata는 M5.
+- **색인 제외**: `search/page.tsx`에 `export const metadata = { robots: { index: false } }`를 둔다. 검색어마다 URL이 생기고 내용이 글 목록과 겹친다. 그 외 metadata는 'Metadata'.
 
 ### 카테고리·태그 페이지 (`/categories/{slug}`, `/tags/{name}`)
 - **URL**: `/categories/{slug}?page=N`, `/tags/{name}?page=N`. `page` 규칙은 '글 목록 페이지'와 같다 (`parsePageParam`, 1부터, 첫 페이지는 `page` 없음).
@@ -502,7 +503,7 @@ CI에서 프론트 이미지를 빌드할 때는 백엔드가 없다. `next buil
   | `page` 2 이상인데 `content`가 빔 | `notFound()` |
   - `{name}`은 목록 API의 카테고리 `name`, 태그 `name`이다. React가 텍스트로 이스케이프해 표시한다.
   - 태그 페이지의 첫 페이지 빈 결과는 태그 목록과 글 목록의 캐시가 따로 갱신되어(각 60초) 생길 수 있다 (태그가 달린 유일한 글을 DRAFT로 바꾼 직후 등). 카테고리도 같은 이유로 지운 카테고리가 잠시 빈 페이지로 열릴 수 있다. 반영 지연은 '렌더링 전략'과 같이 받아들인다.
-  - `notFound()`의 상태 코드·`noindex`는 '글 목록 페이지'와 같다. 검색 페이지와 달리 색인을 막지 않는다 (분류마다 고정된 주소 하나다). 그 외 metadata는 M5.
+  - `notFound()`의 상태 코드·`noindex`는 '글 목록 페이지'와 같다. 검색 페이지와 달리 색인을 막지 않는다 (분류마다 고정된 주소 하나다). 그 외 metadata는 'Metadata'.
 - **`TagBadge`** (`components/post/TagBadge.tsx`, 상태 없는 서버 컴포넌트): `name`과 선택 `postCount`를 받아 `tagHref(name, 1)`로 가는 `Link` "#{name}"을 그린다. `postCount`가 있으면 "#{name} ({postCount})". 글 목록·상세의 태그(개수 없음)와 '글 목록 페이지'의 태그 목록(개수 있음)이 쓴다.
 
 **화면 확인** (백엔드 `local` 프로필 + 시드 데이터 + 관리자 계정으로 `next dev`를 띄워 DOM·`curl`로 본다. 완료 조건의 확인 수단이다. 시드에는 태그가 없으므로 먼저 관리자 글 수정 화면에서 PUBLISHED 시드 글 하나(Backend 카테고리)에 `spring, 스프링`, 다른 PUBLISHED 글 하나에 `spring`, DRAFT 시드 글에 `draft-only`를 붙이고, 데이터 캐시(60초)가 지난 뒤 새로고침해서 본다)
@@ -512,6 +513,42 @@ CI에서 프론트 이미지를 빌드할 때는 백엔드가 없다. `next buil
 4. 글 상세: 카테고리 이름이 `/categories/{slug}` 링크, 그 아래 태그 `TagBadge`가 `PostCard`와 같은 순서로 보인다. 태그 없는 글은 태그 줄이 없다
 5. `.env.local` 없이 `npm run build`와 `npx next typegen` 성공 ('관리자 인증' 8번과 같다)
 - 페이지 이동 링크는 `categoryHref`·`tagHref` 단위 테스트와 기존 `Pagination`으로 보고 화면에서 따로 보지 않는다 (시드 글이 한 페이지 크기 10개보다 적다).
+
+### Metadata
+- **사이트 주소 `SITE_URL`**: 절대 URL(canonical, `og:url`, M5 sitemap·RSS)의 기준이다. 저장소에 도메인을 두지 않으므로(12-3) 실행 시점 환경변수로 받는다. `API_INTERNAL_URL`('API 주소 처리')과 같이 `NEXT_PUBLIC_`이 아니고 기본값이 없다.
+  - `lib/site.ts`(`server-only`)의 `siteUrl(): URL`이 `new URL(process.env.SITE_URL)`을 돌려준다. 값이 없으면 `server.ts`와 같은 이유로 `"SITE_URL이 설정되지 않았습니다. frontend/.env.example을 .env.local로 복사하세요."` 오류를 던지고, 형식이 틀리면(`blog.도메인`처럼 scheme 없음) `new URL`의 `TypeError`를 그대로 던진다. 둘 다 그 페이지는 오류 화면이다. 끝의 `/` 유무는 Next가 맞춘다.
+  - 로컬: `frontend/.env.example`에 `SITE_URL=http://localhost:3000`을 더한다. 운영: compose가 `infra/.env`에서 받는다 (12-2).
+  - `siteUrl()`은 요청 시점 API(`params`)를 읽은 뒤에만 부른다. 루트 layout에서 부르면 빌드 때 실행되어 값이 없는 CI 빌드가 실패하고, 값이 있어도 이미지에 박힌다. 그래서 `metadataBase`는 루트가 아니라 절대 URL이 필요한 글 상세의 `generateMetadata`에만 둔다. 다른 페이지는 상대 URL 필드를 쓰지 않아 `metadataBase`가 필요 없다.
+  - 요청의 `Host` 헤더로 주소를 만들지 않는다: Nginx가 `server_name _`(12-3)라 IP나 임의 `Host`로 들어온 요청이 그 값을 canonical로 받는다.
+- **사이트 공통** (`app/layout.tsx`의 정적 `metadata`): `lib/site.ts`의 상수 `SITE_NAME = "Blog"`, `SITE_DESCRIPTION = "개인 개발 블로그"`를 쓴다 (`(public)/layout.tsx` 헤더의 블로그 이름도 `SITE_NAME`).
+  - `title: { default: SITE_NAME, template: \`%s | ${SITE_NAME}\` }`, `description: SITE_DESCRIPTION`, `openGraph: SITE_OPEN_GRAPH`(`lib/site.ts`, `{ siteName: SITE_NAME, locale: "ko_KR", type: "website" }`).
+  - `openGraph`는 하위 페이지가 정하면 통째로 바뀌므로(얕은 병합), 글 상세는 `SITE_OPEN_GRAPH`를 펼친 뒤 덮어쓴다. 루트에 `og:title`을 두지 않는다: 하위 페이지가 `openGraph`를 정하지 않으면 모든 페이지가 같은 `og:title`을 물려받는다. 없으면 공유 미리보기는 `<title>`을 쓴다.
+  - 관리자 페이지는 따로 정하지 않는다 (`Blog`).
+- **페이지별**
+  | 페이지 | `title` | 그 외 |
+  |---|---|---|
+  | `/` (모든 `page`) | 없음 (`Blog`) | 없음 |
+  | 글 상세 | `post.title` | 아래 |
+  | `/categories/{slug}` | `"{name} 카테고리"` | 없음 |
+  | `/tags/{name}` | `"#{name} 태그"` | 없음 |
+  | `/search` | `"검색"` | 기존 `robots: { index: false }` ('검색 페이지') |
+  - 카테고리·태그·상세는 `generateMetadata`에서 페이지와 같은 순서로 확인한다 (상세: `isValidSlug` → `getPost`, 태그: `parseTagNameParam` → `getPublicTags`, 카테고리: `getPublicCategories`). 확인에 걸리면 `{}`를 돌려준다(`title`은 `Blog`). 페이지가 같은 확인으로 `notFound()`하고 Next가 `noindex`를 넣는다. `page` 값은 보지 않는다 (잘못된 `page`도 페이지의 `notFound()`가 맡는다).
+  - 같은 요청에서 페이지와 같은 인자로 부르므로 `'use cache'` 데이터 함수('렌더링 전략')가 백엔드를 한 번만 부른다. 조회가 실패하면 그대로 던져 오류 화면이다 ('에러 처리').
+  - 목록·카테고리·태그 페이지에는 canonical을 두지 않는다. 사이트 안 링크는 첫 페이지를 `page` 없는 주소로만 만들어(`pageHref`) `?page=1`은 손으로 친 주소뿐이고, 색인할 주소는 M5 sitemap이 알린다. 2쪽 이후 `title`에 쪽 번호를 붙이지 않는다.
+- **글 상세** `generateMetadata`
+  - `metadataBase: siteUrl()`, `title: post.title`, `description: post.summary ?? SITE_DESCRIPTION`(500자 이하, 8-4. 자르지 않는다), `alternates: { canonical: \`/posts/${slug}\` }`
+  - `openGraph: { ...SITE_OPEN_GRAPH, type: "article", title: post.title, description: 위와 같은 값, url: 같은 경로, publishedTime: post.publishedAt }`. `slug`는 `isValidSlug`를 통과한 값이라 그대로 경로에 넣는다.
+  - `og:image`·`twitter:*`는 두지 않는다. 썸네일은 M6이고, X는 `twitter:*`가 없으면 OG 태그를 쓴다. 수정일(`article:modified_time`)·태그(`article:tag`)도 두지 않는다 (화면에 없는 값, '글 상세 페이지').
+  - 본문 컴포넌트도 `params`를 읽어 요청 시점에 렌더링되므로 metadata는 Next가 본문과 함께 스트리밍한다 (Cache Components의 `generateMetadata` 규칙). 공유 미리보기 봇(`facebookexternalhit`·`Twitterbot` 등, Next `htmlLimitedBots` 기본값)에는 Next가 `<head>`에 넣어 보낸다.
+
+**화면 확인** (백엔드 `local` 프로필 + 시드 데이터로 `.env.local`에 `SITE_URL=http://localhost:3000`을 두고 `next dev`를 띄워 `curl`로 본다. 완료 조건의 확인 수단이다. 요약 없는 글은 관리자 수정 화면에서 시드 글 하나의 요약을 지워 만든다)
+1. 요약 있는 PUBLISHED 글 `curl -s -A Twitterbot /posts/{slug}`: `<head>` 안에 `<title>{제목} | Blog</title>`, `description`이 요약, `<link rel="canonical" href="http://localhost:3000/posts/{slug}">`, `og:title`·`og:description`·`og:url`(canonical과 같음)·`og:type` `article`·`article:published_time`(`publishedAt`)·`og:site_name` `Blog`·`og:locale` `ko_KR`
+2. 요약 없는 글: `description`·`og:description`이 `개인 개발 블로그`
+3. `/` → `<title>Blog</title>`, canonical 없음, `og:type` `website`. `/categories/backend` → `Backend 카테고리 | Blog`, `/tags/spring` → `#spring 태그 | Blog`, `/search?q=a` → `검색 | Blog`와 `noindex`. 셋 다 canonical 없음
+4. `/posts/nope`, DRAFT 글 slug, `/tags/nope` → `<title>Blog</title>`과 `noindex`
+5. `.env.local`에서 `SITE_URL`을 지우고 `next dev`를 다시 띄우면 글 상세가 오류 화면이고 `/`는 열린다. `.env.local` 없이 `npm run build`·`npx next typegen` 성공 ('카테고리·태그 페이지' 5번과 같다)
+6. 운영 compose: `SITE_URL= POSTGRES_PASSWORD=x docker compose -f infra/docker-compose.prod.yml config`가 `SITE_URL is required`로 실패한다 (셸 값이 `infra/.env`보다 우선한다)
+7. 배포(머지 뒤, 12-6): Secrets에 `SITE_URL`을 머지 전에 등록하고, 머지 후 deploy가 성공한 뒤 `curl -s https://blog.도메인/posts/{slug}`의 canonical이 `https://blog.도메인/posts/{slug}`다
 
 ### Markdown 렌더링
 - `components/markdown/MarkdownRenderer`는 `content`(Markdown 문자열)만 받는 **서버 컴포넌트**다. react-markdown의 `MarkdownAsync`를 쓴다.

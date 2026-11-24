@@ -16,10 +16,10 @@
   - backend: 12-7의 환경변수를 `env_file`이 아니라 `environment`에 `${VAR}` 치환으로 넣는다 (값은 `infra/.env`). postgres healthy 이후 기동.
     - DB 값은 postgres와 같은 식을 쓴다: `DB_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-blog}`, `POSTGRES_USER: ${POSTGRES_USER:-blog}`, `POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?...}`. `infra/.env`에서 `POSTGRES_DB`·`POSTGRES_USER`를 비워도 두 서비스가 같은 기본값을 받는다 (`env_file`이면 빈 값이 backend에만 그대로 들어가 어긋난다).
     - `JWT_SECRET`·`ADMIN_USERNAME`·`ADMIN_PASSWORD`는 기본값 없이 `${VAR}`. 비면 빈 문자열이 들어가 12-7대로 backend 기동이 멈춘다.
-  - frontend: `API_INTERNAL_URL: http://backend:8080` (11장 'API 주소 처리')
+  - frontend: `API_INTERNAL_URL: http://backend:8080` (11장 'API 주소 처리'), `SITE_URL: ${SITE_URL:?SITE_URL is required}` (11장 'Metadata', 값은 `infra/.env`). 도메인이 들어가 저장소에 두지 않으므로 `.env`에서 받고, 비면 compose가 컨테이너를 만들기 전에 실패한다 (비어 있으면 글 상세가 모두 오류 화면이 된다).
 - PostgreSQL 데이터는 named volume으로 영속화
 - 비밀값은 서버의 `infra/.env`에만 둔다. 원본은 GitHub Secrets이고, 자동 배포부터는 deploy가 매번 `.env`를 다시 쓴다 (12-6 '`.env` 동기화')
-  - `POSTGRES_PASSWORD`, `JWT_SECRET`, `ADMIN_USERNAME`, `ADMIN_PASSWORD` (Object Storage는 인스턴스 주체로 인증해 키가 없다, 12-5)
+  - `POSTGRES_PASSWORD`, `JWT_SECRET`, `ADMIN_USERNAME`, `ADMIN_PASSWORD`, 그리고 비밀값은 아니지만 도메인이 든 `SITE_URL`(`https://blog.도메인`, 로컬에서 운영 compose를 띄울 때는 `https://localhost`) (Object Storage는 인스턴스 주체로 인증해 키가 없다, 12-5)
   - 비밀값이 아닌 `IMAGE_TAG`(비우면 `latest`)도 `infra/.env.example`에 둔다. 로컬은 셸에서 `IMAGE_TAG=local`로 덮어쓴다. 서버 첫 배포(deploy 이슈 전)에는 `infra/.env`에 `IMAGE_TAG=local`을 둔다는 안내(아래 '서버 준비')도 같은 주석에 적는다.
   - `infra/.env.example`의 기본값 안내 주석은 로컬 compose 기준이므로, 운영 compose는 `POSTGRES_PASSWORD`가 필수라는 점을 함께 적는다.
   - `JWT_SECRET`은 `openssl rand -base64 32`로 만든다 (Base64, 디코딩 후 32바이트 이상, 10-6). 바꾸면 발급된 Access 토큰이 모두 무효가 된다.
@@ -125,7 +125,7 @@ nginx 이미지는 `nginx:1-alpine`(12-7과 같은 메이저 태그 원칙). `in
 - 429 응답 본문은 Nginx 기본 HTML이다. 프론트는 ProblemDetail이 아닌 응답을 `code: null`로 바꾸고(11장 '에러 처리'), 로그인 화면(11장 '관리자 인증')과 관리자 화면은 이미 429를 각 화면 결과 표의 "그 외" 행 문구로 보여 주므로 프론트를 바꾸지 않는다. 429 전용 문구는 관리자 1명이 겪을 일이 드물어 두지 않는다.
 
 **확인 방법** (로컬, 이슈 완료 조건. HTTPS(12-3) 추가 후에는 12-3 '로컬에서 운영 compose 띄우기'를 먼저 한다)
-- 실행: `infra/.env`에 12-7의 backend 환경변수(`JWT_SECRET`, `ADMIN_USERNAME`, `ADMIN_PASSWORD`, DB 계정)를 채우고 `IMAGE_TAG=local docker compose -f infra/docker-compose.prod.yml up -d --build`. 조회 명령(`ps`·`logs`)은 파일 없이 `-p blog-prod`로 하고, 컨테이너를 만드는 명령(`up` 등)은 `-p`만으로는 파일을 찾지 못해 위와 같이 `IMAGE_TAG=local`과 `-f infra/docker-compose.prod.yml`을 붙인다. `docker compose -p blog-prod ps`에서 backend가 `healthy`이고 nginx만 `0.0.0.0:80->80/tcp`·`0.0.0.0:443->443/tcp`를 가진다.
+- 실행: `infra/.env`에 12-7의 backend 환경변수(`JWT_SECRET`, `ADMIN_USERNAME`, `ADMIN_PASSWORD`, DB 계정)와 frontend의 `SITE_URL`을 채우고 `IMAGE_TAG=local docker compose -f infra/docker-compose.prod.yml up -d --build`. 조회 명령(`ps`·`logs`)은 파일 없이 `-p blog-prod`로 하고, 컨테이너를 만드는 명령(`up` 등)은 `-p`만으로는 파일을 찾지 못해 위와 같이 `IMAGE_TAG=local`과 `-f infra/docker-compose.prod.yml`을 붙인다. `docker compose -p blog-prod ps`에서 backend가 `healthy`이고 nginx만 `0.0.0.0:80->80/tcp`·`0.0.0.0:443->443/tcp`를 가진다.
 - 로그인: prod 설정 그대로(`Secure` 쿠키) 확인한다. Chromium 계열 브라우저(Chrome·Edge)는 `http://localhost`를 보안 컨텍스트로 보아 `Secure` 쿠키를 HTTP에서도 저장·전송한다 (설계 때 Chromium으로 확인). 그래서 `blog.auth.secure-cookie`를 끄는 로컬용 덮어쓰기를 두지 않는다. Safari 등 다른 브라우저로는 확인하지 않는다.
 - 브라우저에서 관리자 로그인 → 글 작성(`PUBLISHED`) → 글 목록·상세(`/`, `/posts/{slug}`) 순으로 확인한다. 운영 DB에는 시드가 없어 처음에는 목록이 비어 있다.
 - 필수 비밀번호: `infra/.env`의 `POSTGRES_PASSWORD`를 비우고 `docker compose -f infra/docker-compose.prod.yml config`가 `POSTGRES_PASSWORD is required`로 실패한다.
@@ -239,7 +239,7 @@ main 머지 (deploy.yml)
   | `DEPLOY_HOST` | 예약 공인 IP |
   | `DEPLOY_SSH_KEY` | 배포 전용 ed25519 개인 키 (공개 키는 서버 `ubuntu`의 `authorized_keys`, 비밀번호 없음) |
   | `DEPLOY_KNOWN_HOSTS` | `ssh-keyscan -t ed25519 <IP>` 결과 (호스트 키 고정, `StrictHostKeyChecking`을 끄지 않는다) |
-  | `POSTGRES_PASSWORD`, `JWT_SECRET`, `ADMIN_USERNAME`, `ADMIN_PASSWORD` | 서버 `.env` 값 (12-2) |
+  | `POSTGRES_PASSWORD`, `JWT_SECRET`, `ADMIN_USERNAME`, `ADMIN_PASSWORD`, `SITE_URL` | 서버 `.env` 값 (12-2). `SITE_URL`은 이 값을 쓰는 변경이 main에 머지되기 전에 등록한다 (없으면 배포 스크립트 3단계의 첫 compose 명령인 `pull`이 변수 검사에서 실패해 6단계 롤백으로 간다) |
 - GitHub 러너의 IP는 고정되지 않으므로 22 포트는 `0.0.0.0/0`에 연다 (12-2 '서버 준비'). 비밀번호 로그인은 OCI Ubuntu 이미지 기본값대로 꺼져 있어 키로만 들어온다.
 
 **`.env` 동기화**: 원본은 GitHub Secrets 하나다. 배포마다 워크플로가 Secrets로 `.env` 내용을 만들어 서버로 보내고, 서버의 `.env`를 손으로 고치지 않는다 (고쳐도 다음 배포에서 덮어써진다). `POSTGRES_DB`·`POSTGRES_USER`는 compose 기본값(`blog`)을 쓰므로 보내지 않는다.
@@ -304,11 +304,11 @@ main 머지 (deploy.yml)
 
 **frontend**
 - Node 버전은 `frontend/.nvmrc`(현재 `24`)와 같은 메이저 태그 `node:24-alpine`. Dockerfile은 `.nvmrc`를 읽지 못하므로 `.nvmrc`를 바꿀 때 Dockerfile의 태그도 같이 바꾼다.
-- 스테이지: 의존성(`package.json`·`package-lock.json`만 복사 후 `npm ci`) → 빌드(`npm run build`) → 실행. 빌드에는 `API_INTERNAL_URL`도 백엔드도 필요 없다 (11장 '빌드 시 API 의존 제거'·'API 주소 처리').
+- 스테이지: 의존성(`package.json`·`package-lock.json`만 복사 후 `npm ci`) → 빌드(`npm run build`) → 실행. 빌드에는 `API_INTERNAL_URL`·`SITE_URL`도 백엔드도 필요 없다 (11장 '빌드 시 API 의존 제거'·'API 주소 처리'·'Metadata').
 - 실행 스테이지에는 `.next/standalone`(→ `./`), `.next/static`(→ `./.next/static`), `public`(→ `./public`)만 복사한다. standalone 서버가 `.next/cache`에 쓰므로 `--chown=node:node`로 복사한다.
   - `public`은 지금 비어 있어 git에 없다. CI 체크아웃에도 폴더가 있도록 `frontend/public/.gitkeep`을 커밋한다.
 - `ENV NODE_ENV=production`, `PORT=3000`, `HOSTNAME=0.0.0.0`, `EXPOSE 3000`, `CMD ["node", "server.js"]`. `HOSTNAME`을 주지 않으면 Docker가 넣는 컨테이너 ID 호스트명에만 바인딩되어 다른 컨테이너(Nginx)에서 접속하지 못한다.
-- `API_INTERNAL_URL`은 실행 시 compose `environment`로 준다 (11장 'API 주소 처리').
+- `API_INTERNAL_URL`·`SITE_URL`은 실행 시 compose `environment`로 준다 (11장 'API 주소 처리'·'Metadata', 12-2).
 
 **확인 방법** (로컬, 이슈 완료 조건)
 - 빌드: `docker buildx build --platform linux/arm64 -t blog-backend:local --load backend`, frontend도 같다. 로컬 PostgreSQL·백엔드를 끈 상태에서 성공해야 한다.
