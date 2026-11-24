@@ -211,6 +211,9 @@
 - **v2.38**
   - 관리자 카테고리 slug 변경 확인 창(11장 '관리자 카테고리' '저장'): 수정 모드에서 slug를 바꾸면 Zod 검증 뒤 `window.confirm`, 취소하면 요청 없음. M4 카테고리 페이지로 공개 주소가 생겨 "M4에서 다시 검토" 문구를 결정으로 바꿈
 - **v2.39**
+  - Giscus 댓글(11장 '글 상세 페이지'): 이 저장소 Discussions의 `Comments`(Announcement) 카테고리, `specific` 매핑 `post-{id}` + `strict`(slug 변경에도 유지), 설정값은 컴포넌트 상수(공개 식별자), `<article>` 안 본문 뒤 `section`, `useEffect`로 스크립트 삽입(`@giscus/react` 미사용)·정리 때 컨테이너 비우기(StrictMode 이중 실행), 로드 실패 시 빈 영역, `giscus.json` 미사용
+  - 12-4: CSP 설계 때 Giscus `script-src`·`frame-src` 포함
+- **v2.40**
   - Metadata(11장 'Metadata'): 사이트 주소는 실행 시점 환경변수 `SITE_URL`(`lib/site.ts`의 `siteUrl()`, 기본값 없음, `server-only`). 루트 layout에서 읽으면 빌드 때 실행되므로 `metadataBase`는 글 상세 `generateMetadata`에만 둔다. `Host` 헤더로 주소를 만들지 않음
   - 루트 `title` 템플릿 `%s | Blog`, 공통 `description`·`openGraph`(`siteName`·`locale`·`type`, `og:title` 없음), 페이지별 `title`(상세·카테고리·태그·검색), 확인에 걸린 경로는 `{}`, 목록·카테고리·태그에는 canonical 없음
   - 글 상세: `description`은 요약(없으면 사이트 설명), canonical·`og:url` `/posts/{slug}`, `og:type` `article`·`publishedTime`. `og:image`·`twitter:*`는 두지 않음
