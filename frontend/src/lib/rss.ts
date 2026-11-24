@@ -13,7 +13,7 @@ const ENTITIES: Record<string, string> = { "&": "&amp;", "<": "&lt;", ">": "&gt;
 // XML 1.0 금지 문자가 하나라도 있으면 피드 전체가 파싱 오류라 값마다 지운다.
 function escapeXml(value: string): string {
   return value
-    .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F￾￿]/g, "")
+    .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\ufffe\uffff]/g, "")
     .replace(/[&<>"']/g, (c) => ENTITIES[c]);
 }
 

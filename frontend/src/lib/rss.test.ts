@@ -61,7 +61,7 @@ describe("buildRss", () => {
 
   it("XML에서 쓸 수 없는 문자를 지우고 줄바꿈·탭은 유지한다", () => {
     const xml = buildRss("https://blog.test", channel, [
-      post({ title: "a￿b", summary: "c\u0001d\n\te", category: { name: "f￿g" } }),
+      post({ title: "a\uffffb", summary: "c\u0001d\uffff\n\te", category: { name: "f\uffffg" } }),
     ]);
     expect(xml).toContain("<title>ab</title>");
     expect(xml).toContain("<description>cd\n\te</description>");
