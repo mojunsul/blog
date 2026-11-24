@@ -27,8 +27,8 @@ frontend/src/
 │  │     ├ posts/[id]/edit/page.tsx # /admin/posts/{id}/edit
 │  │     └ categories/page.tsx      # /admin/categories
 │  ├ not-found.tsx                  # (M5) 어느 경로에도 맞지 않는 URL
-│  ├ sitemap.ts
-│  ├ robots.ts
+│  ├ sitemap.ts                    # /sitemap.xml ('sitemap·robots')
+│  ├ robots.ts                     # /robots.txt
 │  └ rss.xml/route.ts
 ├ components/
 │  ├ ui/            # Button, Input 등 공통
@@ -55,6 +55,7 @@ frontend/src/
 │  ├ search.ts      # URL의 q 쿼리 해석·검색 페이지 주소 (parseSearchQuery, searchHref)
 │  ├ taxonomy.ts    # 카테고리·태그 페이지 주소와 태그 경로 해석 (categoryHref, tagHref, parseTagNameParam)
 │  ├ site.ts        # 사이트 이름·설명·주소 (SITE_NAME, SITE_DESCRIPTION, SITE_OPEN_GRAPH, siteUrl, server-only)
+│  ├ sitemap.ts     # sitemap 항목 만들기 (buildSitemap)
 │  ├ slug.ts        # slug 형식 검사 (isValidSlug, SLUG_PATTERN·MAX_SLUG_LENGTH, 6장 slug 규칙)
 │  └ utils.ts
 ├ schemas/
@@ -550,6 +551,37 @@ CI에서 프론트 이미지를 빌드할 때는 백엔드가 없다. `next buil
 6. 운영 compose: `SITE_URL= POSTGRES_PASSWORD=x docker compose -f infra/docker-compose.prod.yml config`가 `SITE_URL is required`로 실패한다 (셸 값이 `infra/.env`보다 우선한다)
 7. 배포(머지 뒤, 12-6): Secrets에 `SITE_URL`을 머지 전에 등록하고, 머지 후 deploy가 성공한 뒤 `curl -s https://blog.도메인/posts/{slug}`의 canonical이 `https://blog.도메인/posts/{slug}`다
 
+### sitemap·robots (`/sitemap.xml`, `/robots.txt`)
+- **사이트 주소**: 'Metadata'의 `siteUrl()`(`SITE_URL`, 운영 연결 포함)을 쓴다. 주소는 `new URL(경로, siteUrl()).href`로 만든다.
+- **요청 시점 실행**: `sitemap.ts`·`robots.ts`는 기본으로 빌드 때 만들어지는 특수 Route Handler라, 둘 다 첫 줄에서 `await connection()`(`next/server`)을 부른 뒤 `siteUrl()`과 데이터 함수를 부른다. 빠뜨리면 빌드 중에 `SITE_URL` 없음 오류나 백엔드 호출로 빌드가 실패한다 ('빌드 시 API 의존 제거').
+- **robots** (`app/robots.ts`): `rules: { userAgent: "*", allow: "/", disallow: ["/admin", "/api/"] }`, `sitemap: new URL("/sitemap.xml", SITE_URL).href`.
+  - `/admin`: 관리자 화면. `/api/`: JSON API라 색인할 내용이 없다.
+  - `/search`는 막지 않는다. 막으면 크롤러가 페이지의 `noindex`('검색 페이지')를 읽지 못해, 외부 링크가 있으면 주소만 색인될 수 있다.
+- **sitemap** (`app/sitemap.ts`)에 넣는 주소와 `lastModified` (순서는 아래 줄 순서, 각 묶음 안은 API 순서)
+  | 주소 | 대상 | `lastModified` |
+  |---|---|---|
+  | `/` | 항상 | 없음 |
+  | `/posts/{slug}` | 모든 PUBLISHED 글 | 글 `updatedAt` |
+  | `categoryHref(slug, 1)` | `getPublicCategories()` 중 `postCount > 0` | 없음 |
+  | `tagHref(name, 1)` | `getPublicTags()` 전부 (PUBLISHED 글이 있는 태그만 온다, 8-1) | 없음 |
+  - 글이 0개인 카테고리를 빼는 이유: "아직 글이 없습니다"만 있는 페이지다. 페이지 2 이상(`?page=N`)과 `/search`는 넣지 않는다 (목록과 내용이 겹친다).
+  - 목록·분류 페이지에 `lastModified`를 두지 않는 이유: 그 페이지가 바뀐 시각을 주는 값이 없고, 부정확한 값은 검색엔진이 무시하게 만든다. `changeFrequency`·`priority`도 두지 않는다 (Google이 쓰지 않는다).
+  - 글 `updatedAt`은 글 행이 바뀐 시각이라 태그만 바꾼 수정은 반영되지 않는다 (8-4 `PUT`). 받아들인다.
+  - XML 이스케이프는 Next가 하고, 한글 태그는 `tagHref`가 퍼센트 인코딩한다.
+- **데이터**: 모든 PUBLISHED 글은 공개 목록 API(8-1)를 `size=50`(최대, 7장)으로 `hasNext`가 `false`일 때까지 `page`를 0부터 올려 가며 읽는다. 별도 백엔드 API는 두지 않는다: 글이 수백 건이라 몇 번의 호출이면 되고, 목록 응답에 `updatedAt`만 더하면 된다 (8-1).
+  - `lib/api/posts.ts`의 `getAllPublishedPosts()`. 캐시는 '렌더링 전략'의 데이터 함수와 같다 (전체 결과를 한 번에 캐시). 카테고리·태그는 기존 `getPublicCategories()`·`getPublicTags()`.
+  - 읽는 도중 글이 발행·삭제되면 페이지 경계가 밀려 한 글이 빠지거나 두 번 들어갈 수 있다. 다음 갱신(60초)에 맞춰지므로 받아들이고 중복을 거르지 않는다.
+  - 항목 만들기는 순수 함수 `buildSitemap(siteUrl, posts, categories, tags): MetadataRoute.Sitemap`(`lib/sitemap.ts`)로 나눠 단위 테스트한다. `sitemap.ts`는 데이터 함수 셋을 `Promise.all`로 부르고 이 함수에 넘긴다.
+- **실패**: API 오류·네트워크 오류는 '에러 처리'대로 그대로 던져 `/sitemap.xml`이 `500`이다 (빈 sitemap을 돌려주지 않는다: 크롤러가 글이 없어진 것으로 보지 않게). `SITE_URL` 누락은 두 경로 모두 `500`이고 나머지 화면은 영향이 없다.
+
+**화면 확인** (백엔드 `local` 프로필 + 시드 데이터로 `next dev`를 띄워 `curl`로 본다. 완료 조건의 확인 수단이다. 시드에 태그가 없으면 '카테고리·태그 페이지' 화면 확인처럼 PUBLISHED 글 하나에 `스프링`, DRAFT 글에 `draft-only`를 붙이고 60초 뒤 본다)
+1. `.env.local`에 `SITE_URL=http://localhost:3000`: `curl -s localhost:3000/robots.txt`에 `User-Agent: *`, `Allow: /`, `Disallow: /admin`, `Disallow: /api/`, `Sitemap: http://localhost:3000/sitemap.xml`
+2. `curl -s localhost:3000/sitemap.xml`: `<loc>http://localhost:3000/</loc>`(lastmod 없음), PUBLISHED 시드 글마다 `<loc>…/posts/{slug}</loc>`와 그 글 상세 API의 `updatedAt`과 같은 `<lastmod>`, DRAFT 글 없음, `/categories/backend` 있음·`/categories/infra`(글 없는 카테고리) 없음, `/tags/%EC%8A%A4%ED%94%84%EB%A7%81` 있음·`draft-only` 없음
+3. `SITE_URL`을 빼고 `next dev`를 다시 띄우면 두 경로가 `500`이고 `/`는 정상
+4. `.env.local` 없이 `npm run build` 성공 ('관리자 인증' 8번과 같다)
+5. 운영 연결: 'Metadata' 화면 확인 6·7과 같다 (Secret이 없으면 compose 변수 검사로 배포가 실패한다). 머지 후 deploy가 성공한 뒤 `curl -s https://blog.도메인/robots.txt`의 `Sitemap:`이 `https://blog.도메인/sitemap.xml`이고 `curl -s -o /dev/null -w '%{http_code}' https://blog.도메인/sitemap.xml`이 `200`이다.
+- 51건 이상(두 번째 페이지 호출)은 시드 글이 적어 화면에서 보지 않는다. 반복 조건은 `PageResponse`의 `hasNext` 하나다.
+
 ### Markdown 렌더링
 - `components/markdown/MarkdownRenderer`는 `content`(Markdown 문자열)만 받는 **서버 컴포넌트**다. react-markdown의 `MarkdownAsync`를 쓴다.
   - `@shikijs/rehype`는 하이라이터를 비동기로 만드는 플러그인이라 동기 컴포넌트(`Markdown`)에서는 쓸 수 없다. 서버에서 렌더링하므로 Shiki와 문법 파일이 브라우저 번들에 들어가지 않는다.
@@ -570,8 +602,9 @@ CI에서 프론트 이미지를 빌드할 때는 백엔드가 없다. `next buil
 - `MarkdownRenderer`는 async 서버 컴포넌트라 단위 테스트하지 않는다. 렌더링 결과는 글 상세 페이지에서 시드 글로 확인한다.
 
 ### 프론트엔드 테스트
-- Vitest로 `lib/`의 로직이 있는 순수 함수만 단위 테스트한다 (`date.ts`, `errors.ts`의 파싱 함수, `pagination.ts`, `post-status.ts`, `post-id.ts`, `slug.ts`, `cookie.ts`, `next-path.ts`, `single-flight.ts`, `search.ts`, `tags.ts`, `taxonomy.ts`).
+- Vitest로 `lib/`의 로직이 있는 순수 함수만 단위 테스트한다 (`date.ts`, `errors.ts`의 파싱 함수, `pagination.ts`, `post-status.ts`, `post-id.ts`, `slug.ts`, `cookie.ts`, `next-path.ts`, `single-flight.ts`, `search.ts`, `tags.ts`, `taxonomy.ts`, `sitemap.ts`).
   - `tags.ts`: `parseTags`(쉼표·앞뒤 공백·빈 조각·대소문자·중복과 순서, `İ`처럼 소문자로 바꾸면 길어지는 문자), `validateTags`(10·11개, 50·51자는 소문자로 바꾼 뒤 기준, 한글·숫자·`node-js` 통과, `-a`·`a-`·`a--b`·`a_b`·`a b` 거절, 여러 규칙을 어기면 개수 초과가 먼저이고 그다음은 항목 순서대로 항목마다 길이 → 패턴인 첫 메시지: 11개 중 첫 항목이 51자면 개수 메시지, `["a_b", "x"×51]`이면 "태그는 문자·숫자·하이픈만 쓸 수 있습니다", `["x"×51 + "_", "a_b"]`이면 "태그는 50자 이하여야 합니다")
+  - `sitemap.ts`: `buildSitemap`(위 표의 주소 순서, `SITE_URL` 끝 `/` 유무와 무관한 절대 주소, 글 `lastModified`는 `updatedAt`, `postCount` 0 카테고리 제외, 한글 태그 인코딩, 글·카테고리·태그가 모두 비면 `/` 하나)
   - `taxonomy.ts`: `categoryHref`·`tagHref`(`page` 1이면 `page` 없음, 2면 `?page=2`, 한글 태그는 `encodeURIComponent`, `node-js`는 그대로), `parseTagNameParam`(인코딩된 한글 → 한글, `a%20b` → `a b`, `Spring`은 바꾸지 않음, `%E0%A4%A`·`%` → `null`)
   - `async` 서버 컴포넌트는 Vitest·Jest 모두 단위 테스트를 지원하지 않으므로 단위 테스트하지 않는다.
   - `server.ts`는 `server-only`가 테스트 환경에서 import 시 오류를 던지므로 단위 테스트하지 않는다 (실제 호출은 화면에서 확인).

@@ -27,7 +27,8 @@ GET /api/v1/posts?page=0&size=10&tag=spring
       "thumbnailUrl": null,
       "category": { "name": "Backend", "slug": "backend" },
       "tags": ["spring", "jwt"],
-      "publishedAt": "2026-10-11T01:00:00Z"
+      "publishedAt": "2026-10-11T01:00:00Z",
+      "updatedAt": "2026-10-11T03:30:00Z"
     }
   ],
   "page": 0,
@@ -38,6 +39,7 @@ GET /api/v1/posts?page=0&size=10&tag=spring
 }
 ```
 - 목록에는 본문(`content` Markdown)을 포함하지 않는다.
+- `updatedAt`은 상세와 같은 값이다. sitemap의 글 `lastModified`(11장 'sitemap·robots')가 쓴다. 글 화면은 표시하지 않는다. 목록 Controller 테스트의 응답 형식 검사에 이 필드를 더하고, `api.d.ts`를 다시 생성한다.
 - 정렬: `publishedAt` 내림차순, 같으면 `id` 내림차순 (발행 시각이 같은 글이 페이지 사이에서 중복·누락되지 않도록).
 - 카테고리가 없는 글은 `"category": null`.
 - 응답의 `tags`는 5장 '글 응답의 `tags`' 방식(페이지 글들의 `id`로 쿼리 한 번)으로 채우고, 태그가 없는 글은 `[]`다.

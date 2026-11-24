@@ -218,3 +218,8 @@
   - 루트 `title` 템플릿 `%s | Blog`, 공통 `description`·`openGraph`(`siteName`·`locale`·`type`, `og:title` 없음), 페이지별 `title`(상세·카테고리·태그·검색), 확인에 걸린 경로는 `{}`, 목록·카테고리·태그에는 canonical 없음
   - 글 상세: `description`은 요약(없으면 사이트 설명), canonical·`og:url` `/posts/{slug}`, `og:type` `article`·`publishedTime`. `og:image`·`twitter:*`는 두지 않음
   - 운영 compose frontend에 `SITE_URL: ${SITE_URL:?...}`(12-2), GitHub Secrets에 `SITE_URL` 추가(12-6, 없으면 배포 3단계 `pull`에서 실패해 롤백), 이미지 실행 환경변수(12-7)
+- **v2.41**
+  - sitemap·robots(11장 'sitemap·robots'): `/`, 모든 PUBLISHED 글(`lastModified` = `updatedAt`), 글 있는 카테고리, 공개 태그 목록. 목록·분류는 `lastModified` 없음. robots는 `/admin`·`/api/` 차단(`/search`는 `noindex`라 막지 않음). 둘 다 `connection()` 뒤 실행, API 오류는 `500`
+  - 전체 글은 공개 목록 API를 `size=50`으로 `hasNext`까지 읽는 `getAllPublishedPosts()`(별도 백엔드 API 없음), 항목은 `buildSitemap`(`lib/sitemap.ts`, Vitest)
+  - 공개 글 목록 응답에 `updatedAt` 추가(8-1)
+  - 사이트 주소는 'Metadata'의 `siteUrl()`(v2.40)을 쓴다. 운영 확인은 머지 후 `robots.txt`의 `Sitemap:`과 `/sitemap.xml` `200`(11장 'sitemap·robots' 화면 확인 5)

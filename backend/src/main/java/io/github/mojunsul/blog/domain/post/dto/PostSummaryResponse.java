@@ -14,10 +14,12 @@ public record PostSummaryResponse(
 	@Schema(nullable = true) String thumbnailUrl,
 	@Schema(nullable = true) PostCategoryResponse category,
 	List<String> tags,
-	Instant publishedAt) {
+	Instant publishedAt,
+	Instant updatedAt) {
 
 	public static PostSummaryResponse from(Post post, List<String> tags) {
 		return new PostSummaryResponse(post.getId(), post.getTitle(), post.getSlug(), post.getSummary(),
-			post.getThumbnailUrl(), PostCategoryResponse.from(post.getCategory()), tags, post.getPublishedAt());
+			post.getThumbnailUrl(), PostCategoryResponse.from(post.getCategory()), tags, post.getPublishedAt(),
+			post.getUpdatedAt());
 	}
 }

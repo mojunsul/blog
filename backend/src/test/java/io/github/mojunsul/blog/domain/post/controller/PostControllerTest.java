@@ -48,7 +48,7 @@ class PostControllerTest {
 	void 글_목록을_페이지_형식으로_응답한다() throws Exception {
 		// given
 		PostSummaryResponse post = new PostSummaryResponse(1L, "제목", "slug", null, null, null, List.of(),
-			Instant.parse("2026-10-11T01:00:00Z"));
+			Instant.parse("2026-10-11T01:00:00Z"), Instant.parse("2026-10-12T02:00:00Z"));
 		given(postService.getPublishedPosts(any()))
 			.willReturn(new PageResponse<>(List.of(post), 0, 10, 1, 1, false));
 
@@ -58,6 +58,7 @@ class PostControllerTest {
 			.andExpect(jsonPath("$.content[0].slug").value("slug"))
 			.andExpect(jsonPath("$.content[0].category").value(nullValue()))
 			.andExpect(jsonPath("$.content[0].tags").isEmpty())
+			.andExpect(jsonPath("$.content[0].updatedAt").value("2026-10-12T02:00:00Z"))
 			.andExpect(jsonPath("$.content[0].publishedAt").value("2026-10-11T01:00:00Z"))
 			.andExpect(jsonPath("$.content[0].content").doesNotExist())
 			.andExpect(jsonPath("$.hasNext").value(false));
@@ -142,7 +143,8 @@ class PostControllerTest {
 	void 목록_응답은_tags를_배열로_직렬화한다() throws Exception {
 		// given
 		PostSummaryResponse post = new PostSummaryResponse(1L, "제목", "slug", null, null, null,
-			List.of("spring", "jwt"), Instant.parse("2026-10-11T01:00:00Z"));
+			List.of("spring", "jwt"), Instant.parse("2026-10-11T01:00:00Z"),
+			Instant.parse("2026-10-12T02:00:00Z"));
 		given(postService.getPublishedPosts(any()))
 			.willReturn(new PageResponse<>(List.of(post), 0, 10, 1, 1, false));
 
