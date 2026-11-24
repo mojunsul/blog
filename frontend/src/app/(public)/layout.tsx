@@ -1,7 +1,11 @@
+import type { Metadata } from "next";
 import Form from "next/form";
 import Link from "next/link";
 
+import { RSS_ALTERNATE_TYPES, RSS_PATH } from "@/lib/rss";
 import { SITE_NAME } from "@/lib/site";
+
+export const metadata: Metadata = { alternates: { types: RSS_ALTERNATE_TYPES } };
 
 export default function PublicLayout({ children }: LayoutProps<"/">) {
   return (
@@ -27,6 +31,11 @@ export default function PublicLayout({ children }: LayoutProps<"/">) {
         </div>
       </header>
       <main className="mx-auto w-full max-w-3xl flex-1 px-4 py-8">{children}</main>
+      <footer className="border-t border-zinc-200 dark:border-zinc-800">
+        <div className="mx-auto max-w-3xl px-4 py-4">
+          <a href={RSS_PATH}>RSS</a>
+        </div>
+      </footer>
     </>
   );
 }
