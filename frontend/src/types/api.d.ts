@@ -312,6 +312,8 @@ export interface components {
             tags: string[];
             /** Format: date-time */
             publishedAt: string;
+            /** Format: date-time */
+            updatedAt: string;
         };
         PostDetailResponse: {
             /** Format: int64 */

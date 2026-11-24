@@ -5,6 +5,7 @@ import { apiGet } from "@/lib/api/server";
 import type { components } from "@/types/api";
 
 type PostSummaryPage = components["schemas"]["PageResponsePostSummaryResponse"];
+type PostSummary = components["schemas"]["PostSummaryResponse"];
 type PostDetail = components["schemas"]["PostDetailResponse"];
 
 // 호출자는 요청 시점 API(searchParams) 뒤에서 호출해야 한다. 아니면 빌드 중에 실행되어 백엔드를 호출한다.
@@ -38,4 +39,17 @@ export async function getPost(slug: string): Promise<PostDetail | null> {
 export async function searchPosts(q: string, zeroBasedPage: number): Promise<PostSummaryPage> {
   const params = new URLSearchParams({ q, page: String(zeroBasedPage) });
   return apiGet<PostSummaryPage>(`/api/v1/posts?${params}`);
+}
+
+// 모든 PUBLISHED 글을 최대 크기(50)로 hasNext가 false일 때까지 읽는다. 호출자는 요청 시점 API(connection) 뒤에서 호출해야 한다.
+export async function getAllPublishedPosts(): Promise<PostSummary[]> {
+  "use cache";
+  cacheLife({ revalidate: 60 });
+  const posts: PostSummary[] = [];
+  for (let page = 0, hasNext = true; hasNext; page++) {
+    const result = await apiGet<PostSummaryPage>(`/api/v1/posts?page=${page}&size=50`);
+    posts.push(...result.content);
+    hasNext = result.hasNext;
+  }
+  return posts;
 }
