@@ -32,7 +32,7 @@ frontend/src/
 │  └ rss.xml/route.ts
 ├ components/
 │  ├ ui/            # Button, Input 등 공통
-│  ├ post/          # PostCard, PostList, Pagination, TagBadge
+│  ├ post/          # PostCard, PostList, Pagination, TagBadge, Comments(Giscus, 클라이언트 컴포넌트)
 │  ├ markdown/      # MarkdownRenderer (서버 컴포넌트)
 │  └ admin/         # LoginForm, AdminAuthGuard, LogoutButton, AdminPostList, PostForm, MarkdownPreview, AdminCategoryManager, CategoryForm
 ├ lib/
@@ -54,7 +54,7 @@ frontend/src/
 │  ├ post-id.ts     # URL의 글 id 경로 해석 (parsePostIdParam)
 │  ├ search.ts      # URL의 q 쿼리 해석·검색 페이지 주소 (parseSearchQuery, searchHref)
 │  ├ taxonomy.ts    # 카테고리·태그 페이지 주소와 태그 경로 해석 (categoryHref, tagHref, parseTagNameParam)
-│  ├ site.ts        # 사이트 주소 환경변수 읽기 (getSiteUrl, SITE_URL)
+│  ├ site.ts        # 사이트 이름·설명·주소 (SITE_NAME, SITE_DESCRIPTION, SITE_OPEN_GRAPH, siteUrl, server-only)
 │  ├ sitemap.ts     # sitemap 항목 만들기 (buildSitemap)
 │  ├ slug.ts        # slug 형식 검사 (isValidSlug, SLUG_PATTERN·MAX_SLUG_LENGTH, 6장 slug 규칙)
 │  └ utils.ts
@@ -430,9 +430,26 @@ CI에서 프론트 이미지를 빌드할 때는 백엔드가 없다. `next buil
 - `getPost`는 404(없는 글, DRAFT)면 `null`을 돌려주고('에러 처리'), 페이지는 `null`이면 `notFound()`. 그 외 오류는 그대로 던진다.
   - 목록 페이지와 같은 이유로 상태 코드는 `200`으로 남고 `noindex`가 붙는다.
 - 표시 항목: 제목(`h1`), 카테고리 이름(있을 때, 카테고리 페이지 링크)·발행일과 그 아래 태그(`TagBadge`)를 `PostCard`와 같은 형식으로, 본문(`MarkdownRenderer`).
-  - 요약·썸네일·수정일은 표시하지 않는다. 요약은 목록과 M5의 OG 설명용이고, 썸네일은 목록 페이지와 같은 이유다.
+  - 요약·썸네일·수정일은 표시하지 않는다. 요약은 목록과 `description`·OG 설명용이고('Metadata'), 썸네일은 목록 페이지와 같은 이유다.
   - 태그를 목록과 같은 형식으로 둔다: 글에서 같은 태그의 다른 글로 가는 길이 상세에도 있어야 하고, 형식이 같아야 `PostCard`와 컴포넌트를 나눠 쓴다.
-  - 글별 `<title>`·OG 태그(`generateMetadata`)는 M5에서 추가한다. Giscus도 M5.
+  - 글별 `<title>`·OG 태그는 'Metadata'.
+- 댓글(Giscus): `<article>` 안의 `MarkdownRenderer` 뒤에 `<section aria-label="댓글" className="mt-12">`을 두고 그 안에 `components/post/Comments.tsx`(클라이언트 컴포넌트)를 둔다. 글을 찾았을 때만 그리므로 not-found 화면에는 없다.
+  - `<article>` 안에 두는 이유: 댓글은 그 글에 딸린 내용이라(HTML 명세도 글의 댓글을 `<article>` 안에 둔다) 같은 요소로 묶고, `Post`가 요소 하나를 반환하는 구조도 그대로다. `mt-12`는 본문 끝과 댓글을 떼어 놓는 간격이다.
+  - 저장소는 이 저장소(`mojunsul/blog`)의 Discussions, 카테고리는 `Comments`(Announcement 형식: 방문자는 새 Discussion을 직접 만들 수 없고 giscus 앱이 첫 댓글 때 만든다). 관리할 저장소를 늘리지 않으려고 별도 댓글 저장소를 두지 않는다. Discussions 활성화, giscus 앱 설치, 카테고리 생성은 관리자가 GitHub에서 하고, giscus.app 설정 화면에서 얻은 `repoId`·`categoryId`를 구현 전에 이슈에 남긴다.
+  - 설정값(`repo`, `repoId`, `category`, `categoryId`)은 `Comments.tsx`의 상수로 둔다. 브라우저에 그대로 노출되는 공개 식별자라 비밀이 아니고, 환경변수(`NEXT_PUBLIC_*`)로 두면 빌드 때 값이 박히므로 이미지 빌드(12-7)에 값을 넘기는 절차만 늘어난다. 그래서 CI·빌드에 필요한 환경변수도 없다.
+  - 매핑: `data-mapping="specific"`, `data-term="post-{id}"`(`PostDetailResponse.id`), `data-strict="1"`. slug는 바꿀 수 있어(8-4 'PUT') `pathname` 매핑이면 slug를 바꿀 때 댓글이 끊긴다. id는 바뀌지 않는다. giscus는 제목을 부분 일치로 찾으므로 `strict`가 없으면 `post-1`이 `post-12`의 Discussion과 섞일 수 있다 (`strict`는 term의 SHA-1로 정확히 찾는다).
+  - 그 밖의 속성: `data-reactions-enabled="1"`, `data-emit-metadata="0"`, `data-input-position="bottom"`, `data-theme="preferred_color_scheme"`(사이트가 `prefers-color-scheme`로 다크 모드를 따르므로 같은 기준), `data-lang="ko"`, `data-loading="lazy"`, `crossorigin="anonymous"`, `async`.
+  - 불러오기: `useEffect`에서 `https://giscus.app/client.js` `<script>`를 만들어 컨테이너 `div`(`ref`)에 붙이고, 정리 함수에서 그 컨테이너를 비운다(`replaceChildren()`). 비우면 스크립트와 giscus가 그 뒤에 만든 `.giscus` 컨테이너·iframe이 함께 지워진다. 정리가 없으면 `npm run dev`(React StrictMode가 effect를 마운트→정리→마운트로 두 번 실행)와 재마운트 때 스크립트·iframe이 겹쳐 붙는다. JSX의 `<script>`는 실행되지 않고, 몇 줄이라 `@giscus/react` 의존성을 더하지 않는다. 다른 글로 클라이언트 이동할 때 새 글의 댓글을 불러오도록 상세 페이지에서 `key={post.id}`로 다시 마운트한다.
+  - 실패 처리: 스크립트를 받지 못하면(giscus.app 장애, 차단) 댓글 영역이 빈 채로 남고 글은 그대로 보인다. 재시도·오류 문구는 두지 않는다 (댓글은 부가 기능이고, iframe 안의 오류는 giscus가 직접 표시한다).
+  - 글을 삭제해도 Discussion은 남는다. 관리자가 필요하면 GitHub에서 지운다.
+  - `giscus.json`(댓글을 불러올 수 있는 origin 제한)은 두지 않는다. 다른 사이트가 공개 Discussion을 불러오는 것뿐이라 막을 이득이 작고, 로컬 개발(`localhost`)도 허용 목록에 넣어야 한다.
+  - 로컬 개발도 같은 Discussions를 쓰고, 시드 글 id가 운영 글 id와 겹치면 같은 댓글이 보인다. 그래서 화면 확인에서 쓴 댓글의 Discussion은 확인 뒤 지운다.
+  - 화면 확인 (로컬 `npm run dev` + 백엔드, 이슈 완료 조건):
+    1. 글 상세 본문 아래 `section[aria-label="댓글"]` 안에 `iframe.giscus-frame`(`src`가 `https://giscus.app/ko/widget`으로 시작)이 생기고, 스크립트 요소의 `data-term`이 `post-{그 글 id}`, `data-strict`가 `1`이다. dev(StrictMode)에서도 그 안의 `script[src="https://giscus.app/client.js"]`와 `iframe.giscus-frame`은 하나씩이다.
+    2. GitHub 로그인 후 댓글을 쓰면 Discussions의 `Comments` 카테고리에 제목 `post-{id}` Discussion이 생긴다.
+    3. 관리자 화면에서 그 글의 slug를 바꾼 뒤 새 주소의 상세에 같은 댓글이 보인다. 확인 후 slug를 되돌리고 Discussion을 지운다.
+    4. 상세에서 다른 글로 이동하면(목록으로 갔다가 다른 글) `section[aria-label="댓글"]` 안 스크립트 요소(하나)의 `data-term`이 새 글 id로 바뀐다.
+    5. 없는 글(`/posts/nope`)의 not-found 화면에는 댓글 영역이 없다.
 - 캐시: 기준은 '렌더링 전략'. 같은 글을 다시 요청하면 `getPost`와 `MarkdownRenderer`의 캐시로 백엔드 호출과 Shiki 하이라이팅이 다시 일어나지 않는다.
 - not-found 화면: `app/(public)/not-found.tsx`를 둔다. 공개 페이지에서 부른 `notFound()`(상세의 없는 글, 목록의 잘못된 `page`)가 블로그 헤더 안에서 "페이지를 찾을 수 없습니다." 문구와 `/` 링크로 표시된다.
   - 어느 경로에도 맞지 않는 URL(`/foo`)은 루트 `app/not-found.tsx`가 맡는데, 루트 레이아웃만 거쳐 헤더가 없다. M5의 not-found 페이지 작업에서 함께 정하고, 그 전까지는 Next 기본 404 화면을 쓴다.
@@ -458,7 +475,7 @@ CI에서 프론트 이미지를 빌드할 때는 백엔드가 없다. `next buil
   - `%`·`_`·`&`·`#`·한글도 그대로 검색된다 (`URLSearchParams` 인코딩, 일반 문자 검색은 8-1).
 - **데이터**: `lib/api/posts.ts`의 `searchPosts(q, zeroBasedPage)`가 `/api/v1/posts?q=...&page=...`(`URLSearchParams`)를 호출한다. 오류는 '에러 처리'대로 그대로 던진다.
   - 캐시하지 않는다(`'use cache'` 없음). 검색어는 사용자가 마음대로 넣는 값이라 캐시 키가 끝없이 늘고 같은 키를 다시 쓸 일이 적다. 기본 캐시는 프로세스 메모리 LRU 하나(`cacheMaxMemorySize`)를 글 목록·상세·`MarkdownRenderer`와 나눠 쓰므로, 검색 결과가 그 항목들을 밀어낼 수 있다. 백엔드 검색은 수백 건 `like`(8-1)라 매번 호출해도 작다. 운영에서 느리면 측정 후 다시 검토한다.
-- **색인 제외**: `search/page.tsx`에 `export const metadata = { robots: { index: false } }`를 둔다. 검색어마다 URL이 생기고 내용이 글 목록과 겹친다. 그 외 metadata는 M5.
+- **색인 제외**: `search/page.tsx`에 `export const metadata = { robots: { index: false } }`를 둔다. 검색어마다 URL이 생기고 내용이 글 목록과 겹친다. 그 외 metadata는 'Metadata'.
 
 ### 카테고리·태그 페이지 (`/categories/{slug}`, `/tags/{name}`)
 - **URL**: `/categories/{slug}?page=N`, `/tags/{name}?page=N`. `page` 규칙은 '글 목록 페이지'와 같다 (`parsePageParam`, 1부터, 첫 페이지는 `page` 없음).
@@ -487,7 +504,7 @@ CI에서 프론트 이미지를 빌드할 때는 백엔드가 없다. `next buil
   | `page` 2 이상인데 `content`가 빔 | `notFound()` |
   - `{name}`은 목록 API의 카테고리 `name`, 태그 `name`이다. React가 텍스트로 이스케이프해 표시한다.
   - 태그 페이지의 첫 페이지 빈 결과는 태그 목록과 글 목록의 캐시가 따로 갱신되어(각 60초) 생길 수 있다 (태그가 달린 유일한 글을 DRAFT로 바꾼 직후 등). 카테고리도 같은 이유로 지운 카테고리가 잠시 빈 페이지로 열릴 수 있다. 반영 지연은 '렌더링 전략'과 같이 받아들인다.
-  - `notFound()`의 상태 코드·`noindex`는 '글 목록 페이지'와 같다. 검색 페이지와 달리 색인을 막지 않는다 (분류마다 고정된 주소 하나다). 그 외 metadata는 M5.
+  - `notFound()`의 상태 코드·`noindex`는 '글 목록 페이지'와 같다. 검색 페이지와 달리 색인을 막지 않는다 (분류마다 고정된 주소 하나다). 그 외 metadata는 'Metadata'.
 - **`TagBadge`** (`components/post/TagBadge.tsx`, 상태 없는 서버 컴포넌트): `name`과 선택 `postCount`를 받아 `tagHref(name, 1)`로 가는 `Link` "#{name}"을 그린다. `postCount`가 있으면 "#{name} ({postCount})". 글 목록·상세의 태그(개수 없음)와 '글 목록 페이지'의 태그 목록(개수 있음)이 쓴다.
 
 **화면 확인** (백엔드 `local` 프로필 + 시드 데이터 + 관리자 계정으로 `next dev`를 띄워 DOM·`curl`로 본다. 완료 조건의 확인 수단이다. 시드에는 태그가 없으므로 먼저 관리자 글 수정 화면에서 PUBLISHED 시드 글 하나(Backend 카테고리)에 `spring, 스프링`, 다른 PUBLISHED 글 하나에 `spring`, DRAFT 시드 글에 `draft-only`를 붙이고, 데이터 캐시(60초)가 지난 뒤 새로고침해서 본다)
@@ -498,12 +515,45 @@ CI에서 프론트 이미지를 빌드할 때는 백엔드가 없다. `next buil
 5. `.env.local` 없이 `npm run build`와 `npx next typegen` 성공 ('관리자 인증' 8번과 같다)
 - 페이지 이동 링크는 `categoryHref`·`tagHref` 단위 테스트와 기존 `Pagination`으로 보고 화면에서 따로 보지 않는다 (시드 글이 한 페이지 크기 10개보다 적다).
 
+### Metadata
+- **사이트 주소 `SITE_URL`**: 절대 URL(canonical, `og:url`, M5 sitemap·RSS)의 기준이다. 저장소에 도메인을 두지 않으므로(12-3) 실행 시점 환경변수로 받는다. `API_INTERNAL_URL`('API 주소 처리')과 같이 `NEXT_PUBLIC_`이 아니고 기본값이 없다.
+  - `lib/site.ts`(`server-only`)의 `siteUrl(): URL`이 `new URL(process.env.SITE_URL)`을 돌려준다. 값이 없으면 `server.ts`와 같은 이유로 `"SITE_URL이 설정되지 않았습니다. frontend/.env.example을 .env.local로 복사하세요."` 오류를 던지고, 형식이 틀리면(`blog.도메인`처럼 scheme 없음) `new URL`의 `TypeError`를 그대로 던진다. 둘 다 그 페이지는 오류 화면이다. 끝의 `/` 유무는 Next가 맞춘다.
+  - 로컬: `frontend/.env.example`에 `SITE_URL=http://localhost:3000`을 더한다. 운영: compose가 `infra/.env`에서 받는다 (12-2).
+  - `siteUrl()`은 요청 시점 API(`params`)를 읽은 뒤에만 부른다. 루트 layout에서 부르면 빌드 때 실행되어 값이 없는 CI 빌드가 실패하고, 값이 있어도 이미지에 박힌다. 그래서 `metadataBase`는 루트가 아니라 절대 URL이 필요한 글 상세의 `generateMetadata`에만 둔다. 다른 페이지는 상대 URL 필드를 쓰지 않아 `metadataBase`가 필요 없다.
+  - 요청의 `Host` 헤더로 주소를 만들지 않는다: Nginx가 `server_name _`(12-3)라 IP나 임의 `Host`로 들어온 요청이 그 값을 canonical로 받는다.
+- **사이트 공통** (`app/layout.tsx`의 정적 `metadata`): `lib/site.ts`의 상수 `SITE_NAME = "Blog"`, `SITE_DESCRIPTION = "개인 개발 블로그"`를 쓴다 (`(public)/layout.tsx` 헤더의 블로그 이름도 `SITE_NAME`).
+  - `title: { default: SITE_NAME, template: \`%s | ${SITE_NAME}\` }`, `description: SITE_DESCRIPTION`, `openGraph: SITE_OPEN_GRAPH`(`lib/site.ts`, `{ siteName: SITE_NAME, locale: "ko_KR", type: "website" }`).
+  - `openGraph`는 하위 페이지가 정하면 통째로 바뀌므로(얕은 병합), 글 상세는 `SITE_OPEN_GRAPH`를 펼친 뒤 덮어쓴다. 루트에 `og:title`을 두지 않는다: 하위 페이지가 `openGraph`를 정하지 않으면 모든 페이지가 같은 `og:title`을 물려받는다. 없으면 공유 미리보기는 `<title>`을 쓴다.
+  - 관리자 페이지는 따로 정하지 않는다 (`Blog`).
+- **페이지별**
+  | 페이지 | `title` | 그 외 |
+  |---|---|---|
+  | `/` (모든 `page`) | 없음 (`Blog`) | 없음 |
+  | 글 상세 | `post.title` | 아래 |
+  | `/categories/{slug}` | `"{name} 카테고리"` | 없음 |
+  | `/tags/{name}` | `"#{name} 태그"` | 없음 |
+  | `/search` | `"검색"` | 기존 `robots: { index: false }` ('검색 페이지') |
+  - 카테고리·태그·상세는 `generateMetadata`에서 페이지와 같은 순서로 확인한다 (상세: `isValidSlug` → `getPost`, 태그: `parseTagNameParam` → `getPublicTags`, 카테고리: `getPublicCategories`). 확인에 걸리면 `{}`를 돌려준다(`title`은 `Blog`). 페이지가 같은 확인으로 `notFound()`하고 Next가 `noindex`를 넣는다. `page` 값은 보지 않는다 (잘못된 `page`도 페이지의 `notFound()`가 맡는다).
+  - 같은 요청에서 페이지와 같은 인자로 부르므로 `'use cache'` 데이터 함수('렌더링 전략')가 백엔드를 한 번만 부른다. 조회가 실패하면 그대로 던져 오류 화면이다 ('에러 처리').
+  - 목록·카테고리·태그 페이지에는 canonical을 두지 않는다. 사이트 안 링크는 첫 페이지를 `page` 없는 주소로만 만들어(`pageHref`) `?page=1`은 손으로 친 주소뿐이고, 색인할 주소는 M5 sitemap이 알린다. 2쪽 이후 `title`에 쪽 번호를 붙이지 않는다.
+- **글 상세** `generateMetadata`
+  - `metadataBase: siteUrl()`, `title: post.title`, `description: post.summary ?? SITE_DESCRIPTION`(500자 이하, 8-4. 자르지 않는다), `alternates: { canonical: \`/posts/${slug}\` }`
+  - `openGraph: { ...SITE_OPEN_GRAPH, type: "article", title: post.title, description: 위와 같은 값, url: 같은 경로, publishedTime: post.publishedAt }`. `slug`는 `isValidSlug`를 통과한 값이라 그대로 경로에 넣는다.
+  - `og:image`·`twitter:*`는 두지 않는다. 썸네일은 M6이고, X는 `twitter:*`가 없으면 OG 태그를 쓴다. 수정일(`article:modified_time`)·태그(`article:tag`)도 두지 않는다 (화면에 없는 값, '글 상세 페이지').
+  - 본문 컴포넌트도 `params`를 읽어 요청 시점에 렌더링되므로 metadata는 Next가 본문과 함께 스트리밍한다 (Cache Components의 `generateMetadata` 규칙). 공유 미리보기 봇(`facebookexternalhit`·`Twitterbot` 등, Next `htmlLimitedBots` 기본값)에는 Next가 `<head>`에 넣어 보낸다.
+
+**화면 확인** (백엔드 `local` 프로필 + 시드 데이터로 `.env.local`에 `SITE_URL=http://localhost:3000`을 두고 `next dev`를 띄워 `curl`로 본다. 완료 조건의 확인 수단이다. 요약 없는 글은 관리자 수정 화면에서 시드 글 하나의 요약을 지워 만든다)
+1. 요약 있는 PUBLISHED 글 `curl -s -A Twitterbot /posts/{slug}`: `<head>` 안에 `<title>{제목} | Blog</title>`, `description`이 요약, `<link rel="canonical" href="http://localhost:3000/posts/{slug}">`, `og:title`·`og:description`·`og:url`(canonical과 같음)·`og:type` `article`·`article:published_time`(`publishedAt`)·`og:site_name` `Blog`·`og:locale` `ko_KR`
+2. 요약 없는 글: `description`·`og:description`이 `개인 개발 블로그`
+3. `/` → `<title>Blog</title>`, canonical 없음, `og:type` `website`. `/categories/backend` → `Backend 카테고리 | Blog`, `/tags/spring` → `#spring 태그 | Blog`, `/search?q=a` → `검색 | Blog`와 `noindex`. 셋 다 canonical 없음
+4. `/posts/nope`, DRAFT 글 slug, `/tags/nope` → `<title>Blog</title>`과 `noindex`
+5. `.env.local`에서 `SITE_URL`을 지우고 `next dev`를 다시 띄우면 글 상세가 오류 화면이고 `/`는 열린다. `.env.local` 없이 `npm run build`·`npx next typegen` 성공 ('카테고리·태그 페이지' 5번과 같다)
+6. 운영 compose: `SITE_URL= POSTGRES_PASSWORD=x docker compose -f infra/docker-compose.prod.yml config`가 `SITE_URL is required`로 실패한다 (셸 값이 `infra/.env`보다 우선한다)
+7. 배포(머지 뒤, 12-6): Secrets에 `SITE_URL`을 머지 전에 등록하고, 머지 후 deploy가 성공한 뒤 `curl -s https://blog.도메인/posts/{slug}`의 canonical이 `https://blog.도메인/posts/{slug}`다
+
 ### sitemap·robots (`/sitemap.xml`, `/robots.txt`)
-- **사이트 주소**: 환경변수 `SITE_URL`(origin, 예: `https://blog.도메인`. 로컬 `http://localhost:3000`). sitemap의 `<loc>`와 robots의 `Sitemap:`은 절대 주소여야 하는데 실제 도메인은 저장소에 두지 않으므로(12장 '도메인·DNS') 실행 시점에 읽는다.
-  - `lib/site.ts`의 `getSiteUrl()`이 읽는다. 값이 없거나 비면 `API_INTERNAL_URL`과 같은 이유로 기본값 없이 호출 시점에 오류를 던진다 ('API 주소 처리'). 형식은 검사하지 않고 주소는 `new URL(경로, SITE_URL).href`로 만든다 (끝의 `/` 유무와 무관하고, 잘못된 값은 `TypeError`로 드러난다).
-  - 요청 `Host` 헤더로 만들지 않는 이유: 설정 하나로 주소가 고정되고, `server_name _`(12장)라 임의 `Host`가 그대로 응답에 들어가지 않는다. 글별 metadata(OG)의 `metadataBase`도 같은 값을 쓰게 된다.
-  - 로컬: `frontend/.env.example`에 `SITE_URL=http://localhost:3000`을 더한다. 운영: compose `environment`의 `SITE_URL: ${SITE_URL}`(값은 서버 `infra/.env`, 원본은 GitHub Secret, 12장).
-- **요청 시점 실행**: `sitemap.ts`·`robots.ts`는 기본으로 빌드 때 만들어지는 특수 Route Handler라, 둘 다 첫 줄에서 `await connection()`(`next/server`)을 부른 뒤 `getSiteUrl()`과 데이터 함수를 부른다. 빠뜨리면 빌드 중에 `SITE_URL` 없음 오류나 백엔드 호출로 빌드가 실패한다 ('빌드 시 API 의존 제거').
+- **사이트 주소**: 'Metadata'의 `siteUrl()`(`SITE_URL`, 운영 연결 포함)을 쓴다. 주소는 `new URL(경로, siteUrl()).href`로 만든다.
+- **요청 시점 실행**: `sitemap.ts`·`robots.ts`는 기본으로 빌드 때 만들어지는 특수 Route Handler라, 둘 다 첫 줄에서 `await connection()`(`next/server`)을 부른 뒤 `siteUrl()`과 데이터 함수를 부른다. 빠뜨리면 빌드 중에 `SITE_URL` 없음 오류나 백엔드 호출로 빌드가 실패한다 ('빌드 시 API 의존 제거').
 - **robots** (`app/robots.ts`): `rules: { userAgent: "*", allow: "/", disallow: ["/admin", "/api/"] }`, `sitemap: new URL("/sitemap.xml", SITE_URL).href`.
   - `/admin`: 관리자 화면. `/api/`: JSON API라 색인할 내용이 없다.
   - `/search`는 막지 않는다. 막으면 크롤러가 페이지의 `noindex`('검색 페이지')를 읽지 못해, 외부 링크가 있으면 주소만 색인될 수 있다.
@@ -529,7 +579,7 @@ CI에서 프론트 이미지를 빌드할 때는 백엔드가 없다. `next buil
 2. `curl -s localhost:3000/sitemap.xml`: `<loc>http://localhost:3000/</loc>`(lastmod 없음), PUBLISHED 시드 글마다 `<loc>…/posts/{slug}</loc>`와 그 글 상세 API의 `updatedAt`과 같은 `<lastmod>`, DRAFT 글 없음, `/categories/backend` 있음·`/categories/infra`(글 없는 카테고리) 없음, `/tags/%EC%8A%A4%ED%94%84%EB%A7%81` 있음·`draft-only` 없음
 3. `SITE_URL`을 빼고 `next dev`를 다시 띄우면 두 경로가 `500`이고 `/`는 정상
 4. `.env.local` 없이 `npm run build` 성공 ('관리자 인증' 8번과 같다)
-5. 운영 연결(머지 전은 로컬, 머지 후는 운영): `POSTGRES_PASSWORD=x SITE_URL=https://example.test docker compose -f infra/docker-compose.prod.yml config frontend` 출력의 frontend `environment`에 `SITE_URL: https://example.test`가 있다. `deploy.yml`은 PR diff에서 `.env` 생성 스텝의 `env:`에 `SITE_URL: ${{ secrets.SITE_URL }}`, `printf` 형식에 `SITE_URL=%s\n`, 인자에 `"$SITE_URL"`이 있고 형식의 `%s`와 인자 순서가 맞는지 본다. GitHub Secret은 `gh secret list --json name -q '.[].name'`에 `SITE_URL`이 있는지만 본다 (값은 보지 않는다). 머지 후(12-6 '확인 방법'의 '머지 후'와 같은 시점): main 배포가 성공한 뒤 `curl -s https://blog.도메인/robots.txt`의 `Sitemap:`이 `https://blog.도메인/sitemap.xml`이고 `curl -s -o /dev/null -w '%{http_code}' https://blog.도메인/sitemap.xml`이 `200`이다. Secret 값이 비었거나 틀렸으면 여기서 드러난다. 연결이나 Secret이 빠져도 deploy 헬스체크(12-6 4단계)는 `/`·`/api/v1/posts`만 봐 배포가 성공하므로(Secret이 없으면 `.env`에 `SITE_URL=`이 들어가 sitemap·robots만 `500`) 이 항목에서 막는다.
+5. 운영 연결: 'Metadata' 화면 확인 6·7과 같다 (Secret이 없으면 compose 변수 검사로 배포가 실패한다). 머지 후 deploy가 성공한 뒤 `curl -s https://blog.도메인/robots.txt`의 `Sitemap:`이 `https://blog.도메인/sitemap.xml`이고 `curl -s -o /dev/null -w '%{http_code}' https://blog.도메인/sitemap.xml`이 `200`이다.
 - 51건 이상(두 번째 페이지 호출)은 시드 글이 적어 화면에서 보지 않는다. 반복 조건은 `PageResponse`의 `hasNext` 하나다.
 
 ### Markdown 렌더링

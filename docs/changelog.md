@@ -211,7 +211,15 @@
 - **v2.38**
   - 관리자 카테고리 slug 변경 확인 창(11장 '관리자 카테고리' '저장'): 수정 모드에서 slug를 바꾸면 Zod 검증 뒤 `window.confirm`, 취소하면 요청 없음. M4 카테고리 페이지로 공개 주소가 생겨 "M4에서 다시 검토" 문구를 결정으로 바꿈
 - **v2.39**
+  - Giscus 댓글(11장 '글 상세 페이지'): 이 저장소 Discussions의 `Comments`(Announcement) 카테고리, `specific` 매핑 `post-{id}` + `strict`(slug 변경에도 유지), 설정값은 컴포넌트 상수(공개 식별자), `<article>` 안 본문 뒤 `section`, `useEffect`로 스크립트 삽입(`@giscus/react` 미사용)·정리 때 컨테이너 비우기(StrictMode 이중 실행), 로드 실패 시 빈 영역, `giscus.json` 미사용
+  - 12-4: CSP 설계 때 Giscus `script-src`·`frame-src` 포함
+- **v2.40**
+  - Metadata(11장 'Metadata'): 사이트 주소는 실행 시점 환경변수 `SITE_URL`(`lib/site.ts`의 `siteUrl()`, 기본값 없음, `server-only`). 루트 layout에서 읽으면 빌드 때 실행되므로 `metadataBase`는 글 상세 `generateMetadata`에만 둔다. `Host` 헤더로 주소를 만들지 않음
+  - 루트 `title` 템플릿 `%s | Blog`, 공통 `description`·`openGraph`(`siteName`·`locale`·`type`, `og:title` 없음), 페이지별 `title`(상세·카테고리·태그·검색), 확인에 걸린 경로는 `{}`, 목록·카테고리·태그에는 canonical 없음
+  - 글 상세: `description`은 요약(없으면 사이트 설명), canonical·`og:url` `/posts/{slug}`, `og:type` `article`·`publishedTime`. `og:image`·`twitter:*`는 두지 않음
+  - 운영 compose frontend에 `SITE_URL: ${SITE_URL:?...}`(12-2), GitHub Secrets에 `SITE_URL` 추가(12-6, 없으면 배포 3단계 `pull`에서 실패해 롤백), 이미지 실행 환경변수(12-7)
+- **v2.41**
   - sitemap·robots(11장 'sitemap·robots'): `/`, 모든 PUBLISHED 글(`lastModified` = `updatedAt`), 글 있는 카테고리, 공개 태그 목록. 목록·분류는 `lastModified` 없음. robots는 `/admin`·`/api/` 차단(`/search`는 `noindex`라 막지 않음). 둘 다 `connection()` 뒤 실행, API 오류는 `500`
   - 전체 글은 공개 목록 API를 `size=50`으로 `hasNext`까지 읽는 `getAllPublishedPosts()`(별도 백엔드 API 없음), 항목은 `buildSitemap`(`lib/sitemap.ts`, Vitest)
   - 공개 글 목록 응답에 `updatedAt` 추가(8-1)
-  - 사이트 주소 환경변수 `SITE_URL`(`lib/site.ts`, 없으면 호출 시점 오류): 운영은 compose `environment`·GitHub Secret·deploy `.env` 동기화(12장). 운영 연결은 머지 전 `compose config`·`deploy.yml` diff·`gh secret list`로, 머지 후 운영 `robots.txt`의 `Sitemap:`과 `/sitemap.xml` `200`으로 확인(11장 'sitemap·robots' 화면 확인 5)
+  - 사이트 주소는 'Metadata'의 `siteUrl()`(v2.40)을 쓴다. 운영 확인은 머지 후 `robots.txt`의 `Sitemap:`과 `/sitemap.xml` `200`(11장 'sitemap·robots' 화면 확인 5)

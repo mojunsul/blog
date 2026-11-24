@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { Suspense } from "react";
 
@@ -7,6 +8,13 @@ import { getPosts } from "@/lib/api/posts";
 import { getPublicCategories } from "@/lib/api/taxonomy";
 import { parsePageParam } from "@/lib/pagination";
 import { categoryHref } from "@/lib/taxonomy";
+
+export async function generateMetadata({ params }: PageProps<"/categories/[slug]">): Promise<Metadata> {
+  const { slug } = await params;
+  const category = (await getPublicCategories()).find((c) => c.slug === slug);
+  if (!category) return {};
+  return { title: `${category.name} 카테고리` };
+}
 
 export default function CategoryPage({ params, searchParams }: PageProps<"/categories/[slug]">) {
   return (

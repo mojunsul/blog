@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { Suspense } from "react";
 
@@ -7,6 +8,15 @@ import { getPosts } from "@/lib/api/posts";
 import { getPublicTags } from "@/lib/api/taxonomy";
 import { parsePageParam } from "@/lib/pagination";
 import { parseTagNameParam, tagHref } from "@/lib/taxonomy";
+
+export async function generateMetadata({ params }: PageProps<"/tags/[name]">): Promise<Metadata> {
+  const decoded = parseTagNameParam((await params).name);
+  if (decoded === null) return {};
+
+  const tag = (await getPublicTags()).find((t) => t.name === decoded);
+  if (!tag) return {};
+  return { title: `#${tag.name} 태그` };
+}
 
 export default function TagPage({ params, searchParams }: PageProps<"/tags/[name]">) {
   return (
