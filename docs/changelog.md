@@ -223,3 +223,7 @@
   - 전체 글은 공개 목록 API를 `size=50`으로 `hasNext`까지 읽는 `getAllPublishedPosts()`(별도 백엔드 API 없음), 항목은 `buildSitemap`(`lib/sitemap.ts`, Vitest)
   - 공개 글 목록 응답에 `updatedAt` 추가(8-1)
   - 사이트 주소는 'Metadata'의 `siteUrl()`(v2.40)을 쓴다. 운영 확인은 머지 후 `robots.txt`의 `Sitemap:`과 `/sitemap.xml` `200`(11장 'sitemap·robots' 화면 확인 5)
+- **v2.42**
+  - RSS 피드·푸터(11장 'RSS 피드·푸터'): RSS 2.0 `/rss.xml`(Route Handler, `connection()` 뒤 실행), 데이터는 sitemap과 같은 `getAllPublishedPosts()`의 앞 20개, 항목은 제목·링크·`guid` `post-{id}`·요약·카테고리·`pubDate`(본문·태그 없음), `buildRss`(`lib/rss.ts`, Vitest)
+  - XML 이스케이프는 `escapeXml`(CDATA 미사용), XML 1.0에서 못 쓰는 제어 문자 제거(요약은 NUL만 막으므로)
+  - `(public)/layout.tsx`에 RSS `alternate`(상대 주소)와 `RSS` 링크 푸터. 글 상세 `alternates`에 `types`를 함께 넣음('Metadata', 얕은 병합)
