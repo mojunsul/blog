@@ -520,7 +520,7 @@ CI에서 프론트 이미지를 빌드할 때는 백엔드가 없다. `next buil
 - **사이트 주소 `SITE_URL`**: 절대 URL(canonical, `og:url`, M5 sitemap·RSS)의 기준이다. 저장소에 도메인을 두지 않으므로(12-3) 실행 시점 환경변수로 받는다. `API_INTERNAL_URL`('API 주소 처리')과 같이 `NEXT_PUBLIC_`이 아니고 기본값이 없다.
   - `lib/site.ts`(`server-only`)의 `siteUrl(): URL`이 `new URL(process.env.SITE_URL)`을 돌려준다. 값이 없으면 `server.ts`와 같은 이유로 `"SITE_URL이 설정되지 않았습니다. frontend/.env.example을 .env.local로 복사하세요."` 오류를 던지고, 형식이 틀리면(`blog.도메인`처럼 scheme 없음) `new URL`의 `TypeError`를 그대로 던진다. 둘 다 그 페이지는 오류 화면이다. 끝의 `/` 유무는 Next가 맞춘다.
   - 로컬: `frontend/.env.example`에 `SITE_URL=http://localhost:3000`을 더한다. 운영: compose가 `infra/.env`에서 받는다 (12-2).
-  - `siteUrl()`은 요청 시점 API(`params`)를 읽은 뒤에만 부른다. 루트 layout에서 부르면 빌드 때 실행되어 값이 없는 CI 빌드가 실패하고, 값이 있어도 이미지에 박힌다. 그래서 `metadataBase`는 루트가 아니라 절대 URL이 필요한 글 상세의 `generateMetadata`에만 둔다. 다른 페이지는 상대 URL 필드를 쓰지 않아 `metadataBase`가 필요 없다.
+  - `siteUrl()`은 요청 시점 API(`params`)를 읽은 뒤에만 부른다. 루트 layout에서 부르면 빌드 때 실행되어 값이 없는 CI 빌드가 실패하고, 값이 있어도 이미지에 박힌다. 그래서 `metadataBase`는 루트가 아니라 절대 URL이 필요한 글 상세의 `generateMetadata`에만 둔다. 그 밖에 상대 URL 필드를 쓰는 곳은 `(public)/layout.tsx`의 RSS `alternates.types`뿐이고, `metadataBase` 없이 상대 주소 그대로 나온다('RSS 피드·푸터').
   - 요청의 `Host` 헤더로 주소를 만들지 않는다: Nginx가 `server_name _`(12-3)라 IP나 임의 `Host`로 들어온 요청이 그 값을 canonical로 받는다.
 - **사이트 공통** (`app/layout.tsx`의 정적 `metadata`): `lib/site.ts`의 상수 `SITE_NAME = "Blog"`, `SITE_DESCRIPTION = "개인 개발 블로그"`를 쓴다 (`(public)/layout.tsx` 헤더의 블로그 이름도 `SITE_NAME`).
   - `title: { default: SITE_NAME, template: \`%s | ${SITE_NAME}\` }`, `description: SITE_DESCRIPTION`, `openGraph: SITE_OPEN_GRAPH`(`lib/site.ts`, `{ siteName: SITE_NAME, locale: "ko_KR", type: "website" }`).
@@ -575,7 +575,7 @@ CI에서 프론트 이미지를 빌드할 때는 백엔드가 없다. `next buil
   - 항목 만들기는 순수 함수 `buildSitemap(siteUrl, posts, categories, tags): MetadataRoute.Sitemap`(`lib/sitemap.ts`)로 나눠 단위 테스트한다. `sitemap.ts`는 데이터 함수 셋을 `Promise.all`로 부르고 이 함수에 넘긴다.
 - **실패**: API 오류·네트워크 오류는 '에러 처리'대로 그대로 던져 `/sitemap.xml`이 `500`이다 (빈 sitemap을 돌려주지 않는다: 크롤러가 글이 없어진 것으로 보지 않게). `SITE_URL` 누락은 두 경로 모두 `500`이고 나머지 화면은 영향이 없다.
 
-**화면 확인** (백엔드 `local` 프로필 + 시드 데이터로 `next dev`를 띄워 `curl`로 본다. 완료 조건의 확인 수단이다. 시드에 태그가 없으면 '카테고리·태그 페이지' 화면 확인처럼 PUBLISHED 글 하나에 `스프링`, DRAFT 글에 `draft-only`를 붙이고 60초 뒤 본다)
+**화면 확인** (백엔드 `local` 프로필 + 시드 데이터로 `next dev`를 띄워 `curl`로 본다. 완료 조건의 확인 수단이다. 시드에 태그가 없으면 '카테고리·태그 페이지' 화면 확인처럼 PUBLISHED 글 하나에 `스프링`, DRAFT 글에 `draft-only`를 붙이고 60초 뒤 한 번 요청해 갱신을 시작한 뒤 다시 요청해 본다('렌더링 전략'))
 1. `.env.local`에 `SITE_URL=http://localhost:3000`: `curl -s localhost:3000/robots.txt`에 `User-Agent: *`, `Allow: /`, `Disallow: /admin`, `Disallow: /api/`, `Sitemap: http://localhost:3000/sitemap.xml`
 2. `curl -s localhost:3000/sitemap.xml`: `<loc>http://localhost:3000/</loc>`(lastmod 없음), PUBLISHED 시드 글마다 `<loc>…/posts/{slug}</loc>`와 그 글 상세 API의 `updatedAt`과 같은 `<lastmod>`, DRAFT 글 없음, `/categories/backend` 있음·`/categories/infra`(글 없는 카테고리) 없음, `/tags/%EC%8A%A4%ED%94%84%EB%A7%81` 있음·`draft-only` 없음
 3. `SITE_URL`을 빼고 `next dev`를 다시 띄우면 두 경로가 `500`이고 `/`는 정상
@@ -604,8 +604,8 @@ CI에서 프론트 이미지를 빌드할 때는 백엔드가 없다. `next buil
   - `guid`를 주소가 아닌 `id`로 두는 이유: slug를 바꾸면 주소가 바뀌어 리더가 같은 글을 새 글로 다시 띄운다 (Giscus `post-{id}` 매핑과 같은 이유, '글 상세 페이지').
   - 본문(`content`)은 넣지 않는다: 목록 API에 없고(8-1), 요약과 링크로 사이트에서 읽게 한다. 태그는 넣지 않는다.
   - 주소는 `new URL(경로, siteUrl).href`로 만든다 ('sitemap·robots'와 같다). slug는 6장 규칙상 인코딩할 문자가 없다.
-- **XML 이스케이프**: 문자열 값(채널 값·`title`·`summary`·`category.name`·주소)은 모두 `escapeXml`(`lib/rss.ts`, 내보내지 않음)을 거친다. `&` → `&amp;`를 먼저 하고 `<` `>` `"` `'`를 엔티티로 바꾼다. CDATA는 쓰지 않는다 (`]]>`가 든 값을 따로 처리해야 한다).
-  - XML 1.0에서 쓸 수 없는 문자(U+0000~0008, U+000B, U+000C, U+000E~001F, U+FFFE, U+FFFF)는 지운다. `summary`는 NUL만 막아(8-4) 다른 제어 문자가 들어올 수 있고, 하나라도 있으면 피드 전체가 파싱 오류다. 제목·카테고리 이름은 제어 문자를 막는다(8-4).
+- **XML 이스케이프**: 문자열 값(채널 값·`title`·`summary`·`category.name`·주소)은 모두 `escapeXml`(`lib/rss.ts`, 내보내지 않음)을 거친다. 아래 금지 문자를 먼저 지우고, 그다음 `&` → `&amp;`를 먼저 한 뒤 `<` `>` `"` `'`를 엔티티로 바꾼다. CDATA는 쓰지 않는다 (`]]>`가 든 값을 따로 처리해야 한다).
+  - XML 1.0에서 쓸 수 없는 문자(U+0000~0008, U+000B, U+000C, U+000E~001F, U+FFFE, U+FFFF)는 `escapeXml` 안에서 지우므로 위 문자열 값 모두에 적용된다. 하나라도 있으면 피드 전체가 파싱 오류인데, `summary`는 NUL만 막아(8-4) 다른 제어 문자가 들어올 수 있고, 제목·카테고리 이름의 `\P{Cc}`(8-4)도 U+FFFE·U+FFFF(`Cn`)는 통과시킨다.
 - **`<link rel="alternate">`**: `(public)/layout.tsx`에 정적 `metadata = { alternates: { types: RSS_ALTERNATE_TYPES } }`를 둔다. `RSS_ALTERNATE_TYPES = { "application/rss+xml": RSS_PATH }`(`lib/rss.ts`).
   - 상대 주소를 쓴다: layout은 빌드 때 metadata가 만들어져 `siteUrl()`을 부를 수 없다('Metadata'). `metadataBase`가 없으면 Next는 `alternates`의 상대 주소를 그대로 출력하고(`href="/rss.xml"`), 피드 탐지는 페이지 주소 기준으로 푼다.
   - 하위 페이지가 `alternates`를 정하면 통째로 바뀐다(`openGraph`와 같은 얕은 병합). 그래서 `alternates`를 정하는 글 상세는 `types: RSS_ALTERNATE_TYPES`를 함께 넣는다('Metadata'). 글 상세에는 `metadataBase`가 있어 절대 주소로 나온다.
@@ -613,7 +613,7 @@ CI에서 프론트 이미지를 빌드할 때는 백엔드가 없다. `next buil
 - **푸터** (`(public)/layout.tsx`, `<main>` 뒤): 헤더와 같은 너비(`max-w-3xl`, `px-4`)에 위 테두리(`border-t`)를 두고 `RSS` 링크 하나만 둔다. `<a href={RSS_PATH}>`로 쓴다 (`next/link`는 페이지 이동·prefetch용이라 XML 경로에는 일반 링크). 저작권 연도는 두지 않는다 (`new Date()`는 정적 셸에서 빌드 시각으로 고정된다).
   - `(public)` 안의 `not-found.tsx` 화면에도 같은 layout이라 푸터가 나온다.
 
-**화면 확인** (백엔드 `local` 프로필 + 시드 데이터로 `.env.local`에 `SITE_URL=http://localhost:3000`을 두고 `next dev`를 띄워 `curl`로 본다. 완료 조건의 확인 수단이다. 이스케이프는 관리자 화면에서 PUBLISHED 시드 글 하나의 제목을 `A & B <C>`로 바꾸고 60초 뒤 본다)
+**화면 확인** (백엔드 `local` 프로필 + 시드 데이터로 `.env.local`에 `SITE_URL=http://localhost:3000`을 두고 `next dev`를 띄워 `curl`로 본다. 완료 조건의 확인 수단이다. 이스케이프는 관리자 화면에서 PUBLISHED 시드 글 하나의 제목을 `A & B <C>`로 바꾸고 60초 뒤 한 번 요청해 갱신을 시작한 뒤 다시 요청해 본다('렌더링 전략'))
 1. `curl -s -D - localhost:3000/rss.xml`: `Content-Type: application/rss+xml; charset=utf-8`, `<rss version="2.0"`, 채널 `title` `Blog`·`link` `http://localhost:3000/`·`language` `ko`·`atom:link` `http://localhost:3000/rss.xml`, PUBLISHED 시드 글마다 `<item>`(공개 목록 API와 같은 순서)과 `link` `http://localhost:3000/posts/{slug}`·`guid` `post-{id}`·`pubDate` `… GMT`, DRAFT 글 없음
 2. 바꾼 제목이 `<title>A &amp; B &lt;C&gt;</title>`이고 `xmllint --noout`(또는 `python3 -c 'import sys,xml.dom.minidom as m; m.parseString(sys.stdin.buffer.read())'`)가 오류 없이 끝난다
 3. `curl -s localhost:3000/` · `/posts/{slug}`의 `<head>`에 `<link rel="alternate" type="application/rss+xml" href="…/rss.xml">`가 있고(목록은 `/rss.xml`, 상세는 `http://localhost:3000/rss.xml`), 상세의 canonical도 그대로 있다. `/admin/login`에는 없다
@@ -645,7 +645,7 @@ CI에서 프론트 이미지를 빌드할 때는 백엔드가 없다. `next buil
 - Vitest로 `lib/`의 로직이 있는 순수 함수만 단위 테스트한다 (`date.ts`, `errors.ts`의 파싱 함수, `pagination.ts`, `post-status.ts`, `post-id.ts`, `slug.ts`, `cookie.ts`, `next-path.ts`, `single-flight.ts`, `search.ts`, `tags.ts`, `taxonomy.ts`, `sitemap.ts`, `rss.ts`).
   - `tags.ts`: `parseTags`(쉼표·앞뒤 공백·빈 조각·대소문자·중복과 순서, `İ`처럼 소문자로 바꾸면 길어지는 문자), `validateTags`(10·11개, 50·51자는 소문자로 바꾼 뒤 기준, 한글·숫자·`node-js` 통과, `-a`·`a-`·`a--b`·`a_b`·`a b` 거절, 여러 규칙을 어기면 개수 초과가 먼저이고 그다음은 항목 순서대로 항목마다 길이 → 패턴인 첫 메시지: 11개 중 첫 항목이 51자면 개수 메시지, `["a_b", "x"×51]`이면 "태그는 문자·숫자·하이픈만 쓸 수 있습니다", `["x"×51 + "_", "a_b"]`이면 "태그는 50자 이하여야 합니다")
   - `sitemap.ts`: `buildSitemap`(위 표의 주소 순서, `SITE_URL` 끝 `/` 유무와 무관한 절대 주소, 글 `lastModified`는 `updatedAt`, `postCount` 0 카테고리 제외, 한글 태그 인코딩, 글·카테고리·태그가 모두 비면 `/` 하나)
-  - `rss.ts`: `buildRss`(채널 값과 `atom:link`, 항목 요소와 순서, 21개면 앞 20개, `summary`·`category`가 `null`이면 요소 없음, `pubDate` 형식, `SITE_URL` 끝 `/` 유무와 무관한 절대 주소, `&<>"'`가 든 제목·요약·카테고리 이스케이프(`&lt;`가 `&amp;lt;`로 두 번 바뀌지 않음), 요약의 `\u0001`·`\uFFFF` 제거와 줄바꿈·탭 유지, 글이 없으면 `<item>` 없음)
+  - `rss.ts`: `buildRss`(채널 값과 `atom:link`, 항목 요소와 순서, 21개면 앞 20개, `summary`·`category`가 `null`이면 요소 없음, `pubDate` 형식, `SITE_URL` 끝 `/` 유무와 무관한 절대 주소, `&<>"'`가 든 제목·요약·카테고리 이스케이프(`&lt;`가 `&amp;lt;`로 두 번 바뀌지 않음), 요약의 `\u0001`·`\uFFFF`와 제목·카테고리의 `\uFFFF` 제거, 줄바꿈·탭 유지, 글이 없으면 `<item>` 없음)
   - `taxonomy.ts`: `categoryHref`·`tagHref`(`page` 1이면 `page` 없음, 2면 `?page=2`, 한글 태그는 `encodeURIComponent`, `node-js`는 그대로), `parseTagNameParam`(인코딩된 한글 → 한글, `a%20b` → `a b`, `Spring`은 바꾸지 않음, `%E0%A4%A`·`%` → `null`)
   - `async` 서버 컴포넌트는 Vitest·Jest 모두 단위 테스트를 지원하지 않으므로 단위 테스트하지 않는다.
   - `server.ts`는 `server-only`가 테스트 환경에서 import 시 오류를 던지므로 단위 테스트하지 않는다 (실제 호출은 화면에서 확인).
