@@ -6,6 +6,7 @@ import { MarkdownRenderer } from "@/components/markdown/MarkdownRenderer";
 import { Comments } from "@/components/post/Comments";
 import { PostMeta } from "@/components/post/PostMeta";
 import { getPost } from "@/lib/api/posts";
+import { RSS_ALTERNATE_TYPES } from "@/lib/rss";
 import { SITE_DESCRIPTION, SITE_OPEN_GRAPH, siteUrl } from "@/lib/site";
 import { isValidSlug } from "@/lib/slug";
 
@@ -22,7 +23,7 @@ export async function generateMetadata({ params }: PageProps<"/posts/[slug]">): 
     metadataBase: siteUrl(),
     title: post.title,
     description,
-    alternates: { canonical: path },
+    alternates: { canonical: path, types: RSS_ALTERNATE_TYPES },
     openGraph: {
       ...SITE_OPEN_GRAPH,
       type: "article",
