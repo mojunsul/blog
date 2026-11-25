@@ -228,3 +228,5 @@
   - XML 이스케이프는 `escapeXml`(CDATA 미사용), XML 1.0에서 못 쓰는 문자 제거를 `escapeXml` 안에서 모든 문자열 값에 적용(요약은 NUL만 막고, 제목·카테고리 이름의 `\P{Cc}`도 U+FFFE·U+FFFF는 통과시키므로)
   - `(public)/layout.tsx`에 RSS `alternate`(상대 주소)와 `RSS` 링크 푸터. 글 상세 `alternates`에 `types`를 함께 넣음('Metadata', 얕은 병합). 'Metadata'의 `metadataBase` 설명을 이 상대 주소에 맞게 고침
   - 'sitemap·robots'·'RSS 피드·푸터' 화면 확인의 60초 대기를 '렌더링 전략'의 stale-while-revalidate에 맞춰 "한 번 요청해 갱신을 시작한 뒤 다시 요청"으로 고침
+- **v2.43**
+  - not-found 화면(11장 '글 상세 페이지'): 루트 `app/not-found.tsx` 하나가 `notFound()`와 맞지 않는 URL(`/foo`, `/admin/foo`)을 모두 맡고 `app/(public)/not-found.tsx`는 없앰. 헤더·검색·`main`은 `components/layout/PublicShell.tsx`로 옮겨 `(public)/layout.tsx`와 함께 씀. 맞지 않는 URL은 `404`+`noindex`, `title`은 기본값 `Blog`. 푸터도 `PublicShell`에 넣어 맞지 않는 URL에도 보임, RSS `alternate`는 `(public)/layout.tsx` `metadata`에 남아 맞지 않는 URL에는 없음('RSS 피드·푸터' 푸터 문장·화면 확인 4 함께 고침)

@@ -10,8 +10,7 @@ frontend/src/
 ├ app/
 │  ├ layout.tsx                     # 최상위 HTML, 폰트, 기본 metadata
 │  ├ (public)/
-│  │  ├ layout.tsx                  # 블로그 헤더·검색 입력·푸터(RSS 링크), RSS alternate
-│  │  ├ not-found.tsx               # 공개 페이지의 notFound() 화면 (헤더 포함)
+│  │  ├ layout.tsx                  # PublicShell로 감쌈, RSS alternate
 │  │  ├ page.tsx                    # /                  글 목록
 │  │  ├ posts/[slug]/page.tsx       # /posts/{slug}      글 상세 + Giscus
 │  │  ├ categories/[slug]/page.tsx  # /categories/{slug}
@@ -26,12 +25,13 @@ frontend/src/
 │  │     ├ posts/new/page.tsx       # /admin/posts/new
 │  │     ├ posts/[id]/edit/page.tsx # /admin/posts/{id}/edit
 │  │     └ categories/page.tsx      # /admin/categories
-│  ├ not-found.tsx                  # (M5) 어느 경로에도 맞지 않는 URL
+│  ├ not-found.tsx                  # notFound()와 어느 경로에도 맞지 않는 URL의 화면 (PublicShell 포함)
 │  ├ sitemap.ts                    # /sitemap.xml ('sitemap·robots')
 │  ├ robots.ts                     # /robots.txt
 │  └ rss.xml/route.ts              # /rss.xml ('RSS 피드·푸터')
 ├ components/
 │  ├ ui/            # Button, Input 등 공통
+│  ├ layout/        # PublicShell (블로그 헤더·검색 입력·main·푸터)
 │  ├ post/          # PostCard, PostList, Pagination, TagBadge, Comments(Giscus, 클라이언트 컴포넌트)
 │  ├ markdown/      # MarkdownRenderer (서버 컴포넌트)
 │  └ admin/         # LoginForm, AdminAuthGuard, LogoutButton, AdminPostList, PostForm, MarkdownPreview, AdminCategoryManager, CategoryForm
@@ -419,7 +419,7 @@ CI에서 프론트 이미지를 빌드할 때는 백엔드가 없다. `next buil
 - **태그 목록 노출**: 글 목록 위에 `<nav aria-label="태그">`로 `getPublicTags()` 전체를 응답 순서(글 많은 순, 8-1)대로 `TagBadge`(개수 포함)로 보인다. 모든 페이지에 같게 보이고, 태그가 없으면 `nav`를 그리지 않는다. `page`가 잘못되어 `notFound()`이면 그리지 않는다. 태그 목록 조회가 실패하면 글 목록과 같이 오류 화면이다 ('에러 처리').
   - `/tags` 목록 페이지나 헤더 메뉴는 두지 않는다. 태그가 수십 개(8-1)라 한 묶음이면 충분하고, 헤더에 두면 모든 공개 페이지(상세·검색)가 태그 API를 부른다.
   - 카테고리 목록 메뉴는 두지 않는다. 카테고리 진입은 `PostCard`·상세의 카테고리 링크로 한다. 필요해지면 다시 검토한다.
-- 레이아웃: `app/page.tsx`를 `app/(public)/page.tsx`로 옮기고, `(public)/layout.tsx`에 블로그 이름(`/` 링크) 헤더를 둔다. 푸터는 'RSS 피드·푸터'.
+- 레이아웃: `app/page.tsx`를 `app/(public)/page.tsx`로 옮기고, `(public)/layout.tsx`에 블로그 이름(`/` 링크) 헤더를 둔다 (헤더는 `PublicShell`에 있다. '글 상세 페이지'의 not-found 화면). 푸터는 'RSS 피드·푸터'.
 
 ### 글 상세 페이지 (`/posts/{slug}`)
 - 구성: 목록 페이지와 같다. `page.tsx`는 `Suspense`만 두고, 그 안의 비동기 컴포넌트가 `params`를 읽어 `getPost(slug)`(`lib/api/posts.ts`, `'use cache'` + `cacheLife({ revalidate: 60 })`)를 호출한다.
@@ -452,11 +452,21 @@ CI에서 프론트 이미지를 빌드할 때는 백엔드가 없다. `next buil
     4. 상세에서 다른 글로 이동하면(목록으로 갔다가 다른 글) `section[aria-label="댓글"]` 안 스크립트 요소(하나)의 `data-term`이 새 글 id로 바뀐다.
     5. 없는 글(`/posts/nope`)의 not-found 화면에는 댓글 영역이 없다.
 - 캐시: 기준은 '렌더링 전략'. 같은 글을 다시 요청하면 `getPost`와 `MarkdownRenderer`의 캐시로 백엔드 호출과 Shiki 하이라이팅이 다시 일어나지 않는다.
-- not-found 화면: `app/(public)/not-found.tsx`를 둔다. 공개 페이지에서 부른 `notFound()`(상세의 없는 글, 목록의 잘못된 `page`)가 블로그 헤더 안에서 "페이지를 찾을 수 없습니다." 문구와 `/` 링크로 표시된다.
-  - 어느 경로에도 맞지 않는 URL(`/foo`)은 루트 `app/not-found.tsx`가 맡는데, 루트 레이아웃만 거쳐 헤더가 없다. M5의 not-found 페이지 작업에서 함께 정하고, 그 전까지는 Next 기본 404 화면을 쓴다.
+- not-found 화면: 루트 `app/not-found.tsx` 하나만 둔다 (`app/(public)/not-found.tsx`는 두지 않는다). 공개 페이지에서 부른 `notFound()`(상세의 없는 글, 목록의 잘못된 `page`)와 어느 경로에도 맞지 않는 URL(`/foo`, `/admin/foo`)이 모두 이 화면이다. 블로그 헤더 안에서 "페이지를 찾을 수 없습니다." 문구와 `/` 링크("홈으로")로 표시된다.
+  - 헤더: 루트 not-found는 루트 레이아웃만 거치고 `(public)/layout.tsx`를 거치지 않는다. 그래서 헤더·검색 입력·`main`·푸터를 `components/layout/PublicShell.tsx`(서버 컴포넌트, `children`을 `main` 안에 그림)로 옮기고, `(public)/layout.tsx`와 루트 not-found가 함께 쓴다. `(public)/not-found.tsx`를 남기면 같은 화면이 두 파일이 되고, 지워도 `notFound()`는 가장 가까운 경계인 루트 not-found로 올라가 같은 헤더로 보인다. 그래서 하나로 합친다.
+  - 푸터('RSS 피드·푸터')도 `PublicShell`에 넣는다. 지금까지 `(public)` not-found 화면에 푸터가 나왔으므로(공개 페이지와 같은 layout) 합친 뒤에도 같은 화면이 되게 하고, 공개 화면의 틀을 한 컴포넌트에 모은다. 그래서 맞지 않는 URL(`/foo`, `/admin/foo`)에도 `RSS` 링크 푸터가 보인다.
+  - RSS `alternate`(`metadata`)는 컴포넌트에 둘 수 없어 `(public)/layout.tsx`의 정적 `metadata`에 그대로 남는다. 루트 not-found는 그 layout을 거치지 않아 맞지 않는 URL에는 alternate가 없다 (루트 layout에 옮기면 관리자 페이지에도 생긴다, 'RSS 피드·푸터'). 공개 페이지의 `notFound()` 화면에 alternate가 남는지는 정하지 않고 확인하지 않는다: `noindex` 화면이라 피드 탐지에 쓸 일이 없고, 구현이 따로 할 일이 없다.
+  - `/admin/foo`처럼 관리자 경로 아래의 맞지 않는 URL도 공개 헤더·푸터로 보인다. 관리자 페이지가 아니라 공개 not-found 화면이므로 'RSS 피드·푸터' 화면 확인 4의 "관리자 페이지에는 푸터가 없다"(관리자 layout을 거치는 `/admin/login` 등)와 어긋나지 않는다. 관리자 레이아웃(`AdminAuthGuard`)을 거치지 않아 인증 없이 보이지만, 담긴 내용이 공개 헤더와 문구뿐이라 드러나는 정보가 없다. 관리자용 not-found는 두지 않는다 (관리자 화면은 `notFound()`를 쓰지 않는다. '관리자 글 목록').
+  - 클라이언트 이동 중 공개 페이지에서 `notFound()`가 나면 `(public)` 레이아웃 대신 루트 not-found가 그려져 헤더가 다시 마운트된다 (검색 입력에 쓰던 값이 지워진다). 눈에 보이는 차이가 그것뿐이라 받아들인다.
+  - Next는 루트 not-found를 모든 경로에 함께 보내고 그 안의 클라이언트 컴포넌트도 불러온다. `PublicShell`의 `next/form`은 공개 페이지가 이미 불러오는 것이라 늘어나는 것은 관리자 페이지의 그 몫뿐이고, 작아서 받아들인다.
+  - 상태 코드·metadata: 맞지 않는 URL은 렌더링 전에 걸러져 `404`와 Next가 넣는 `noindex`로 응답한다. 공개 페이지의 `notFound()`는 '글 목록 페이지'대로 `200`과 `noindex`다. not-found 파일에 `metadata`를 두지 않아 `title`은 루트의 기본값 `Blog`다 ('Metadata' 화면 확인 4와 같다).
+  - 화면 확인 (로컬 `npm run dev` + 백엔드, 이슈 완료 조건. DOM과 `curl`로 본다):
+    1. `/foo`, `/admin/foo` → `header` 안의 사이트 이름 링크·`input[name="q"]`, `main` 안의 "페이지를 찾을 수 없습니다."와 `a[href="/"]`("홈으로"), `main` 뒤 푸터의 `a[href="/rss.xml"]`. `curl -o /dev/null -w '%{http_code}'`이 `404`, HTML에 `<meta name="robots" content="noindex"/>`와 `<title>Blog</title>`.
+    2. `/posts/nope`, `/?page=0` → 1번과 같은 헤더·문구·푸터, 상태 코드 `200`과 `noindex`. `header`는 하나다 (`document.querySelectorAll("header").length === 1`).
+    3. `/`와 `/posts/{시드 글 slug}`의 헤더·`main`·푸터 배치가 바꾸기 전과 같다 (헤더 검색으로 `/search?q=`에 이동된다). RSS `alternate`는 'RSS 피드·푸터' 화면 확인 3대로 그대로 있고, `/admin/login`에는 푸터·alternate가 없다.
 
 ### 검색 페이지 (`/search`)
-- **검색 입력**: `(public)/layout.tsx` 헤더의 블로그 이름 오른쪽에 둔다. `next/form`의 `<Form action="/search">` 안에 `<input type="search" name="q" maxLength={100} aria-label="검색어" placeholder="검색">`과 "검색" 제출 버튼을 둔다.
+- **검색 입력**: 공개 헤더(`PublicShell`)의 블로그 이름 오른쪽에 둔다. `next/form`의 `<Form action="/search">` 안에 `<input type="search" name="q" maxLength={100} aria-label="검색어" placeholder="검색">`과 "검색" 제출 버튼을 둔다.
   - 문자열 `action`이라 GET으로 `/search?q=...`에 이동한다 (JS가 있으면 클라이언트 이동, 없으면 일반 폼 제출). 상태·이벤트 처리 코드를 두지 않아 레이아웃은 서버 컴포넌트로 남는다.
   - `maxLength`는 API `q` 상한(8-1, 100자)과 같다. 둘 다 UTF-16 단위로 센다. 빈 값 제출은 막지 않는다 (아래 안내 문구가 나온다).
   - 입력칸은 현재 검색어로 채우지 않는다. 사이트 안에서 검색하면 레이아웃이 유지되어 입력한 값이 남고, 주소로 바로 들어오면 비어 있다. 검색어는 결과 제목에 보인다.
@@ -522,7 +532,7 @@ CI에서 프론트 이미지를 빌드할 때는 백엔드가 없다. `next buil
   - 로컬: `frontend/.env.example`에 `SITE_URL=http://localhost:3000`을 더한다. 운영: compose가 `infra/.env`에서 받는다 (12-2).
   - `siteUrl()`은 요청 시점 API(`params`)를 읽은 뒤에만 부른다. 루트 layout에서 부르면 빌드 때 실행되어 값이 없는 CI 빌드가 실패하고, 값이 있어도 이미지에 박힌다. 그래서 `metadataBase`는 루트가 아니라 절대 URL이 필요한 글 상세의 `generateMetadata`에만 둔다. 그 밖에 상대 URL 필드를 쓰는 곳은 `(public)/layout.tsx`의 RSS `alternates.types`뿐이고, `metadataBase` 없이 상대 주소 그대로 나온다('RSS 피드·푸터').
   - 요청의 `Host` 헤더로 주소를 만들지 않는다: Nginx가 `server_name _`(12-3)라 IP나 임의 `Host`로 들어온 요청이 그 값을 canonical로 받는다.
-- **사이트 공통** (`app/layout.tsx`의 정적 `metadata`): `lib/site.ts`의 상수 `SITE_NAME = "Blog"`, `SITE_DESCRIPTION = "개인 개발 블로그"`를 쓴다 (`(public)/layout.tsx` 헤더의 블로그 이름도 `SITE_NAME`).
+- **사이트 공통** (`app/layout.tsx`의 정적 `metadata`): `lib/site.ts`의 상수 `SITE_NAME = "Blog"`, `SITE_DESCRIPTION = "개인 개발 블로그"`를 쓴다 (`PublicShell` 헤더의 블로그 이름도 `SITE_NAME`).
   - `title: { default: SITE_NAME, template: \`%s | ${SITE_NAME}\` }`, `description: SITE_DESCRIPTION`, `openGraph: SITE_OPEN_GRAPH`(`lib/site.ts`, `{ siteName: SITE_NAME, locale: "ko_KR", type: "website" }`).
   - `openGraph`는 하위 페이지가 정하면 통째로 바뀌므로(얕은 병합), 글 상세는 `SITE_OPEN_GRAPH`를 펼친 뒤 덮어쓴다. 루트에 `og:title`을 두지 않는다: 하위 페이지가 `openGraph`를 정하지 않으면 모든 페이지가 같은 `og:title`을 물려받는다. 없으면 공유 미리보기는 `<title>`을 쓴다.
   - 관리자 페이지는 따로 정하지 않는다 (`Blog`).
@@ -610,14 +620,14 @@ CI에서 프론트 이미지를 빌드할 때는 백엔드가 없다. `next buil
   - 상대 주소를 쓴다: layout은 빌드 때 metadata가 만들어져 `siteUrl()`을 부를 수 없다('Metadata'). `metadataBase`가 없으면 Next는 `alternates`의 상대 주소를 그대로 출력하고(`href="/rss.xml"`), 피드 탐지는 페이지 주소 기준으로 푼다.
   - 하위 페이지가 `alternates`를 정하면 통째로 바뀐다(`openGraph`와 같은 얕은 병합). 그래서 `alternates`를 정하는 글 상세는 `types: RSS_ALTERNATE_TYPES`를 함께 넣는다('Metadata'). 글 상세에는 `metadataBase`가 있어 절대 주소로 나온다.
   - 관리자 페이지에는 두지 않는다 (루트 layout이 아니라 `(public)` layout).
-- **푸터** (`(public)/layout.tsx`, `<main>` 뒤): 헤더와 같은 너비(`max-w-3xl`, `px-4`)에 위 테두리(`border-t`)를 두고 `RSS` 링크 하나만 둔다. `<a href={RSS_PATH}>`로 쓴다 (`next/link`는 페이지 이동·prefetch용이라 XML 경로에는 일반 링크). 저작권 연도는 두지 않는다 (`new Date()`는 정적 셸에서 빌드 시각으로 고정된다).
-  - `(public)` 안의 `not-found.tsx` 화면에도 같은 layout이라 푸터가 나온다.
+- **푸터** (`PublicShell`, `<main>` 뒤): 헤더와 같은 너비(`max-w-3xl`, `px-4`)에 위 테두리(`border-t`)를 두고 `RSS` 링크 하나만 둔다. `<a href={RSS_PATH}>`로 쓴다 (`next/link`는 페이지 이동·prefetch용이라 XML 경로에는 일반 링크). 저작권 연도는 두지 않는다 (`new Date()`는 정적 셸에서 빌드 시각으로 고정된다).
+  - not-found 화면(루트 `app/not-found.tsx`)도 `PublicShell`을 써서 푸터가 나온다 ('글 상세 페이지'의 not-found 화면).
 
 **화면 확인** (백엔드 `local` 프로필 + 시드 데이터로 `.env.local`에 `SITE_URL=http://localhost:3000`을 두고 `next dev`를 띄워 `curl`로 본다. 완료 조건의 확인 수단이다. 이스케이프는 관리자 화면에서 PUBLISHED 시드 글 하나의 제목을 `A & B <C>`로 바꾸고 60초 뒤 한 번 요청해 갱신을 시작한 뒤 다시 요청해 본다('렌더링 전략'))
 1. `curl -s -D - localhost:3000/rss.xml`: `Content-Type: application/rss+xml; charset=utf-8`, `<rss version="2.0"`, 채널 `title` `Blog`·`link` `http://localhost:3000/`·`language` `ko`·`atom:link` `http://localhost:3000/rss.xml`, PUBLISHED 시드 글마다 `<item>`(공개 목록 API와 같은 순서)과 `link` `http://localhost:3000/posts/{slug}`·`guid` `post-{id}`·`pubDate` `… GMT`, DRAFT 글 없음
 2. 바꾼 제목이 `<title>A &amp; B &lt;C&gt;</title>`이고 `xmllint --noout`(또는 `python3 -c 'import sys,xml.dom.minidom as m; m.parseString(sys.stdin.buffer.read())'`)가 오류 없이 끝난다
 3. `curl -s localhost:3000/` · `/posts/{slug}`의 `<head>`에 `<link rel="alternate" type="application/rss+xml" href="…/rss.xml">`가 있고(목록은 `/rss.xml`, 상세는 `http://localhost:3000/rss.xml`), 상세의 canonical도 그대로 있다. `/admin/login`에는 없다
-4. 공개 페이지 아래에 `RSS` 링크가 있고 `href="/rss.xml"`이다. 관리자 페이지에는 푸터가 없다
+4. 공개 페이지 아래에 `RSS` 링크가 있고 `href="/rss.xml"`이다. 관리자 페이지에는 푸터가 없다 (`/admin/foo`는 관리자 페이지가 아니라 공개 not-found 화면이라 푸터가 있다)
 5. `SITE_URL`을 빼고 `next dev`를 다시 띄우면 `/rss.xml`이 `500`이고 `/`는 정상. `.env.local` 없이 `npm run build` 성공 ('sitemap·robots' 화면 확인 3·4와 같다)
 6. 운영 연결: 머지 후 deploy가 성공한 뒤 `curl -s https://blog.도메인/rss.xml`의 `atom:link`가 `https://blog.도메인/rss.xml`이다 ('sitemap·robots' 화면 확인 5와 같은 `SITE_URL` 연결)
 - 21건 이상(20개 자르기)은 시드 글이 적어 화면에서 보지 않고 단위 테스트로 본다.
