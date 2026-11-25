@@ -223,3 +223,5 @@
   - 전체 글은 공개 목록 API를 `size=50`으로 `hasNext`까지 읽는 `getAllPublishedPosts()`(별도 백엔드 API 없음), 항목은 `buildSitemap`(`lib/sitemap.ts`, Vitest)
   - 공개 글 목록 응답에 `updatedAt` 추가(8-1)
   - 사이트 주소는 'Metadata'의 `siteUrl()`(v2.40)을 쓴다. 운영 확인은 머지 후 `robots.txt`의 `Sitemap:`과 `/sitemap.xml` `200`(11장 'sitemap·robots' 화면 확인 5)
+- **v2.42**
+  - not-found 화면(11장 '글 상세 페이지'): 루트 `app/not-found.tsx` 하나가 `notFound()`와 맞지 않는 URL(`/foo`, `/admin/foo`)을 모두 맡고 `app/(public)/not-found.tsx`는 없앰. 헤더·검색·`main`은 `components/layout/PublicShell.tsx`로 옮겨 `(public)/layout.tsx`와 함께 씀. 맞지 않는 URL은 `404`+`noindex`, `title`은 기본값 `Blog`
