@@ -10,7 +10,7 @@ frontend/src/
 ├ app/
 │  ├ layout.tsx                     # 최상위 HTML, 폰트, 기본 metadata
 │  ├ (public)/
-│  │  ├ layout.tsx                  # PublicShell로 감쌈, RSS alternate
+│  │  ├ layout.tsx                  # PublicShell로 감쌈, RSS alternate, Umami 스크립트
 │  │  ├ page.tsx                    # /                  글 목록
 │  │  ├ posts/[slug]/page.tsx       # /posts/{slug}      글 상세 + Giscus
 │  │  ├ categories/[slug]/page.tsx  # /categories/{slug}
@@ -31,7 +31,7 @@ frontend/src/
 │  └ rss.xml/route.ts              # /rss.xml ('RSS 피드·푸터')
 ├ components/
 │  ├ ui/            # Button, Input 등 공통
-│  ├ layout/        # PublicShell (블로그 헤더·검색 입력·main·푸터)
+│  ├ layout/        # PublicShell (블로그 헤더·검색 입력·main·푸터), UmamiScript
 │  ├ post/          # PostCard, PostList, Pagination, TagBadge, Comments(Giscus, 클라이언트 컴포넌트)
 │  ├ markdown/      # MarkdownRenderer (서버 컴포넌트)
 │  └ admin/         # LoginForm, AdminAuthGuard, LogoutButton, AdminPostList, PostForm, MarkdownPreview, AdminCategoryManager, CategoryForm
@@ -631,6 +631,20 @@ CI에서 프론트 이미지를 빌드할 때는 백엔드가 없다. `next buil
 5. `SITE_URL`을 빼고 `next dev`를 다시 띄우면 `/rss.xml`이 `500`이고 `/`는 정상. `.env.local` 없이 `npm run build` 성공 ('sitemap·robots' 화면 확인 3·4와 같다)
 6. 운영 연결: 머지 후 deploy가 성공한 뒤 `curl -s https://blog.도메인/rss.xml`의 `atom:link`가 `https://blog.도메인/rss.xml`이다 ('sitemap·robots' 화면 확인 5와 같은 `SITE_URL` 연결)
 - 21건 이상(20개 자르기)은 시드 글이 적어 화면에서 보지 않고 단위 테스트로 본다.
+
+### 방문자 분석 스크립트
+Umami 추적 스크립트를 공개 페이지에만 넣는다. 서버 배치·수집 경로·설치는 12-8.
+- **위치**: `(public)/layout.tsx`에서 `PublicShell` 옆에 `<Suspense fallback={null}><UmamiScript /></Suspense>`를 둔다. 관리자 페이지(`admin/`)는 이 layout을 거치지 않아 스크립트가 없다.
+  - `PublicShell`에 넣지 않는 이유: 루트 not-found도 `PublicShell`을 쓰는데, Next는 루트 not-found를 모든 경로(관리자 포함)에 함께 보낸다('글 상세 페이지'의 not-found 화면). 그 안에 두면 관리자 페이지 요청에서도 서버가 이 컴포넌트를 렌더링한다. 그래서 주소로 바로 연 not-found 화면(`/foo`, 공개 페이지의 `notFound()`)은 기록되지 않는다. 사이트 안에서 이동해 not-found가 되면 이미 불러온 스크립트가 남아 있어 기록된다. 둘 다 받아들인다.
+  - 공개 페이지에서 관리자 페이지로 가는 링크가 없어, 공개 페이지에서 불러온 스크립트가 클라이언트 이동으로 관리자 화면에 남는 경로는 없다. 관리자 본인의 공개 페이지 방문 제외는 12-8 '설치' 4.
+- **`UmamiScript`** (`components/layout/UmamiScript.tsx`, async 서버 컴포넌트): `await connection()` 뒤 `process.env.UMAMI_WEBSITE_ID`를 읽어, 비어 있으면 `null`을 돌려주고 있으면 `next/script`의 `<Script src="/stats/script.js" data-website-id={id} strategy="afterInteractive" />`를 돌려준다. 구현 전 `node_modules/next/dist/docs/`의 Script 문서를 확인한다.
+  - `connection()` 뒤에 읽는 이유: 정적 셸에서 읽으면 빌드 때 값(CI에서는 빈 값)이 박힌다 ('Metadata'의 `siteUrl()`과 같다). `NEXT_PUBLIC_`으로 빌드 때 넣는 방식은 deploy 빌드(12-6)에 값을 넘겨야 하고 ID를 바꿀 때마다 이미지를 다시 빌드해야 해 택하지 않았다. 대신 공개 페이지마다 작은 동적 영역이 하나 생기는데, 공개 페이지는 원래 요청마다 렌더링한다('렌더링 전략').
+  - 값이 없을 때 오류를 내지 않는다 (`API_INTERNAL_URL`·`SITE_URL`과 다르다): 로컬 개발·CI 빌드·Umami 설치 전 운영에서는 추적하지 않는 것이 정상이다. 형식은 검사하지 않는다 (틀린 값의 결과는 12-8 '실패 처리').
+  - `afterInteractive`: 페이지가 하이드레이션된 뒤 불러와 본문 표시를 막지 않는다. Umami가 내려가 스크립트가 `502`여도 화면은 그대로다.
+  - 주소가 같은 출처의 상대 경로라 도메인이 코드에 들어가지 않는다. 로컬 `next dev`에는 `/stats/`가 없지만 기본으로 ID가 비어 스크립트도 없다.
+  - 클라이언트 이동의 페이지 기록은 Umami 스크립트가 `history.pushState`를 감싸 스스로 한다. 프론트에서 이동 이벤트를 따로 보내지 않는다.
+- `frontend/.env.example`에 `UMAMI_WEBSITE_ID=`(빈 값)와 "비우면 추적 스크립트를 넣지 않는다" 주석을 더한다. 운영 값은 compose가 `infra/.env`에서 받는다(12-8).
+- 테스트: `lib/`의 순수 함수가 없어 Vitest 대상이 아니다. 확인은 12-8 '확인 방법'.
 
 ### Markdown 렌더링
 - `components/markdown/MarkdownRenderer`는 `content`(Markdown 문자열)만 받는 **서버 컴포넌트**다. react-markdown의 `MarkdownAsync`를 쓴다.
