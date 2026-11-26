@@ -48,6 +48,7 @@ services:
     environment:
       API_INTERNAL_URL: http://backend:8080
       SITE_URL: ${SITE_URL:?SITE_URL is required}
+      UMAMI_WEBSITE_ID: ${UMAMI_WEBSITE_ID:-}
     depends_on:
       backend:
         condition: service_healthy
@@ -92,5 +93,42 @@ services:
       retries: 10
     logging: *default-logging
 
+  umami-db:
+    image: postgres:18
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: umami
+      POSTGRES_USER: umami
+      POSTGRES_PASSWORD: ${UMAMI_DB_PASSWORD:?UMAMI_DB_PASSWORD is required}
+      TZ: UTC
+    volumes:
+      - umami-db-data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    logging: *default-logging
+
+  umami:
+    image: ghcr.io/umami-software/umami:3
+    restart: unless-stopped
+    # PID 1이 node라 SIGTERM을 직접 처리하지 않아 stop이 10초 뒤 강제 종료되는 것을 막는다
+    init: true
+    environment:
+      DATABASE_URL: postgresql://umami:${UMAMI_DB_PASSWORD:?UMAMI_DB_PASSWORD is required}@umami-db:5432/umami
+      APP_SECRET: ${UMAMI_APP_SECRET:?UMAMI_APP_SECRET is required}
+      # 지정하지 않으면 클라이언트가 보낸 다른 IP 헤더가 방문자 IP가 되므로 Nginx가 덮어쓰는 값만 믿는다
+      CLIENT_IP_HEADER: x-real-ip
+      DISABLE_TELEMETRY: 1
+    # 대시보드용 SSH 터널의 도착점. 루프백에만 묶어 외부에서 닿지 않게 한다
+    ports:
+      - "127.0.0.1:3001:3000"
+    depends_on:
+      umami-db:
+        condition: service_healthy
+    logging: *default-logging
+
 volumes:
   postgres-data:
+  umami-db-data:

@@ -9,7 +9,9 @@ PREV=$(git rev-parse HEAD)
 
 # 마운트한 Nginx 설정 파일은 git이 교체해도 up -d·reload로 반영되지 않아 컨테이너를 다시 만든다.
 apply() {
-	$COMPOSE up -d --no-build
+	$COMPOSE up -d --no-build nginx frontend backend postgres
+	# Umami 실패는 블로그 배포·롤백 판정에 영향을 주지 않는다
+	$COMPOSE up -d --no-build umami umami-db || echo "Umami 기동 실패 (블로그 배포에는 영향 없음)"
 	if ! git diff --quiet "$1" "$2" -- infra/nginx; then
 		$COMPOSE up -d --no-deps --force-recreate nginx
 	fi
