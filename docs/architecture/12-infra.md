@@ -110,7 +110,7 @@ nginx 이미지는 `nginx:1-alpine`(12-7과 같은 메이저 태그 원칙). `in
     | `login` (1m) | `/api/v1/auth/login` | `5r/m` | `5 nodelay` |
     | `api` (10m) | 그 외 `/api/`, `/stats/api/send`(12-8) | `10r/s` | `20 nodelay` |
     - 로그인: 연속 6회(1 + burst)까지 바로 처리하고, 그 뒤는 12초에 1회. 관리자 1명이 비밀번호를 몇 번 틀리는 정도는 막히지 않고, 대입 공격은 분당 5회로 줄어든다.
-    - `api`: 서버 컴포넌트의 API 호출은 Nginx를 거치지 않으므로(`http://backend:8080`, 3장) 브라우저가 직접 부르는 API(관리자 화면, M6 조회수)만 받는다. 관리자 화면 한 번에 몇 건이라 여유가 크다. 조회수 zone은 M6에서 추가한다.
+    - `api`: 서버 컴포넌트의 API 호출은 Nginx를 거치지 않으므로(`http://backend:8080`, 3장) 브라우저가 직접 부르는 요청(관리자 화면 API, Umami 수집 `/stats/api/send`, M6 조회수)만 받는다. 관리자 화면 한 번에 몇 건, 수집은 페이지 이동 한 번에 1건(12-8)이라 같은 IP 카운터를 나눠 써도 여유가 크다. 조회수 zone은 M6에서 추가한다.
     - `limit_req_status 429;` (기본값 `503`은 서버 장애와 구분되지 않는다)
 - `conf.d/blog.conf` (`server_name _`): 80 server는 ACME 경로와 HTTPS 리다이렉트만 두고(12-3), 아래 항목은 모두 443 server에 둔다.
   - `server` 블록에 `set $backend backend:8080;`, `set $frontend frontend:3000;`을 두고 `proxy_pass http://$backend;`처럼 쓴다. URI 부분(끝의 `/`)을 붙이지 않으므로 변수를 써도 요청 URI가 그대로 전달된다 (`/api/...` 경로 유지, 3장).
@@ -249,13 +249,13 @@ main 머지 (deploy.yml)
 **서버 스크립트** `infra/deploy.sh <SHA>`: 워크플로가 `.env.next`를 보낸 뒤 `ssh ... 'cd ~/blog && git fetch -q origin && git cat-file -e <SHA>:infra/deploy.sh && bash <(git show <SHA>:infra/deploy.sh) <SHA>'`로 실행한다 (배포할 커밋의 스크립트를 쓴다. `git show`가 실패하면 `bash`가 빈 스크립트를 받아 0으로 끝나므로 `cat-file -e`로 먼저 확인한다). `set -euo pipefail`.
 1. 롤백 지점 보관: `PREV=$(git rev-parse HEAD)`, `cp infra/.env infra/.env.prev`
 2. `git checkout -q --detach <SHA>` (compose·Nginx 설정도 같은 커밋으로 맞춘다), `infra/.env` = `.env.next` 내용 + `IMAGE_TAG=<SHA>`, `chmod 600`, `.env.next` 삭제
-3. `docker compose -f infra/docker-compose.prod.yml pull backend frontend` → `up -d --no-build`. `git diff --quiet $PREV <SHA> -- infra/nginx`가 실패하면(Nginx 설정이 바뀌었으면) `up -d --no-deps --force-recreate nginx` (마운트 파일 교체는 `up -d`·reload로 반영되지 않는다, 12-2 '서버 준비').
+3. `docker compose -f infra/docker-compose.prod.yml pull backend frontend` → `up -d --no-build nginx frontend backend postgres`(블로그 서비스만 지정한다) → `up -d --no-build umami umami-db || echo ...`(Umami 쪽 실패는 오류만 출력하고 넘어간다, 12-8 '실패 처리'). `git diff --quiet $PREV <SHA> -- infra/nginx`가 실패하면(Nginx 설정이 바뀌었으면) `up -d --no-deps --force-recreate nginx` (마운트 파일 교체는 `up -d`·reload로 반영되지 않는다, 12-2 '서버 준비').
 4. 헬스체크(서버 안에서): backend 컨테이너의 health 상태가 `healthy`가 될 때까지 최대 180초(`start_period` 60초 + `retries`×`interval`에 여유) 기다린다. 이어서 Nginx를 거쳐 `curl -fsSk https://localhost/`와 `https://localhost/api/v1/posts`가 둘 다 2xx인지 5초 간격 최대 6회 본다 (Nginx resolver 캐시 10초 동안의 `502`를 넘기기 위해, 12-4). `/`는 frontend와 frontend→backend 연결을, `/api/v1/posts`는 backend와 DB를 확인한다.
 5. 성공: `.env.prev` 삭제, backend·frontend의 이전 이미지 정리(디스크가 작다. 이전 이미지는 GHCR에 남는다), 종료 코드 0
    - 정리 대상은 `ghcr.io/mojunsul/blog-*` 중 이번 SHA가 아닌 태그(첫 자동 배포 뒤의 `local` 포함)와 태그 없는 이미지만이다: `docker image ls --filter 'reference=ghcr.io/mojunsul/blog-*' --filter dangling=false --format '{{.Repository}}:{{.Tag}}' | { grep -v ":<SHA>$" || true; } | xargs -r docker rmi`, 이어서 `docker image prune -f`(태그 없는 이미지만. 같은 SHA를 Re-run으로 다시 빌드하면 이전 이미지가 태그를 잃는다). 지울 태그가 없으면(같은 SHA 재배포, 예: Secrets 변경 `workflow_dispatch`) 아무것도 지우지 않는 정상 경우다. `grep -v`는 남는 줄이 없으면 종료 코드 1이라 `pipefail`에서 정리 실패로 가지 않게 `|| true`로 감싼다.
    - `docker image prune -af`를 쓰지 않는 이유: 실행 중이 아닌 이미지를 모두 지워, 갱신 cron이 `run`할 때만 쓰는 certbot 이미지(12-3)까지 지운다. 그러면 갱신 때마다 Docker Hub에서 다시 받아야 하고, 받기에 실패하면 갱신도 실패한다. nginx·postgres·certbot 이미지는 정리 필터가 `blog-*`만 대상으로 하므로 자동 정리되지 않는다. compose에서 버전을 올리면 nginx·postgres는 3단계 `up -d`가 서버에 없는 새 이미지를 pull하고 이전 이미지가 남는다. certbot은 `profiles`라 `up -d`가 받지 않으므로 서버에는 이전 이미지만 남고, 새 이미지는 다음 `run` 때 받는다. 이전 이미지 삭제는 아래 '수동 운영'.
    - 정리는 배포가 끝난 뒤의 일이라, 정리 명령이 실패해도 롤백하지 않고 오류만 출력한 뒤 종료 코드 0으로 끝낸다 (6단계 `trap`에 걸리지 않게 한다).
-6. 실패(2~4의 어느 명령이든 실패하면 `trap ... ERR`로 여기로 온다. 이미지 pull 실패도 포함): `docker compose ... logs --tail 50 backend frontend`를 출력하고 `git checkout -q --detach $PREV`, `mv infra/.env.prev infra/.env`, `up -d --no-build`(3과 같은 Nginx 처리), 4를 다시 해 결과를 출력한 뒤 종료 코드 1 → 워크플로 실패(GitHub 실패 알림 메일). 첫 자동 배포의 `PREV`는 서버 빌드 이미지(`IMAGE_TAG=local`)라 그대로 되돌아간다.
+6. 실패(2~4의 어느 명령이든 실패하면 `trap ... ERR`로 여기로 온다. 이미지 pull 실패도 포함): `docker compose ... logs --tail 50 backend frontend`를 출력하고 `git checkout -q --detach $PREV`, `mv infra/.env.prev infra/.env`, 3과 같은 두 `up -d`(Umami 실패 무시)와 Nginx 처리, 4를 다시 해 결과를 출력한 뒤 종료 코드 1 → 워크플로 실패(GitHub 실패 알림 메일). 첫 자동 배포의 `PREV`는 서버 빌드 이미지(`IMAGE_TAG=local`)라 그대로 되돌아간다.
 - 롤백한 배포의 마이그레이션은 되돌리지 않는다. 그래서 아래 마이그레이션 호환 규칙이 필요하다.
 - 빌드·push가 실패하면 서버 접속 스텝까지 가지 않아 서버는 바뀌지 않는다. `.env.next`만 보내고 스크립트 실행 전에 접속이 끊기면 남은 `.env.next`는 다음 배포가 덮어쓴다.
 - GHCR의 SHA 태그는 정리하지 않는다 (Public 패키지 용량 무료).
@@ -334,7 +334,7 @@ main 머지 (deploy.yml)
   - `CLIENT_IP_HEADER`: 지정하지 않으면 Umami는 `cf-connecting-ip`·`x-real-ip`·`x-forwarded-for` 등을 차례로 보고 처음 있는 값을 쓰는데, 클라이언트가 앞 순서의 헤더를 직접 보내면 그 값이 방문자 IP(국가·고유 방문자 계산)가 된다. Nginx가 `$remote_addr`로 덮어쓰는 `X-Real-IP`(12-4)만 믿게 한다.
   - `ports: ["127.0.0.1:3001:3000"]`: 대시보드용 SSH 터널의 도착점이다. 루프백에만 묶여 외부에서 닿지 않는다 (12-2 '호스트에 여는 포트'의 예외). 3001은 로컬 개발의 `next dev`(3000)와 겹치지 않게 골랐다.
   - `init: true`(Umami 공식 compose와 같다): 컨테이너의 PID 1이 `node`라 `SIGTERM`을 직접 처리하지 않아 `stop`이 10초 기본 대기 뒤 강제 종료되는 것을 막는다.
-  - healthcheck는 두지 않는다: 다른 서비스가 기다리지 않고, 배포 헬스체크(12-6)도 Umami를 보지 않는다. Umami가 내려가도 블로그 배포가 롤백되지 않게 하기 위해서다.
+  - healthcheck는 두지 않는다: 다른 서비스가 기다리지 않고, 배포 헬스체크(12-6 4단계)도 Umami를 보지 않는다. 배포 스크립트도 Umami를 블로그 서비스와 따로 올리고 그 실패를 무시하므로(12-6 3단계) Umami 문제로 블로그 배포가 롤백되지 않는다.
 - 필수 값 두 개는 `:?`로 둔다. 비면 compose가 모든 명령에서 실패하므로(12-2 `POSTGRES_PASSWORD`와 같다) GitHub Secrets에 머지 전에 등록한다 (12-6 표).
 - DB 비밀번호는 `DATABASE_URL`에 그대로 들어가므로 URL에서 특수 문자가 없는 `openssl rand -hex 32`로 만든다. `APP_SECRET`도 같은 명령으로 만든다. `APP_SECRET`을 바꾸면 대시보드 로그인만 풀린다.
 
@@ -358,7 +358,7 @@ main 머지 (deploy.yml)
 **대시보드** (README에 적는다): 로컬 PC에서 `ssh -N -L 3001:127.0.0.1:3001 ubuntu@<공인 IP>`를 띄우고 브라우저로 `http://localhost:3001`. 배포용 키가 아니라 관리자 본인의 SSH 키로 접속한다.
 
 **설치** (서버, 최초 1회, README에 적는다)
-1. `UMAMI_DB_PASSWORD`·`UMAMI_APP_SECRET`을 GitHub Secrets에 등록한 뒤 이 변경을 머지한다. deploy의 `up -d`가 `umami`·`umami-db` 이미지를 받아 띄우고, Umami가 첫 기동 때 DB 스키마를 만든다.
+1. `UMAMI_DB_PASSWORD`·`UMAMI_APP_SECRET`을 GitHub Secrets에 등록한 뒤 이 변경을 머지한다. deploy 3단계의 Umami `up -d`가 `umami`·`umami-db` 이미지를 받아 띄우고, Umami가 첫 기동 때 DB 스키마를 만든다.
 2. 터널로 대시보드에 `admin`/`umami`로 로그인해 바로 비밀번호를 바꾼다 (설정 → 프로필). 새 비밀번호는 저장소·이슈에 적지 않는다.
 3. 웹사이트를 추가한다 (이름 `Blog`, 도메인 `blog.도메인`). 표시된 웹사이트 ID를 GitHub Secret `UMAMI_WEBSITE_ID`로 등록하고 deploy를 `workflow_dispatch`로 실행한다 (frontend만 다시 만들어진다, 12-6 '수동 운영').
 4. 관리자 본인의 방문을 빼려면 쓰는 브라우저마다 블로그 페이지 콘솔에서 `localStorage.setItem("umami.disabled", 1)`을 실행한다 (Umami 추적 스크립트의 제외 기능). 앱 코드가 아니라 브라우저 설정이라 토큰 저장 규칙(10장)과 무관하다.
@@ -367,6 +367,7 @@ main 머지 (deploy.yml)
 
 **실패 처리**
 - `umami`·`umami-db`가 내려가면 `/stats/script.js`·`/stats/api/send`가 `502`다. 스크립트는 페이지 렌더링을 막지 않게 불러오므로(11장) 블로그 화면은 그대로이고, 그동안의 방문만 기록되지 않는다. 재시도하지 않는다. `restart: unless-stopped`가 프로세스 종료를 되살린다.
+- 배포(12-6 3·6단계) 중 Umami 쪽 `up -d`가 실패해도(이미지 받기 실패, `umami-db`가 healthy가 되지 않아 `dependency failed to start`, 호스트 3001 사용 중 등) 블로그 배포는 성공·롤백 판정에 영향을 받지 않고 워크플로 로그에 오류만 남는다. 그동안은 위와 같이 방문만 기록되지 않는다. 원인을 고친 뒤 서버에서 `docker compose -f infra/docker-compose.prod.yml up -d umami umami-db`로 올린다 (다음 배포도 다시 시도한다). Umami를 들인 이 변경을 롤백하면 이전 커밋의 compose에 Umami가 없어 Umami `up -d`가 서비스 없음으로 실패하고(무시된다), 이미 만든 Umami 컨테이너는 그대로 남는다.
 - 수집 요청이 `429`·`502`여도 스크립트가 오류를 화면에 내지 않는다. 방문 기록 한 건이 빠질 뿐이라 따로 처리하지 않는다.
 - `UMAMI_WEBSITE_ID`가 틀린 값이면 스크립트는 불러오지만 Umami가 수집을 받지 않아 통계가 쌓이지 않는다. 프론트는 형식을 검사하지 않고, 아래 확인 방법으로 알아챈다.
 - 감시는 하지 않는다. M5 Uptime Kuma(13장)의 감시 대상에 넣을지는 그 이슈에서 정한다.

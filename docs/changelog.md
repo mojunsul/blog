@@ -233,4 +233,5 @@
 - **v2.44**
   - 방문자 분석(12-8): Umami를 같은 서버에 셀프 호스팅(`umami` `ghcr.io/umami-software/umami:3` + 전용 `umami-db` `postgres:18`, 백업 안 함). 수집은 블로그 도메인의 `/stats/script.js`·`/stats/api/send`만 Nginx로 열고(`api` zone 적용), 대시보드는 `127.0.0.1:3001` 루프백 포트에 SSH 터널로만 접속(서브도메인·인증서 추가 없음). `CLIENT_IP_HEADER: x-real-ip`, `DISABLE_TELEMETRY`, 설치·매월 업데이트·실패 처리·확인 방법
   - 환경변수 `UMAMI_DB_PASSWORD`·`UMAMI_APP_SECRET`(필수)·`UMAMI_WEBSITE_ID`(비우면 스크립트 없음)를 `.env`·GitHub Secrets에 추가(12-2, 12-6 표). 12-2 포트 예외, 12-4 location·`api` zone 대상, 3장 다이어그램 반영
+  - 배포 스크립트(12-6 3·6단계): `up -d`를 블로그 서비스(`nginx frontend backend postgres`)와 Umami(`umami umami-db`, 실패 무시)로 나눠 Umami 실패로 배포가 롤백되지 않게 함. 12-8 '실패 처리'에 배포 중 Umami 실패, 12-4 `api` zone 설명에 수집 요청 반영
   - 프론트(11장 '방문자 분석 스크립트'): `(public)/layout.tsx`에 `Suspense` 안의 `UmamiScript`(`connection()` 뒤 `UMAMI_WEBSITE_ID`를 읽어 `next/script` `afterInteractive`). 관리자 페이지와 주소로 바로 연 not-found 화면에는 없음
