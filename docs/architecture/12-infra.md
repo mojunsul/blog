@@ -29,7 +29,7 @@
     3. Actions에서 deploy를 `workflow_dispatch`로 실행한다. `.env`가 바뀌어 backend 컨테이너가 다시 만들어진다 (`restart`는 컨테이너를 다시 만들지 않아 바뀐 값을 읽지 않는다).
     4. 새 비밀번호로 로그인한다. backend가 기동하지 않으면 `logs backend`에서 값 검사(5장) 오류를 보고 Secret을 고쳐 3을 다시 한다. 기동하지 못하면 deploy가 이전 `.env`로 롤백하므로 이전 비밀번호로 계정이 다시 만들어진다.
 - **서버 준비** (최초 1회, 절차는 README)
-  - 인스턴스: `VM.Standard.A1.Flex`(arm64, Always Free) 4 OCPU·24GB 한 대, Canonical Ubuntu 24.04, 부트 볼륨 기본값. 예약 공인 IP(Reserved Public IP)를 붙인다 (인스턴스를 다시 만들어도 DNS를 고치지 않게).
+  - 인스턴스: `VM.Standard.A1.Flex`(arm64, Always Free) 4 OCPU·24GB 한 대, Canonical Ubuntu 24.04, 부트 볼륨 기본값. 계정은 Pay As You Go라 유휴 Always Free 인스턴스 회수 대상이 아니다. 예약 공인 IP(Reserved Public IP)를 붙인다 (인스턴스를 다시 만들어도 DNS를 고치지 않게).
   - OCI 보안 목록: 수신 TCP 80·443·22 모두 `0.0.0.0/0`. 22는 deploy(12-6)의 GitHub 러너 IP가 고정되지 않아 열고, 키 인증만 허용한다 (`/etc/ssh/sshd_config`의 `PasswordAuthentication no`를 확인).
   - 인스턴스 iptables: Ubuntu 이미지 기본 규칙이 22 외 수신을 `REJECT`하므로 `/etc/iptables/rules.v4`에서 22 규칙 다음 줄에 80·443 `ACCEPT`를 넣고 `iptables-restore`로 적용한다. Docker 설치 전에 한다 (`iptables-restore`는 기존 규칙을 비우고 다시 쓰므로 Docker가 만든 규칙이 지워진다).
   - Docker: 공식 문서의 apt 저장소 방식으로 `docker-ce`·`docker-compose-plugin`을 설치하고 `ubuntu` 사용자를 `docker` 그룹에 넣는다 (`get.docker.com` 스크립트는 문서가 운영용으로 권하지 않는다).
@@ -37,7 +37,7 @@
     - 이 이슈의 설정(certbot 서비스, 443 블록, `.gitignore`)은 머지 전 구현 검증에서 서버로 확인해야 하므로, 최초 발급·첫 배포·확인 방법(12-3)은 기능 브랜치에서 한다: clone 뒤 `git checkout chore/#109-server-https`, 구현 세션이 push하면 `git pull`. PR이 머지되면 돌아가기 전에 브랜치 끝 SHA를 적어 두고(`git rev-parse HEAD`) `git checkout main && git pull`로 돌아간다. merge commit으로 머지하므로 main의 커밋은 브랜치와 다르고, 그사이 main에 다른 `infra/` 변경이 머지됐을 수 있다. `git diff <브랜치 끝 SHA> HEAD -- infra`가 비어 있으면 설정이 같으므로 컨테이너를 다시 띄우지 않고, 차이가 있으면 `docker compose -f infra/docker-compose.prod.yml up -d --force-recreate`로 모든 서비스를 다시 만든다. Nginx 설정(`nginx.conf`·`conf.d/`, 12-4)은 마운트만 되어 있어 compose 정의가 같으면 `up -d`가 컨테이너를 다시 만들지 않고, 파일 하나를 마운트한 `nginx.conf`는 git이 파일을 교체하면 reload로도 반영되지 않기 때문이다. nginx로 좁히지 않는 이유: 같은 차이에 다른 서비스의 마운트 파일이 섞여도 놓치지 않고, 한 번뿐인 절차라 수 초 다운타임은 문제되지 않는다 (`infra/.env`·`infra/certbot/`은 git이 추적하지 않아 브랜치를 바꿔도 남는다).
   - `.env`: `infra/.env.example`을 `infra/.env`로 복사해 채우고 `chmod 600`. 같은 값을 GitHub Secrets(12-6 표)에도 등록한다. 첫 자동 배포부터 deploy가 이 파일을 다시 쓴다.
   - 첫 배포 이미지는 서버에서 빌드한다: `infra/.env`에 `IMAGE_TAG=local`을 두고 `docker compose -f infra/docker-compose.prod.yml up -d --build`. 서버도 arm64라 그대로 빌드된다. 로컬에서 빌드해 GHCR에 수동 push하는 방식은 쓰기 토큰(PAT)을 따로 만들어 관리해야 해 택하지 않았다. `IMAGE_TAG`를 셸이 아니라 `.env`에 두는 이유: 이후 `up`·`run`에서 빠지면 `latest`를 GHCR에서 받으려다 실패한다. 첫 자동 배포부터 deploy가 커밋 SHA로 바꾼다 (12-6).
-  - 순서: 서버 준비 → DNS(12-3) → `.env` → 인증서 최초 발급(12-3) → 첫 배포 → Healthchecks.io 설정(12-9) → 갱신 cron(12-3). 인증서가 없으면 nginx가 기동하지 못하므로 발급이 배포보다 먼저다. 기존 서버를 새 서버로 옮길 때(복구)는 첫 배포 대신 12-5 '복구'의 운영 DB 복구를 하고, 그 마지막 단계에서 백업 crontab을 다시 등록한다.
+  - 순서: 서버 준비 → DNS(12-3) → `.env` → 인증서 최초 발급(12-3) → 첫 배포 → Healthchecks.io 설정(12-9) → 갱신 cron(12-3) → OCI 설정(12-5). 두 crontab 줄에 ping URL이 들어가므로 Healthchecks.io 설정이 먼저다. 인증서가 없으면 nginx가 기동하지 못하므로 발급이 배포보다 먼저다. 기존 서버를 새 서버로 옮길 때(복구)는 첫 배포 대신 12-5 '복구'의 운영 DB 복구를 하고, 그 마지막 단계에서 백업 crontab을 다시 등록한다.
 - 모든 상주 서비스에 `restart: unless-stopped` (실행할 때만 뜨는 certbot은 제외, 12-3)
 - backend에 `healthcheck` 설정 (`/actuator/health`), nginx·frontend는 backend healthy 이후 기동 (`depends_on: condition: service_healthy`). nginx와 frontend 사이에는 순서를 두지 않는다: nginx는 업스트림 이름을 요청 때 확인하므로(12-4 '업스트림 이름 확인') frontend가 아직 없어도 기동하고, 그동안 `/`는 `502`다.
   - `curl -fsS http://localhost:8080/actuator/health`(JRE 이미지에 `curl`이 있다, 12-7), `interval: 10s`, `timeout: 3s`, `retries: 5`, `start_period: 60s`(작은 서버에서 JVM 기동과 Flyway가 끝나기 전 실패를 세지 않게)
@@ -183,7 +183,7 @@ nginx 이미지는 `nginx:1-alpine`(12-7과 같은 메이저 태그 원칙). `in
    Allow service objectstorage-<리전> to manage object-family in tenancy
    ```
 4. 버킷 수명 주기 정책 규칙: 대상 객체, 동작 삭제, 14일, 접두사 없음, 활성. 생성 뒤 14일이 지난 객체를 서비스가 비동기로 지워, 보관 개수는 14~15개다.
-5. 위 crontab 줄을 등록한다.
+5. 위 crontab 줄을 등록한다. ping URL이 필요해 Healthchecks.io 설정(12-9) 뒤에 한다.
 
 **실패 알아채기**
 - 실패는 `~/backup.log`의 `백업 실패` 줄로 남는다. 스크립트가 0으로 끝날 때만 위 crontab 줄의 `curl`이 Healthchecks.io에 성공 신호를 보내고, 신호가 없으면 그날 알림 메일이 온다 (12-9).
@@ -256,7 +256,7 @@ main 머지 (deploy.yml)
    - 정리 대상은 `ghcr.io/mojunsul/blog-*` 중 이번 SHA가 아닌 태그(첫 자동 배포 뒤의 `local` 포함)와 태그 없는 이미지만이다: `docker image ls --filter 'reference=ghcr.io/mojunsul/blog-*' --filter dangling=false --format '{{.Repository}}:{{.Tag}}' | { grep -v ":<SHA>$" || true; } | xargs -r docker rmi`, 이어서 `docker image prune -f`(태그 없는 이미지만. 같은 SHA를 Re-run으로 다시 빌드하면 이전 이미지가 태그를 잃는다). 지울 태그가 없으면(같은 SHA 재배포, 예: Secrets 변경 `workflow_dispatch`) 아무것도 지우지 않는 정상 경우다. `grep -v`는 남는 줄이 없으면 종료 코드 1이라 `pipefail`에서 정리 실패로 가지 않게 `|| true`로 감싼다.
    - `docker image prune -af`를 쓰지 않는 이유: 실행 중이 아닌 이미지를 모두 지워, 갱신 cron이 `run`할 때만 쓰는 certbot 이미지(12-3)까지 지운다. 그러면 갱신 때마다 Docker Hub에서 다시 받아야 하고, 받기에 실패하면 갱신도 실패한다. nginx·postgres·certbot 이미지는 정리 필터가 `blog-*`만 대상으로 하므로 자동 정리되지 않는다. compose에서 버전을 올리면 nginx·postgres는 3단계 `up -d`가 서버에 없는 새 이미지를 pull하고 이전 이미지가 남는다. certbot은 `profiles`라 `up -d`가 받지 않으므로 서버에는 이전 이미지만 남고, 새 이미지는 다음 `run` 때 받는다. 이전 이미지 삭제는 아래 '수동 운영'.
    - 정리는 배포가 끝난 뒤의 일이라, 정리 명령이 실패해도 롤백하지 않고 오류만 출력한 뒤 종료 코드 0으로 끝낸다 (6단계 `trap`에 걸리지 않게 한다).
-6. 실패(2~4의 어느 명령이든 실패하면 `trap ... ERR`로 여기로 온다. 이미지 pull 실패도 포함): `docker compose ... logs --tail 50 backend frontend`를 출력하고 `git checkout -q --detach $PREV`, `mv infra/.env.prev infra/.env`, 3과 같은 두 `up -d`(Umami 실패 무시)와 Nginx 처리, 4를 다시 해 결과를 출력한 뒤 종료 코드 1 → 워크플로 실패(GitHub 실패 알림 메일). 첫 자동 배포의 `PREV`는 서버 빌드 이미지(`IMAGE_TAG=local`)라 그대로 되돌아간다.
+6. 실패(2~4의 어느 명령이든 실패하면 `trap ... ERR`로 여기로 온다. 이미지 pull 실패도 포함): `docker compose ... logs --tail 50 backend frontend`를 출력하고 `git checkout -q --detach $PREV`, `mv infra/.env.prev infra/.env`, 3과 같은 두 `up -d`(Umami 실패 무시)와 Nginx 처리, 4를 다시 해 결과를 출력한 뒤 종료 코드 1 → 워크플로 실패(GitHub 기본 알림 설정으로 실행을 일으킨 사람, 곧 push한 관리자에게 실패 메일이 간다). 첫 자동 배포의 `PREV`는 서버 빌드 이미지(`IMAGE_TAG=local`)라 그대로 되돌아간다.
 - 롤백한 배포의 마이그레이션은 되돌리지 않는다. 그래서 아래 마이그레이션 호환 규칙이 필요하다.
 - 빌드·push가 실패하면 서버 접속 스텝까지 가지 않아 서버는 바뀌지 않는다. `.env.next`만 보내고 스크립트 실행 전에 접속이 끊기면 남은 `.env.next`는 다음 배포가 덮어쓴다.
 - GHCR의 SHA 태그는 정리하지 않는다 (Public 패키지 용량 무료).
@@ -393,7 +393,7 @@ main 머지 (deploy.yml)
 - 감시 대상은 알아채지 못하면 되돌리기 어려운 조용한 실패 두 가지다. 백업이 멈춘 채 서버를 잃으면 글이 사라지고, 인증서가 만료되면 브라우저 경고로 사실상 사이트가 닫힌다. 손으로 하는 주간 점검은 잊으면 그대로 놓친다.
 - 외부 서비스를 쓴다: 같은 서버에서 감시하면 서버나 cron 데몬이 멈춘 것을 알리지 못한다. Uptime Kuma를 셀프 호스팅하려면 감시용 서버가 하나 더 필요하고, 그 서버의 설치·업데이트와 Push 수신 경로(도메인·인증서나 사설망)가 늘어난다. 셀프 호스팅 운영 연습은 Umami(12-8)로 한다.
 - Healthchecks.io: 신호가 끊기면 알리는 heartbeat 감시가 무료 플랜(체크 20개)에 있다. UptimeRobot은 무료 플랜에 heartbeat와 인증서 만료 감시가 없다.
-- 사이트 업타임(HTTP) 감시는 두지 않는다: 방문이 적은 개인 블로그라 다운의 손해가 작고, 배포 실패는 deploy가 롤백하고 GitHub가 실패 메일을 보낸다(12-6). 계정이 Pay As You Go라 유휴 Always Free 인스턴스 회수 대상도 아니다. 필요해지면 저장소 변경 없이 외부 서비스(UptimeRobot 무료 HTTP 모니터 등) 콘솔에서 더한다.
+- 사이트 업타임(HTTP) 감시는 두지 않는다: 방문이 적은 개인 블로그라 다운의 손해가 작고, 배포 실패는 deploy가 롤백하고 GitHub가 실패 메일을 보낸다(12-6). 계정이 Pay As You Go라 유휴 인스턴스 회수 대상도 아니다(12-2 '서버 준비'). 필요해지면 저장소 변경 없이 외부 서비스(UptimeRobot 무료 HTTP 모니터 등) 콘솔에서 더한다.
 - 인증서는 만료일 감시 대신 갱신 줄 끝에서 실제로 내보내는 인증서의 남은 기간을 재고 성공 신호를 보낸다 (12-3 '갱신'). 무료 플랜으로 되고, 갱신·reload 실패와 crontab 누락을 하루 안에 함께 알린다.
 
 **Healthchecks.io 설정** (콘솔, 최초 1회, 절차는 README)
