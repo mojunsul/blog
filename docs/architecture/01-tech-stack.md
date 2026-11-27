@@ -37,7 +37,7 @@
 | Cloudflare DNS | 도메인·서브도메인 관리 |
 
 ### 부가 기능
-- Giscus(댓글), Umami(방문자 분석, 셀프 호스팅 12-8), Uptime Kuma(모니터링), sitemap/RSS
+- Giscus(댓글), Umami(방문자 분석, 셀프 호스팅 12-8), Healthchecks.io(cron 실패 알림, 12-9), sitemap/RSS
 
 ---
 
