@@ -7,9 +7,11 @@
 ┌──────────── OCI 인스턴스 (Docker Compose) ────────────┐
 │  Nginx (:80, :443) + Certbot                          │
 │   ├ /api/*  → backend  (Spring Boot :8080)            │
+│   ├ /stats/script.js, /stats/api/send → umami (:3000) │
 │   └ 그 외   → frontend (Next.js :3000)                 │
 │                                                       │
 │  backend ──→ postgres (:5432, 외부 비공개)              │
+│  umami ──→ umami-db (12-8, 대시보드는 SSH 터널)          │
 │  frontend ─(서버 컴포넌트 fetch)→ http://backend:8080   │
 │                                                       │
 │  호스트 cron → backup.sh (매일, 12-5)                  │

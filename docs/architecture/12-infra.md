@@ -6,10 +6,10 @@
 - Spring Boot(IDE, `local` 프로필), Next.js(`npm run dev`)는 직접 실행
 
 ### 12-2. 서버 (OCI)
-- `docker-compose.prod.yml`: nginx, certbot, frontend, backend, postgres, backup (certbot은 12-3, backup은 12-5. 둘 다 `profiles`로 상주하지 않는다)
+- `docker-compose.prod.yml`: nginx, certbot, frontend, backend, postgres, backup, umami, umami-db (certbot은 12-3, backup은 12-5. 둘 다 `profiles`로 상주하지 않는다. umami·umami-db는 12-8)
   - 최상위 `name: blog-prod`. 로컬용 `docker-compose.yml`과 같은 `infra/`에 있어 이름을 주지 않으면 둘 다 프로젝트 이름이 `infra`가 되고, 볼륨(`infra_postgres-data`)을 함께 써 로컬 시드 DB로 운영 구성이 뜬다.
   - 이미지: `image: ghcr.io/mojunsul/blog-backend:${IMAGE_TAG:-latest}`(frontend는 `blog-frontend`)와 `build: ../backend`(`../frontend`)를 함께 둔다. 로컬은 `IMAGE_TAG=local`로 `up -d --build`, 서버는 `pull` 후 `up -d --no-build`(소스가 없어도 `build`는 빌드할 때만 읽힌다). deploy(12-6)도 이 이름으로 push한다. deploy 전의 첫 배포는 아래 '서버 준비'대로 서버에서 빌드한다.
-  - 호스트에 여는 포트는 nginx `80:80`·`443:443`뿐이다. postgres·backend·frontend에는 `ports`를 두지 않는다 (같은 compose 네트워크에서 서비스 이름으로 접속).
+  - 호스트에 여는 포트는 nginx `80:80`·`443:443`뿐이다. postgres·backend·frontend에는 `ports`를 두지 않는다 (같은 compose 네트워크에서 서비스 이름으로 접속). 예외는 루프백에만 묶는 umami `127.0.0.1:3001:3000`(대시보드 SSH 터널용, 12-8)이다.
   - postgres: `postgres:18`(로컬과 같다), `TZ: UTC`, named volume `postgres-data:/var/lib/postgresql`, `pg_isready` healthcheck(로컬과 같다)
     - `POSTGRES_DB: ${POSTGRES_DB:-blog}`, `POSTGRES_USER: ${POSTGRES_USER:-blog}` (로컬 compose와 같은 기본값)
     - `POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}`. 비밀번호만 기본값 없이 필수로 둔다. 비거나 없으면 compose가 컨테이너를 만들기 전에 실패해, 로컬 compose의 기본값 `blog`로 운영 DB가 뜨지 않는다.
@@ -19,7 +19,7 @@
   - frontend: `API_INTERNAL_URL: http://backend:8080` (11장 'API 주소 처리'), `SITE_URL: ${SITE_URL:?SITE_URL is required}` (11장 'Metadata', 값은 `infra/.env`). 도메인이 들어가 저장소에 두지 않으므로 `.env`에서 받고, 비면 compose가 컨테이너를 만들기 전에 실패한다 (비어 있으면 글 상세가 모두 오류 화면이 된다).
 - PostgreSQL 데이터는 named volume으로 영속화
 - 비밀값은 서버의 `infra/.env`에만 둔다. 원본은 GitHub Secrets이고, 자동 배포부터는 deploy가 매번 `.env`를 다시 쓴다 (12-6 '`.env` 동기화')
-  - `POSTGRES_PASSWORD`, `JWT_SECRET`, `ADMIN_USERNAME`, `ADMIN_PASSWORD`, 그리고 비밀값은 아니지만 도메인이 든 `SITE_URL`(`https://blog.도메인`, 로컬에서 운영 compose를 띄울 때는 `https://localhost`) (Object Storage는 인스턴스 주체로 인증해 키가 없다, 12-5)
+  - `POSTGRES_PASSWORD`, `JWT_SECRET`, `ADMIN_USERNAME`, `ADMIN_PASSWORD`, `UMAMI_DB_PASSWORD`, `UMAMI_APP_SECRET`(12-8), 그리고 비밀값은 아니지만 도메인이 든 `SITE_URL`(`https://blog.도메인`, 로컬에서 운영 compose를 띄울 때는 `https://localhost`)과 설치마다 다른 `UMAMI_WEBSITE_ID`(12-8) (Object Storage는 인스턴스 주체로 인증해 키가 없다, 12-5)
   - 비밀값이 아닌 `IMAGE_TAG`(비우면 `latest`)도 `infra/.env.example`에 둔다. 로컬은 셸에서 `IMAGE_TAG=local`로 덮어쓴다. 서버 첫 배포(deploy 이슈 전)에는 `infra/.env`에 `IMAGE_TAG=local`을 둔다는 안내(아래 '서버 준비')도 같은 주석에 적는다.
   - `infra/.env.example`의 기본값 안내 주석은 로컬 compose 기준이므로, 운영 compose는 `POSTGRES_PASSWORD`가 필수라는 점을 함께 적는다.
   - `JWT_SECRET`은 `openssl rand -base64 32`로 만든다 (Base64, 디코딩 후 32바이트 이상, 10-6). 바꾸면 발급된 Access 토큰이 모두 무효가 된다.
@@ -108,14 +108,15 @@ nginx 이미지는 `nginx:1-alpine`(12-7과 같은 메이저 태그 원칙). `in
     | zone | 대상 | `rate` | `burst` |
     |---|---|---|---|
     | `login` (1m) | `/api/v1/auth/login` | `5r/m` | `5 nodelay` |
-    | `api` (10m) | 그 외 `/api/` | `10r/s` | `20 nodelay` |
+    | `api` (10m) | 그 외 `/api/`, `/stats/api/send`(12-8) | `10r/s` | `20 nodelay` |
     - 로그인: 연속 6회(1 + burst)까지 바로 처리하고, 그 뒤는 12초에 1회. 관리자 1명이 비밀번호를 몇 번 틀리는 정도는 막히지 않고, 대입 공격은 분당 5회로 줄어든다.
-    - `api`: 서버 컴포넌트의 API 호출은 Nginx를 거치지 않으므로(`http://backend:8080`, 3장) 브라우저가 직접 부르는 API(관리자 화면, M6 조회수)만 받는다. 관리자 화면 한 번에 몇 건이라 여유가 크다. 조회수 zone은 M6에서 추가한다.
+    - `api`: 서버 컴포넌트의 API 호출은 Nginx를 거치지 않으므로(`http://backend:8080`, 3장) 브라우저가 직접 부르는 요청(관리자 화면 API, Umami 수집 `/stats/api/send`, M6 조회수)만 받는다. 관리자 화면 한 번에 몇 건, 수집은 페이지 이동 한 번에 1건(12-8)이라 같은 IP 카운터를 나눠 써도 여유가 크다. 조회수 zone은 M6에서 추가한다.
     - `limit_req_status 429;` (기본값 `503`은 서버 장애와 구분되지 않는다)
 - `conf.d/blog.conf` (`server_name _`): 80 server는 ACME 경로와 HTTPS 리다이렉트만 두고(12-3), 아래 항목은 모두 443 server에 둔다.
   - `server` 블록에 `set $backend backend:8080;`, `set $frontend frontend:3000;`을 두고 `proxy_pass http://$backend;`처럼 쓴다. URI 부분(끝의 `/`)을 붙이지 않으므로 변수를 써도 요청 URI가 그대로 전달된다 (`/api/...` 경로 유지, 3장).
   - `location /api/` → `proxy_pass http://$backend;` + `limit_req zone=api ...`
   - `location = /api/v1/auth/login` → 같은 `proxy_pass` + `limit_req zone=login ...` (이 location에는 `api` zone을 겹쳐 걸지 않는다)
+  - `location = /stats/script.js`, `location = /stats/api/send` → Umami (`set $umami umami:3000;`, 12-8)
   - `location /` → `proxy_pass http://$frontend;` + `proxy_buffering off;`. Nginx가 응답을 버퍼링하면 Next의 `Suspense` 스트리밍(11장 '렌더링 전략')이 끝날 때까지 묶여 나간다. Next 문서는 `next.config`에서 `X-Accel-Buffering: no` 헤더를 붙이는 방법도 들지만, 프록시 동작이라 Nginx 설정에 둔다.
   - `/actuator`, `/swagger-ui`, `/v3/api-docs`는 따로 막지 않는다. `/api/`로 시작하지 않아 `location /`(frontend)로 가고 Next의 404가 나간다 (3장).
   - 프록시 헤더는 `server` 블록에 한 번 둔다: `Host $host`, `X-Real-IP $remote_addr`, `X-Forwarded-For $proxy_add_x_forwarded_for`, `X-Forwarded-Proto $scheme`, `X-Request-Id $request_id`(클라이언트가 보낸 값을 덮어씀. 32자 16진수라 백엔드 형식 검사(5장 '로깅')를 통과한다). `proxy_hide_header X-Powered-By;`(Next가 붙이는 프레임워크 정보)도 같이 둔다.
@@ -125,7 +126,7 @@ nginx 이미지는 `nginx:1-alpine`(12-7과 같은 메이저 태그 원칙). `in
 - 429 응답 본문은 Nginx 기본 HTML이다. 프론트는 ProblemDetail이 아닌 응답을 `code: null`로 바꾸고(11장 '에러 처리'), 로그인 화면(11장 '관리자 인증')과 관리자 화면은 이미 429를 각 화면 결과 표의 "그 외" 행 문구로 보여 주므로 프론트를 바꾸지 않는다. 429 전용 문구는 관리자 1명이 겪을 일이 드물어 두지 않는다.
 
 **확인 방법** (로컬, 이슈 완료 조건. HTTPS(12-3) 추가 후에는 12-3 '로컬에서 운영 compose 띄우기'를 먼저 한다)
-- 실행: `infra/.env`에 12-7의 backend 환경변수(`JWT_SECRET`, `ADMIN_USERNAME`, `ADMIN_PASSWORD`, DB 계정)와 frontend의 `SITE_URL`을 채우고 `IMAGE_TAG=local docker compose -f infra/docker-compose.prod.yml up -d --build`. 조회 명령(`ps`·`logs`)은 파일 없이 `-p blog-prod`로 하고, 컨테이너를 만드는 명령(`up` 등)은 `-p`만으로는 파일을 찾지 못해 위와 같이 `IMAGE_TAG=local`과 `-f infra/docker-compose.prod.yml`을 붙인다. `docker compose -p blog-prod ps`에서 backend가 `healthy`이고 nginx만 `0.0.0.0:80->80/tcp`·`0.0.0.0:443->443/tcp`를 가진다.
+- 실행: `infra/.env`에 12-7의 backend 환경변수(`JWT_SECRET`, `ADMIN_USERNAME`, `ADMIN_PASSWORD`, DB 계정)와 frontend의 `SITE_URL`, Umami 필수 값 두 개(12-8 '환경변수')를 채우고 `IMAGE_TAG=local docker compose -f infra/docker-compose.prod.yml up -d --build`. 조회 명령(`ps`·`logs`)은 파일 없이 `-p blog-prod`로 하고, 컨테이너를 만드는 명령(`up` 등)은 `-p`만으로는 파일을 찾지 못해 위와 같이 `IMAGE_TAG=local`과 `-f infra/docker-compose.prod.yml`을 붙인다. `docker compose -p blog-prod ps`에서 backend가 `healthy`이고 nginx만 `0.0.0.0:80->80/tcp`·`0.0.0.0:443->443/tcp`를 가진다.
 - 로그인: prod 설정 그대로(`Secure` 쿠키) 확인한다. Chromium 계열 브라우저(Chrome·Edge)는 `http://localhost`를 보안 컨텍스트로 보아 `Secure` 쿠키를 HTTP에서도 저장·전송한다 (설계 때 Chromium으로 확인). 그래서 `blog.auth.secure-cookie`를 끄는 로컬용 덮어쓰기를 두지 않는다. Safari 등 다른 브라우저로는 확인하지 않는다.
 - 브라우저에서 관리자 로그인 → 글 작성(`PUBLISHED`) → 글 목록·상세(`/`, `/posts/{slug}`) 순으로 확인한다. 운영 DB에는 시드가 없어 처음에는 목록이 비어 있다.
 - 필수 비밀번호: `infra/.env`의 `POSTGRES_PASSWORD`를 비우고 `docker compose -f infra/docker-compose.prod.yml config`가 `POSTGRES_PASSWORD is required`로 실패한다.
@@ -239,7 +240,7 @@ main 머지 (deploy.yml)
   | `DEPLOY_HOST` | 예약 공인 IP |
   | `DEPLOY_SSH_KEY` | 배포 전용 ed25519 개인 키 (공개 키는 서버 `ubuntu`의 `authorized_keys`, 비밀번호 없음) |
   | `DEPLOY_KNOWN_HOSTS` | `ssh-keyscan -t ed25519 <IP>` 결과 (호스트 키 고정, `StrictHostKeyChecking`을 끄지 않는다) |
-  | `POSTGRES_PASSWORD`, `JWT_SECRET`, `ADMIN_USERNAME`, `ADMIN_PASSWORD`, `SITE_URL` | 서버 `.env` 값 (12-2). `SITE_URL`은 이 값을 쓰는 변경이 main에 머지되기 전에 등록한다 (없으면 배포 스크립트 3단계의 첫 compose 명령인 `pull`이 변수 검사에서 실패해 6단계 롤백으로 간다) |
+  | `POSTGRES_PASSWORD`, `JWT_SECRET`, `ADMIN_USERNAME`, `ADMIN_PASSWORD`, `SITE_URL`, `UMAMI_DB_PASSWORD`, `UMAMI_APP_SECRET`, `UMAMI_WEBSITE_ID` | 서버 `.env` 값 (12-2). `UMAMI_WEBSITE_ID`는 Umami 설치 뒤 등록한다(12-8 '설치', 그 전에는 빈 값이 들어간다). `UMAMI_DB_PASSWORD`·`UMAMI_APP_SECRET`도 아래 `SITE_URL`과 같은 이유로 이 값을 쓰는 변경이 머지되기 전에 등록한다. `SITE_URL`은 이 값을 쓰는 변경이 main에 머지되기 전에 등록한다 (없으면 배포 스크립트 3단계의 첫 compose 명령인 `pull`이 변수 검사에서 실패해 6단계 롤백으로 간다) |
 - GitHub 러너의 IP는 고정되지 않으므로 22 포트는 `0.0.0.0/0`에 연다 (12-2 '서버 준비'). 비밀번호 로그인은 OCI Ubuntu 이미지 기본값대로 꺼져 있어 키로만 들어온다.
 
 **`.env` 동기화**: 원본은 GitHub Secrets 하나다. 배포마다 워크플로가 Secrets로 `.env` 내용을 만들어 서버로 보내고, 서버의 `.env`를 손으로 고치지 않는다 (고쳐도 다음 배포에서 덮어써진다). `POSTGRES_DB`·`POSTGRES_USER`는 compose 기본값(`blog`)을 쓰므로 보내지 않는다.
@@ -248,13 +249,13 @@ main 머지 (deploy.yml)
 **서버 스크립트** `infra/deploy.sh <SHA>`: 워크플로가 `.env.next`를 보낸 뒤 `ssh ... 'cd ~/blog && git fetch -q origin && git cat-file -e <SHA>:infra/deploy.sh && bash <(git show <SHA>:infra/deploy.sh) <SHA>'`로 실행한다 (배포할 커밋의 스크립트를 쓴다. `git show`가 실패하면 `bash`가 빈 스크립트를 받아 0으로 끝나므로 `cat-file -e`로 먼저 확인한다). `set -euo pipefail`.
 1. 롤백 지점 보관: `PREV=$(git rev-parse HEAD)`, `cp infra/.env infra/.env.prev`
 2. `git checkout -q --detach <SHA>` (compose·Nginx 설정도 같은 커밋으로 맞춘다), `infra/.env` = `.env.next` 내용 + `IMAGE_TAG=<SHA>`, `chmod 600`, `.env.next` 삭제
-3. `docker compose -f infra/docker-compose.prod.yml pull backend frontend` → `up -d --no-build`. `git diff --quiet $PREV <SHA> -- infra/nginx`가 실패하면(Nginx 설정이 바뀌었으면) `up -d --no-deps --force-recreate nginx` (마운트 파일 교체는 `up -d`·reload로 반영되지 않는다, 12-2 '서버 준비').
+3. `docker compose -f infra/docker-compose.prod.yml pull backend frontend` → `up -d --no-build nginx frontend backend postgres`(블로그 서비스만 지정한다) → `up -d --no-build umami umami-db || echo ...`(Umami 쪽 실패는 오류만 출력하고 넘어간다, 12-8 '실패 처리'). `git diff --quiet $PREV <SHA> -- infra/nginx`가 실패하면(Nginx 설정이 바뀌었으면) `up -d --no-deps --force-recreate nginx` (마운트 파일 교체는 `up -d`·reload로 반영되지 않는다, 12-2 '서버 준비').
 4. 헬스체크(서버 안에서): backend 컨테이너의 health 상태가 `healthy`가 될 때까지 최대 180초(`start_period` 60초 + `retries`×`interval`에 여유) 기다린다. 이어서 Nginx를 거쳐 `curl -fsSk https://localhost/`와 `https://localhost/api/v1/posts`가 둘 다 2xx인지 5초 간격 최대 6회 본다 (Nginx resolver 캐시 10초 동안의 `502`를 넘기기 위해, 12-4). `/`는 frontend와 frontend→backend 연결을, `/api/v1/posts`는 backend와 DB를 확인한다.
 5. 성공: `.env.prev` 삭제, backend·frontend의 이전 이미지 정리(디스크가 작다. 이전 이미지는 GHCR에 남는다), 종료 코드 0
    - 정리 대상은 `ghcr.io/mojunsul/blog-*` 중 이번 SHA가 아닌 태그(첫 자동 배포 뒤의 `local` 포함)와 태그 없는 이미지만이다: `docker image ls --filter 'reference=ghcr.io/mojunsul/blog-*' --filter dangling=false --format '{{.Repository}}:{{.Tag}}' | { grep -v ":<SHA>$" || true; } | xargs -r docker rmi`, 이어서 `docker image prune -f`(태그 없는 이미지만. 같은 SHA를 Re-run으로 다시 빌드하면 이전 이미지가 태그를 잃는다). 지울 태그가 없으면(같은 SHA 재배포, 예: Secrets 변경 `workflow_dispatch`) 아무것도 지우지 않는 정상 경우다. `grep -v`는 남는 줄이 없으면 종료 코드 1이라 `pipefail`에서 정리 실패로 가지 않게 `|| true`로 감싼다.
    - `docker image prune -af`를 쓰지 않는 이유: 실행 중이 아닌 이미지를 모두 지워, 갱신 cron이 `run`할 때만 쓰는 certbot 이미지(12-3)까지 지운다. 그러면 갱신 때마다 Docker Hub에서 다시 받아야 하고, 받기에 실패하면 갱신도 실패한다. nginx·postgres·certbot 이미지는 정리 필터가 `blog-*`만 대상으로 하므로 자동 정리되지 않는다. compose에서 버전을 올리면 nginx·postgres는 3단계 `up -d`가 서버에 없는 새 이미지를 pull하고 이전 이미지가 남는다. certbot은 `profiles`라 `up -d`가 받지 않으므로 서버에는 이전 이미지만 남고, 새 이미지는 다음 `run` 때 받는다. 이전 이미지 삭제는 아래 '수동 운영'.
    - 정리는 배포가 끝난 뒤의 일이라, 정리 명령이 실패해도 롤백하지 않고 오류만 출력한 뒤 종료 코드 0으로 끝낸다 (6단계 `trap`에 걸리지 않게 한다).
-6. 실패(2~4의 어느 명령이든 실패하면 `trap ... ERR`로 여기로 온다. 이미지 pull 실패도 포함): `docker compose ... logs --tail 50 backend frontend`를 출력하고 `git checkout -q --detach $PREV`, `mv infra/.env.prev infra/.env`, `up -d --no-build`(3과 같은 Nginx 처리), 4를 다시 해 결과를 출력한 뒤 종료 코드 1 → 워크플로 실패(GitHub 실패 알림 메일). 첫 자동 배포의 `PREV`는 서버 빌드 이미지(`IMAGE_TAG=local`)라 그대로 되돌아간다.
+6. 실패(2~4의 어느 명령이든 실패하면 `trap ... ERR`로 여기로 온다. 이미지 pull 실패도 포함): `docker compose ... logs --tail 50 backend frontend`를 출력하고 `git checkout -q --detach $PREV`, `mv infra/.env.prev infra/.env`, 3과 같은 두 `up -d`(Umami 실패 무시)와 Nginx 처리, 4를 다시 해 결과를 출력한 뒤 종료 코드 1 → 워크플로 실패(GitHub 실패 알림 메일). 첫 자동 배포의 `PREV`는 서버 빌드 이미지(`IMAGE_TAG=local`)라 그대로 되돌아간다.
 - 롤백한 배포의 마이그레이션은 되돌리지 않는다. 그래서 아래 마이그레이션 호환 규칙이 필요하다.
 - 빌드·push가 실패하면 서버 접속 스텝까지 가지 않아 서버는 바뀌지 않는다. `.env.next`만 보내고 스크립트 실행 전에 접속이 끊기면 남은 `.env.next`는 다음 배포가 덮어쓴다.
 - GHCR의 SHA 태그는 정리하지 않는다 (Public 패키지 용량 무료).
@@ -262,6 +263,7 @@ main 머지 (deploy.yml)
 **수동 운영** (README에 적는다)
 - 이전 버전으로 되돌리기: Actions에서 되돌릴 커밋의 성공한 deploy 실행을 "Re-run all jobs"한다 (그 커밋으로 다시 빌드·배포). Re-run은 원래 실행 뒤 30일 안에만 되므로, 그보다 오래된 커밋은 `git revert` PR로 되돌린다. 이후 main 머지가 다시 배포하므로, 원인 커밋은 `git revert` PR로 고친다.
 - Secrets 변경 반영(관리자 비밀번호 등, 12-2): Secrets를 바꾸고 Actions에서 deploy를 `workflow_dispatch`로 실행한다. `.env` 값이 바뀐 서비스만 compose가 다시 만든다.
+- Umami 이미지 업데이트(매월)는 12-8 '업데이트'.
 - nginx·postgres·certbot·backup 이미지 버전을 올린 뒤: 그 커밋의 배포가 성공하면 서버에서 `docker image ls <저장소>`(저장소 이름은 `nginx`·`postgres`·`certbot/certbot`·`ghcr.io/oracle/oci-cli`)로 이전 태그를 확인하고 `docker image rm <저장소>:<이전 태그>`로 지운다.
   - nginx·postgres: 실행 중인 컨테이너가 쓰는 이미지는 `rm`이 거부하므로 현재 버전은 지워지지 않는다.
   - certbot·backup: 아래는 certbot 기준이고 backup도 같다 (`pull backup`).
@@ -315,5 +317,72 @@ main 머지 (deploy.yml)
 - backend: `infra/docker-compose.yml`의 PostgreSQL을 띄우고 `DB_URL=jdbc:postgresql://host.docker.internal:5432/blog`와 DB 계정, `JWT_SECRET`(`openssl rand -base64 32`), `ADMIN_USERNAME`·`ADMIN_PASSWORD`로 실행 → `curl localhost:8080/actuator/health`가 `UP`. 세 값 중 하나라도 빼면 컨테이너가 종료된다(`docker ps -a`의 Exited, 0이 아닌 코드). 관리자 값 검사는 `admin` 행이 없을 때만 하므로(5장 '관리자 계정 생성'), `ADMIN_*` 누락은 `docker compose down -v`로 비운 DB에서 성공 실행보다 먼저 확인한다.
 - frontend: 시드 데이터가 있는 백엔드(`local` 프로필 `bootRun`)를 띄우고 `API_INTERNAL_URL=http://host.docker.internal:8080`만 주어 실행 → `curl localhost:3000/`의 글 목록과 `/posts/{slug}` 상세가 표시된다.
 - 실행 사용자: `docker exec <컨테이너> id -u`가 두 이미지 모두 `0`이 아니다.
+
+### 12-8. 방문자 분석 (Umami)
+**배치**: 같은 서버에 셀프 호스팅한다. Umami Cloud(무료 요금제)는 설치가 없지만 사용량·보관 기간 제한이 있고 방문 데이터가 외부에 쌓인다. 서버 자원이 남고(12-2 '서버 준비', 4 OCPU·24GB), compose·DB 운영 연습이 되어 택했다.
+- 경로: 수집만 블로그 도메인의 같은 출처 경로 `/stats/`로 받고, 대시보드는 외부에 열지 않고 SSH 터널로만 본다 (아래 '대시보드'). 그래서 서브도메인·DNS 레코드·인증서를 늘리지 않고(12-3 그대로), 수집은 블로그의 HTTPS를, 대시보드는 SSH 암호화를 쓴다.
+  - 대시보드를 서브도메인으로 열지 않는 이유: Umami는 첫 기동 때 기본 계정 `admin`/`umami`를 만들어, 비밀번호를 바꾸기 전까지 누구나 로그인할 수 있다. 로그인 화면이 인터넷에 열려 대입 공격도 받는다. 관리자 1명이 가끔 보는 화면이라 터널의 번거로움이 작다.
+  - 경로(`BASE_PATH`)로 대시보드까지 내는 방식은 Umami가 빌드 때만 읽어 공식 이미지를 다시 빌드해야 해 택하지 않았다.
+- 소형 서버 자원: Umami(Next.js 앱)와 전용 PostgreSQL 두 컨테이너가 늘어난다. 메모리는 둘을 합쳐 수백 MB 수준으로 24GB에 비해 작고, 이벤트 행은 작아 개인 블로그 방문량으로는 디스크 증가가 미미하다고 본다. 컨테이너 메모리 제한(`mem_limit`)은 두지 않는다. 실제 값은 '확인 방법'에서 재서 이슈 코멘트에 남긴다. 로그는 다른 서비스와 같은 제한(12-2)을 받는다.
+
+**compose** (`docker-compose.prod.yml`, 12-2)
+- `umami-db`: `postgres:18`(블로그 DB와 같은 이미지라 따로 받지 않는다), `POSTGRES_DB: umami`, `POSTGRES_USER: umami`, `POSTGRES_PASSWORD: ${UMAMI_DB_PASSWORD:?UMAMI_DB_PASSWORD is required}`, `TZ: UTC`, named volume `umami-db-data:/var/lib/postgresql`, healthcheck는 postgres와 같다. `ports` 없음.
+  - 블로그 DB(`postgres`)에 데이터베이스를 하나 더 두지 않는 이유: 이미 초기화된 운영 볼륨에는 초기화 스크립트가 돌지 않아 손으로 만들어야 하고, 블로그 DB의 백업·복구(12-5)와 계정이 분석 데이터와 섞인다. Umami 공식 compose도 전용 DB 컨테이너를 둔다.
+  - 백업하지 않는다 (12-5는 블로그 DB만 덤프한다). 잃어도 방문 통계 이력만 없어진다. 서버를 옮기면(12-5 '복구') 통계는 처음부터 다시 쌓이고, 아래 '설치'를 다시 해 새 웹사이트 ID로 `UMAMI_WEBSITE_ID`를 바꾼다.
+- `umami`: `ghcr.io/umami-software/umami:3`(메이저 태그, 12-7 원칙. `linux/arm64` 이미지가 있다). `umami-db` healthy 이후 기동, `restart: unless-stopped`, 로그 옵션 공통.
+  - `environment`: `DATABASE_URL: postgresql://umami:${UMAMI_DB_PASSWORD:?UMAMI_DB_PASSWORD is required}@umami-db:5432/umami`, `APP_SECRET: ${UMAMI_APP_SECRET:?UMAMI_APP_SECRET is required}`(Umami 로그인 토큰 서명 키), `CLIENT_IP_HEADER: x-real-ip`, `DISABLE_TELEMETRY: 1`(설치 통계를 Umami 서버로 보내지 않는다).
+  - `CLIENT_IP_HEADER`: 지정하지 않으면 Umami는 `cf-connecting-ip`·`x-real-ip`·`x-forwarded-for` 등을 차례로 보고 처음 있는 값을 쓰는데, 클라이언트가 앞 순서의 헤더를 직접 보내면 그 값이 방문자 IP(국가·고유 방문자 계산)가 된다. Nginx가 `$remote_addr`로 덮어쓰는 `X-Real-IP`(12-4)만 믿게 한다.
+  - `ports: ["127.0.0.1:3001:3000"]`: 대시보드용 SSH 터널의 도착점이다. 루프백에만 묶여 외부에서 닿지 않는다 (12-2 '호스트에 여는 포트'의 예외). 3001은 로컬 개발의 `next dev`(3000)와 겹치지 않게 골랐다.
+  - `init: true`(Umami 공식 compose와 같다): 컨테이너의 PID 1이 `node`라 `SIGTERM`을 직접 처리하지 않아 `stop`이 10초 기본 대기 뒤 강제 종료되는 것을 막는다.
+  - healthcheck는 두지 않는다: 다른 서비스가 기다리지 않고, 배포 헬스체크(12-6 4단계)도 Umami를 보지 않는다. 배포 스크립트도 Umami를 블로그 서비스와 따로 올리고 그 실패를 무시하므로(12-6 3단계) Umami 문제로 블로그 배포가 롤백되지 않는다.
+- 필수 값 두 개는 `:?`로 둔다. 비면 compose가 모든 명령에서 실패하므로(12-2 `POSTGRES_PASSWORD`와 같다) GitHub Secrets에 머지 전에 등록한다 (12-6 표).
+- DB 비밀번호는 `DATABASE_URL`에 그대로 들어가므로 URL에서 특수 문자가 없는 `openssl rand -hex 32`로 만든다. `APP_SECRET`도 같은 명령으로 만든다. `APP_SECRET`을 바꾸면 대시보드 로그인만 풀린다.
+
+**Nginx** (`conf.d/blog.conf` 443 server, 12-4)
+- `set $umami umami:3000;`을 다른 업스트림 변수 옆에 둔다 (요청 때 이름 확인, 12-4).
+- 두 경로만 연다. 그 밖의 `/stats/...`는 `location /`로 가서 Next 404다 (Umami의 로그인·조회 API는 외부에서 닿지 않는다).
+  - `location = /stats/script.js` → `rewrite ^ /script.js break;` + `proxy_pass http://$umami;`
+  - `location = /stats/api/send` → `rewrite ^ /api/send break;` + `limit_req zone=api burst=20 nodelay;` + `proxy_pass http://$umami;`
+  - 변수를 쓴 `proxy_pass`에 URI를 붙이면 요청 URI 전체가 그 값으로 바뀌므로, 경로 앞부분은 `rewrite ... break`로 떼고 URI 없이 넘긴다 (12-4의 URI 없는 `proxy_pass`와 같다).
+  - 수집 경로는 공개 API처럼 누구나 부를 수 있어 IP당 `api` zone(12-4)을 같이 건다. 페이지 이동 한 번에 요청 하나라 방문자가 걸릴 일이 없다. 스크립트는 정적 파일이라 걸지 않는다.
+- 추적 스크립트는 자기 주소(`/stats/script.js`)에서 마지막 경로를 뗀 곳에 `/api/send`를 붙여 보내므로 수집 주소가 `/stats/api/send`가 된다. `data-host-url`·Umami의 `COLLECT_API_ENDPOINT`는 두지 않는다.
+- 같은 출처라 CORS·CSP 설정이 늘지 않는다 (CSP는 12-4대로 아직 없다).
+
+**프론트 스크립트**: 11장 '방문자 분석 스크립트'. 웹사이트 ID는 실행 시점 환경변수 `UMAMI_WEBSITE_ID`로 받는다 (frontend `environment`에 `UMAMI_WEBSITE_ID: ${UMAMI_WEBSITE_ID:-}`). 비밀값이 아니지만(모든 공개 페이지 HTML에 나온다) 설치마다 달라 저장소에 두지 않고, 설치 전에는 비어 있어야 하므로 필수(`:?`)로 두지 않는다.
+
+**환경변수** (`infra/.env.example`, 값 비움)
+- `UMAMI_DB_PASSWORD`, `UMAMI_APP_SECRET`: 운영 compose 필수, 만드는 명령(`openssl rand -hex 32`)을 주석에 적는다.
+- `UMAMI_WEBSITE_ID`: 비우면 추적 스크립트를 넣지 않는다. 아래 '설치'에서 웹사이트를 만든 뒤 채운다고 주석에 적는다.
+- 세 값 모두 GitHub Secrets가 원본이고 deploy가 `.env`에 쓴다 (12-6 표·'`.env` 동기화'). `UMAMI_WEBSITE_ID`를 등록하지 않은 동안은 빈 값이 들어가 스크립트가 없다.
+
+**대시보드** (README에 적는다): 로컬 PC에서 `ssh -N -L 3001:127.0.0.1:3001 ubuntu@<공인 IP>`를 띄우고 브라우저로 `http://localhost:3001`. 배포용 키가 아니라 관리자 본인의 SSH 키로 접속한다.
+
+**설치** (서버, 최초 1회, README에 적는다)
+1. `UMAMI_DB_PASSWORD`·`UMAMI_APP_SECRET`을 GitHub Secrets에 등록한 뒤 이 변경을 머지한다. deploy 3단계의 Umami `up -d`가 `umami`·`umami-db` 이미지를 받아 띄우고, Umami가 첫 기동 때 DB 스키마를 만든다.
+2. 터널로 대시보드에 `admin`/`umami`로 로그인해 바로 비밀번호를 바꾼다 (설정 → 프로필). 새 비밀번호는 저장소·이슈에 적지 않는다.
+3. 웹사이트를 추가한다 (이름 `Blog`, 도메인 `blog.도메인`). 표시된 웹사이트 ID를 GitHub Secret `UMAMI_WEBSITE_ID`로 등록하고 deploy를 `workflow_dispatch`로 실행한다 (frontend만 다시 만들어진다, 12-6 '수동 운영').
+4. 관리자 본인의 방문을 빼려면 쓰는 브라우저마다 블로그 페이지 콘솔에서 `localStorage.setItem("umami.disabled", 1)`을 실행한다 (Umami 추적 스크립트의 제외 기능). 앱 코드가 아니라 브라우저 설정이라 토큰 저장 규칙(10장)과 무관하다.
+
+**업데이트** (README의 수동 운영에 적는다): deploy는 `umami` 이미지를 다시 받지 않아(12-6 3단계는 backend·frontend만 `pull`) 처음 받은 버전에 머문다. Umami는 공개 경로로 요청을 받는 Next 앱이라 보안 패치를 따라가야 하므로 매월 첫 주에 `docker compose -f infra/docker-compose.prod.yml pull umami && docker compose -f infra/docker-compose.prod.yml up -d --no-deps umami && docker image prune -f`를 한다 (`prune -f`는 태그를 잃은 이전 이미지만 지운다). 마이그레이션은 Umami가 기동 때 한다. 메이저 버전(4)은 태그를 바꾸는 PR로 올린다. `umami-db`는 nginx·postgres와 같이 따로 받지 않는다.
+
+**실패 처리**
+- `umami`·`umami-db`가 내려가면 `/stats/script.js`·`/stats/api/send`가 `502`다. 스크립트는 페이지 렌더링을 막지 않게 불러오므로(11장) 블로그 화면은 그대로이고, 그동안의 방문만 기록되지 않는다. 재시도하지 않는다. `restart: unless-stopped`가 프로세스 종료를 되살린다.
+- 배포(12-6 3·6단계) 중 Umami 쪽 `up -d`가 실패해도(이미지 받기 실패, `umami-db`가 healthy가 되지 않아 `dependency failed to start`, 호스트 3001 사용 중 등) 블로그 배포는 성공·롤백 판정에 영향을 받지 않고 워크플로 로그에 오류만 남는다. 그동안은 위와 같이 방문만 기록되지 않는다. 원인을 고친 뒤 서버에서 `docker compose -f infra/docker-compose.prod.yml up -d umami umami-db`로 올린다 (다음 배포도 다시 시도한다). Umami를 들인 이 변경을 롤백하면 이전 커밋의 compose에 Umami가 없어 Umami `up -d`가 서비스 없음으로 실패하고(무시된다), 이미 만든 Umami 컨테이너는 그대로 남는다.
+- 수집 요청이 `429`·`502`여도 스크립트가 오류를 화면에 내지 않는다. 방문 기록 한 건이 빠질 뿐이라 따로 처리하지 않는다.
+- `UMAMI_WEBSITE_ID`가 틀린 값이면 스크립트는 불러오지만 Umami가 수집을 받지 않아 통계가 쌓이지 않는다. 프론트는 형식을 검사하지 않고, 아래 확인 방법으로 알아챈다.
+- 감시는 하지 않는다. M5 Uptime Kuma(13장)의 감시 대상에 넣을지는 그 이슈에서 정한다.
+
+**확인 방법** (이슈 완료 조건)
+- 로컬(운영 compose, 12-3 '로컬에서 운영 compose 띄우기'·12-4 '확인 방법'의 실행): `infra/.env`에 `UMAMI_DB_PASSWORD`·`UMAMI_APP_SECRET`을 더 채우고 `UMAMI_WEBSITE_ID`는 비운 채 띄운다.
+  1. `docker compose -p blog-prod ps`에서 `umami`가 `127.0.0.1:3001->3000/tcp`, `umami-db`는 포트 없음. `ss -ltn`에서 3001이 `127.0.0.1`에만 있다.
+  2. `UMAMI_WEBSITE_ID`가 빈 상태에서 `curl -sk https://localhost/`에 `/stats/script.js`가 없다. `infra/.env`의 `UMAMI_DB_PASSWORD`를 비우면 `docker compose -f infra/docker-compose.prod.yml config`가 `UMAMI_DB_PASSWORD is required`로 실패한다 (`UMAMI_APP_SECRET`도 같다).
+  3. `http://localhost:3001`에서 위 '설치' 2·3(도메인은 `localhost`)을 하고, ID를 `infra/.env`에 넣어 `IMAGE_TAG=local docker compose -f infra/docker-compose.prod.yml up -d frontend`로 다시 만든다.
+  4. `curl -sk https://localhost/`와 `/posts/{slug}`의 응답에 `/stats/script.js`와 웹사이트 ID가 있고, `/admin/login`·`/foo`(맞지 않는 URL)에는 없다.
+  5. `curl -sk -o /dev/null -w '%{http_code} %{content_type}\n' https://localhost/stats/script.js`가 `200`·JavaScript. `https://localhost/stats/login`·`/stats/api/auth/verify`는 Next 404다.
+  6. Chromium으로 `https://localhost/`를 연 뒤 글 링크를 눌러 이동하면(클라이언트 이동) 개발자 도구 Network에 `/stats/api/send`가 두 번 `200`이고, 대시보드 웹사이트 화면에 `/`·`/posts/{slug}` 방문이 보인다. `/admin/login`을 직접 열면 send 요청이 없다.
+  7. 콘솔에서 `localStorage.setItem("umami.disabled", 1)` 뒤 새로고침하면 send 요청이 없다. 확인 뒤 `localStorage.removeItem("umami.disabled")`.
+  8. `docker compose -p blog-prod stop umami` 뒤 `/`는 `200`으로 그대로 보이고 `/stats/script.js`는 `502`. 확인 뒤 `start umami`.
+  9. 자원: `docker stats --no-stream`의 `umami`·`umami-db` 메모리와 `docker image ls ghcr.io/umami-software/umami`의 크기를 이슈 코멘트에 적는다.
+- 서버(머지 후): 위 '설치'를 한 뒤 휴대폰(모바일 데이터, 서버·로컬과 다른 네트워크)으로 블로그 글 하나를 열면 대시보드에 방문이 보이고 국가가 접속한 나라다 (Docker 내부 IP가 아니라 `X-Real-IP`로 방문자 IP를 받았다는 뜻). 로컬 PC에서 `nc -z -w 3 <공인 IP> 3001`이 실패한다.
 
 ---

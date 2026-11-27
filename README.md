@@ -20,6 +20,7 @@ main에 머지하면(`backend/`·`frontend/`·`infra/`·`deploy.yml`이 바뀐 �
   | `DEPLOY_SSH_KEY` | 배포 전용 ed25519 개인 키 (공개 키는 서버 `ubuntu`의 `authorized_keys`) |
   | `DEPLOY_KNOWN_HOSTS` | `ssh-keyscan -t ed25519 <IP>` 결과 |
   | `POSTGRES_PASSWORD`, `JWT_SECRET`, `ADMIN_USERNAME`, `ADMIN_PASSWORD` | 서버 `.env` 값 |
+  | `UMAMI_DB_PASSWORD`, `UMAMI_APP_SECRET`, `UMAMI_WEBSITE_ID` | Umami 값 (`UMAMI_WEBSITE_ID`는 설치 뒤 등록, 아래 "방문자 분석") |
 
   배포 전용 키는 `ssh-keygen -t ed25519 -N '' -f deploy_key`로 만들고, 개인 키는 Secret에만 두고 로컬 파일은 지운다.
 - **GHCR 패키지**: 첫 push 뒤 `blog-backend`·`blog-frontend` 패키지를 Public으로 바꾼다 (패키지 설정, 1회). 서버에 pull 토큰을 두지 않기 위해서다.
@@ -231,6 +232,28 @@ docker compose -f infra/docker-compose.prod.yml run --rm -T backup os object lis
    ```
 3. Actions에서 deploy를 `workflow_dispatch`로 실행한다. `.env`가 바뀌어 backend 컨테이너가 다시 만들어진다 (`restart`는 바뀐 값을 읽지 않는다).
 4. 새 비밀번호로 로그인한다. backend가 기동하지 않으면 `docker compose -f infra/docker-compose.prod.yml logs backend`의 값 검사 오류를 보고 Secret을 고쳐 3을 다시 한다. 기동하지 못하면 deploy가 이전 `.env`로 롤백하므로 이전 비밀번호로 계정이 다시 만들어진다.
+
+## 방문자 분석 (Umami)
+
+수집은 블로그 도메인의 `/stats/`로 받고, 대시보드는 외부에 열지 않는다. 저장소 폴더(`~/blog`)에서:
+
+**대시보드**: 로컬 PC에서 SSH 터널을 띄우고 브라우저로 `http://localhost:3001`을 연다. 배포용 키가 아니라 본인의 SSH 키로 접속한다.
+```bash
+ssh -N -L 3001:127.0.0.1:3001 ubuntu@<공인 IP>
+```
+
+**설치** (최초 1회)
+1. `UMAMI_DB_PASSWORD`·`UMAMI_APP_SECRET`(`openssl rand -hex 32`)을 GitHub Secrets에 등록한 뒤 머지한다. deploy가 `umami`·`umami-db`를 띄운다.
+2. 터널로 대시보드에 `admin`/`umami`로 로그인해 바로 비밀번호를 바꾼다 (설정 → 프로필). 새 비밀번호는 저장소·이슈에 적지 않는다.
+3. 웹사이트를 추가한다 (이름 `Blog`, 도메인 `blog.도메인`). 표시된 웹사이트 ID를 Secret `UMAMI_WEBSITE_ID`로 등록하고 deploy를 `workflow_dispatch`로 실행한다.
+4. 본인 방문을 빼려면 쓰는 브라우저마다 블로그 페이지 콘솔에서 `localStorage.setItem("umami.disabled", 1)`을 실행한다.
+
+**업데이트** (매월 첫 주): deploy는 `umami` 이미지를 다시 받지 않으므로 보안 패치를 직접 받는다.
+```bash
+docker compose -f infra/docker-compose.prod.yml pull umami && docker compose -f infra/docker-compose.prod.yml up -d --no-deps umami && docker image prune -f
+```
+
+Umami가 내려가도 블로그는 그대로이고 방문만 기록되지 않는다. 배포 중 Umami 기동이 실패하면 오류만 로그에 남으므로, 원인을 고친 뒤 `docker compose -f infra/docker-compose.prod.yml up -d umami umami-db`로 올린다. `umami-db`는 백업하지 않는다.
 
 ## 로컬에서 운영 compose 띄우기
 

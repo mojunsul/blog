@@ -230,3 +230,8 @@
   - 'sitemap·robots'·'RSS 피드·푸터' 화면 확인의 60초 대기를 '렌더링 전략'의 stale-while-revalidate에 맞춰 "한 번 요청해 갱신을 시작한 뒤 다시 요청"으로 고침
 - **v2.43**
   - not-found 화면(11장 '글 상세 페이지'): 루트 `app/not-found.tsx` 하나가 `notFound()`와 맞지 않는 URL(`/foo`, `/admin/foo`)을 모두 맡고 `app/(public)/not-found.tsx`는 없앰. 헤더·검색·`main`은 `components/layout/PublicShell.tsx`로 옮겨 `(public)/layout.tsx`와 함께 씀. 맞지 않는 URL은 `404`+`noindex`, `title`은 기본값 `Blog`. 푸터도 `PublicShell`에 넣어 맞지 않는 URL에도 보임, RSS `alternate`는 `(public)/layout.tsx` `metadata`에 남아 맞지 않는 URL에는 없음('RSS 피드·푸터' 푸터 문장·화면 확인 4 함께 고침)
+- **v2.44**
+  - 방문자 분석(12-8): Umami를 같은 서버에 셀프 호스팅(`umami` `ghcr.io/umami-software/umami:3` + 전용 `umami-db` `postgres:18`, 백업 안 함). 수집은 블로그 도메인의 `/stats/script.js`·`/stats/api/send`만 Nginx로 열고(`api` zone 적용), 대시보드는 `127.0.0.1:3001` 루프백 포트에 SSH 터널로만 접속(서브도메인·인증서 추가 없음). `CLIENT_IP_HEADER: x-real-ip`, `DISABLE_TELEMETRY`, 설치·매월 업데이트·실패 처리·확인 방법
+  - 환경변수 `UMAMI_DB_PASSWORD`·`UMAMI_APP_SECRET`(필수)·`UMAMI_WEBSITE_ID`(비우면 스크립트 없음)를 `.env`·GitHub Secrets에 추가(12-2, 12-6 표). 12-2 포트 예외, 12-4 location·`api` zone 대상, 3장 다이어그램 반영
+  - 배포 스크립트(12-6 3·6단계): `up -d`를 블로그 서비스(`nginx frontend backend postgres`)와 Umami(`umami umami-db`, 실패 무시)로 나눠 Umami 실패로 배포가 롤백되지 않게 함. 12-8 '실패 처리'에 배포 중 Umami 실패, 12-4 `api` zone 설명에 수집 요청 반영
+  - 프론트(11장 '방문자 분석 스크립트'): `(public)/layout.tsx`에 `Suspense` 안의 `UmamiScript`(`connection()` 뒤 `UMAMI_WEBSITE_ID`를 읽어 `next/script` `afterInteractive`). 관리자 페이지와 주소로 바로 연 not-found 화면에는 없음

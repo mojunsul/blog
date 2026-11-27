@@ -52,13 +52,17 @@ jobs:
           ADMIN_USERNAME: ${{ secrets.ADMIN_USERNAME }}
           ADMIN_PASSWORD: ${{ secrets.ADMIN_PASSWORD }}
           SITE_URL: ${{ secrets.SITE_URL }}
+          UMAMI_DB_PASSWORD: ${{ secrets.UMAMI_DB_PASSWORD }}
+          UMAMI_APP_SECRET: ${{ secrets.UMAMI_APP_SECRET }}
+          UMAMI_WEBSITE_ID: ${{ secrets.UMAMI_WEBSITE_ID }}
         run: |
           install -m 700 -d ~/.ssh
           printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > ~/.ssh/known_hosts
           (umask 077; printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/deploy_key)
           SSH="ssh -i $HOME/.ssh/deploy_key -o IdentitiesOnly=yes ubuntu@$DEPLOY_HOST"
-          printf 'POSTGRES_PASSWORD=%s\nJWT_SECRET=%s\nADMIN_USERNAME=%s\nADMIN_PASSWORD=%s\nSITE_URL=%s\n' \
-            "$POSTGRES_PASSWORD" "$JWT_SECRET" "$ADMIN_USERNAME" "$ADMIN_PASSWORD" "$SITE_URL" |
+          printf 'POSTGRES_PASSWORD=%s\nJWT_SECRET=%s\nADMIN_USERNAME=%s\nADMIN_PASSWORD=%s\nSITE_URL=%s\nUMAMI_DB_PASSWORD=%s\nUMAMI_APP_SECRET=%s\nUMAMI_WEBSITE_ID=%s\n' \
+            "$POSTGRES_PASSWORD" "$JWT_SECRET" "$ADMIN_USERNAME" "$ADMIN_PASSWORD" "$SITE_URL" \
+            "$UMAMI_DB_PASSWORD" "$UMAMI_APP_SECRET" "$UMAMI_WEBSITE_ID" |
             $SSH 'umask 077; cat > ~/blog/infra/.env.next'
           # git show가 실패하면 bash가 빈 스크립트를 받아 0으로 끝나므로 cat-file로 먼저 확인한다.
           $SSH "cd ~/blog && git fetch -q origin && git cat-file -e $GITHUB_SHA:infra/deploy.sh && bash <(git show $GITHUB_SHA:infra/deploy.sh) $GITHUB_SHA"
