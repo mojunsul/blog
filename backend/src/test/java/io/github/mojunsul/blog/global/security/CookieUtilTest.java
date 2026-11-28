@@ -79,4 +79,20 @@ class CookieUtilTest {
 		assertThat(cookieUtil.accessToken("v").isSecure()).isEqualTo(secure);
 		assertThat(cookieUtil.refreshToken("v").isSecure()).isEqualTo(secure);
 	}
+
+	@Test
+	void post_viewed_쿠키는_글별_Path에_86400초다() {
+		// when
+		ResponseCookie cookie = cookieUtil(true).postViewed("my-post");
+
+		// then
+		assertThat(cookie.getName()).isEqualTo("post_viewed");
+		assertThat(cookie.getValue()).isEqualTo("1");
+		assertThat(cookie.getPath()).isEqualTo("/api/v1/posts/my-post/views");
+		assertThat(cookie.getMaxAge()).isEqualTo(Duration.ofSeconds(86400));
+		assertThat(cookie.isHttpOnly()).isTrue();
+		assertThat(cookie.isSecure()).isTrue();
+		assertThat(cookie.getSameSite()).isEqualTo("Lax");
+		assertThat(cookieUtil(false).postViewed("my-post").isSecure()).isFalse();
+	}
 }
