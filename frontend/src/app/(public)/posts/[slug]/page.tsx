@@ -5,6 +5,7 @@ import { Suspense } from "react";
 import { MarkdownRenderer } from "@/components/markdown/MarkdownRenderer";
 import { Comments } from "@/components/post/Comments";
 import { PostMeta } from "@/components/post/PostMeta";
+import { PostViewTracker } from "@/components/post/PostViewTracker";
 import { getPost } from "@/lib/api/posts";
 import { RSS_ALTERNATE_TYPES } from "@/lib/rss";
 import { SITE_DESCRIPTION, SITE_OPEN_GRAPH, siteUrl } from "@/lib/site";
@@ -53,7 +54,14 @@ async function Post({ params }: { params: PageProps<"/posts/[slug]">["params"] }
   return (
     <article>
       <h1 className="text-3xl font-semibold">{post.title}</h1>
-      <PostMeta category={post.category} publishedAt={post.publishedAt} tags={post.tags} className="mt-3 mb-8" />
+      <PostMeta
+        category={post.category}
+        publishedAt={post.publishedAt}
+        tags={post.tags}
+        viewCount={post.viewCount}
+        className="mt-3 mb-8"
+      />
+      <PostViewTracker slug={post.slug} />
       <MarkdownRenderer content={post.content} />
       <section aria-label="댓글" className="mt-12">
         <Comments key={post.id} postId={post.id} />

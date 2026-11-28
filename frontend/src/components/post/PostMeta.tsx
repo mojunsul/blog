@@ -11,11 +11,13 @@ export function PostMeta({
   category,
   publishedAt,
   tags,
+  viewCount,
   className,
 }: {
   category: Category | null;
   publishedAt: string;
   tags: string[];
+  viewCount?: number;
   className: string;
 }) {
   return (
@@ -30,6 +32,7 @@ export function PostMeta({
           </>
         )}
         <time dateTime={publishedAt}>{formatDate(publishedAt)}</time>
+        {viewCount !== undefined && ` · 조회 ${viewCount.toLocaleString("ko-KR")}`}
       </p>
       {tags.length > 0 && (
         <p className="mt-1 flex flex-wrap gap-x-2">
