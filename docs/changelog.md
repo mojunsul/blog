@@ -245,5 +245,5 @@
   - 조회수(8-2): `POST /api/v1/posts/{slug}/views`는 쿠키 `post_viewed`(글마다 `Path=/api/v1/posts/{slug}/views`, 24시간, 10-1)가 있으면 세지 않고 `204`, 없으면 PUBLISHED 글만 직접 UPDATE로 1 올리고 쿠키를 줘 `204`, 없거나 DRAFT면 `404` `POST_NOT_FOUND`. Redis·서버 메모리·id 목록 쿠키를 택하지 않은 이유와 받아들이는 오차(동시 첫 요청, slug 변경, 봇). `view_count` 컬럼은 V1에 있어 마이그레이션 없음(6장)
   - 공개 상세 응답에 `viewCount`(8-1), 목록·관리자 API에는 없음. 상세 화면은 발행일 뒤 `조회 N`(`PostMeta` 선택 prop), 값은 `getPost` 캐시라 늦을 수 있음(11장)
   - 프론트(11장 '글 상세 페이지'): `PostViewTracker`(클라이언트)가 `useEffect`에서 `fetch`로 한 번 호출, `apiFetch`를 쓰지 않고 실패는 모두 무시, StrictMode 가드 없음
-  - CSRF 제외를 `POST /api/v1/posts/*/views`로 한정하고 인증 없이 허용(10-2, 10-5). 방문자 브라우저에 `XSRF-TOKEN`이 생기는 것을 받아들임
+  - CSRF 제외를 `POST /api/v1/posts/*/views`로 한정하고 인증 없이 허용(10-2, 10-5). 방문자 브라우저에 `XSRF-TOKEN`이 생기는 것을 받아들임. `SecurityConfigTest`가 다른 경로·다른 메서드(`PUT`)·두 마디 경로의 `403`으로 한정을 확인(8-2)
   - Nginx `views` zone(`10r/m`, `burst=10 nodelay`)과 정규식 location, 확인 방법(12-4)

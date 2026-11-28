@@ -144,7 +144,7 @@ GET /api/v1/posts?page=0&size=10&tag=spring
   - Service: 바뀐 행이 `0`이면 `POST_NOT_FOUND` 예외, `1`이면 예외 없음.
   - Controller(`@WebMvcTest`): 쿠키 없음 → `204`, Service 1회 호출, `Set-Cookie`에 `post_viewed`와 `Path=/api/v1/posts/{slug}/views`. 쿠키 있음 → `204`, Service 호출 없음, `Set-Cookie` 없음. Service가 `POST_NOT_FOUND`를 던짐 → `404` ProblemDetail, `Set-Cookie` 없음.
   - `CookieUtilTest`: `post_viewed` 쿠키의 이름·값·Path·`Max-Age=86400`·HttpOnly·SameSite=Lax·Secure(설정값).
-  - `SecurityConfigTest`: 인증·CSRF 토큰 없이 `POST /api/v1/posts/nope/views` → `404` `POST_NOT_FOUND`(CSRF·인가를 지난다). 같은 조건의 `POST /api/v1/posts/nope` → `403` `INVALID_CSRF_TOKEN`(제외 범위가 이 경로뿐).
+  - `SecurityConfigTest`: 인증·CSRF 토큰 없이 `POST /api/v1/posts/nope/views` → `404` `POST_NOT_FOUND`(CSRF·인가를 지난다). 같은 조건의 `POST /api/v1/posts/nope`(다른 경로), `PUT /api/v1/posts/nope/views`(다른 메서드), `POST /api/v1/posts/a/b/views`(두 마디) → 모두 `403` `INVALID_CSRF_TOKEN`(제외 범위가 POST와 한 마디 경로뿐, 10-5).
 
 ### 8-3. 인증 API
 
