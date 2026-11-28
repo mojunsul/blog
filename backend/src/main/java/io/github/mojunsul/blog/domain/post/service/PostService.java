@@ -72,6 +72,13 @@ public class PostService {
 			.orElseThrow(() -> new BusinessException(ErrorCode.POST_NOT_FOUND));
 	}
 
+	@Transactional
+	public void increaseViewCount(String slug) {
+		if (postRepository.increaseViewCount(slug, PostStatus.PUBLISHED) == 0) {
+			throw new BusinessException(ErrorCode.POST_NOT_FOUND);
+		}
+	}
+
 	@Transactional(readOnly = true)
 	public PageResponse<AdminPostSummaryResponse> getAdminPosts(AdminPostSearchRequest request) {
 		Pageable pageable = request.toPageable();
