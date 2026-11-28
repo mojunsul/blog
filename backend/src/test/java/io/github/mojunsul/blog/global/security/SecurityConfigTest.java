@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.containsString;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -136,5 +137,22 @@ class SecurityConfigTest extends IntegrationTestSupport {
 		// when & then
 		mockMvc.perform(get("/api/v1/auth/csrf").header("X-Forwarded-Proto", "https"))
 			.andExpect(header().string("Set-Cookie", containsString("Secure")));
+	}
+
+	@Test
+	void 조회수_API만_인증과_CSRF_토큰_없이_통과한다() throws Exception {
+		// when & then
+		mockMvc.perform(post("/api/v1/posts/nope/views"))
+			.andExpect(status().isNotFound())
+			.andExpect(jsonPath("$.code").value("POST_NOT_FOUND"));
+		mockMvc.perform(post("/api/v1/posts/nope"))
+			.andExpect(status().isForbidden())
+			.andExpect(jsonPath("$.code").value("INVALID_CSRF_TOKEN"));
+		mockMvc.perform(put("/api/v1/posts/nope/views"))
+			.andExpect(status().isForbidden())
+			.andExpect(jsonPath("$.code").value("INVALID_CSRF_TOKEN"));
+		mockMvc.perform(post("/api/v1/posts/a/b/views"))
+			.andExpect(status().isForbidden())
+			.andExpect(jsonPath("$.code").value("INVALID_CSRF_TOKEN"));
 	}
 }
