@@ -110,13 +110,16 @@ nginx 이미지는 `nginx:1-alpine`(12-7과 같은 메이저 태그 원칙). `in
     |---|---|---|---|
     | `login` (1m) | `/api/v1/auth/login` | `5r/m` | `5 nodelay` |
     | `api` (10m) | 그 외 `/api/`, `/stats/api/send`(12-8) | `10r/s` | `20 nodelay` |
+    | `views` (1m) | `POST /api/v1/posts/{slug}/views`(8-2) | `10r/m` | `10 nodelay` |
     - 로그인: 연속 6회(1 + burst)까지 바로 처리하고, 그 뒤는 12초에 1회. 관리자 1명이 비밀번호를 몇 번 틀리는 정도는 막히지 않고, 대입 공격은 분당 5회로 줄어든다.
-    - `api`: 서버 컴포넌트의 API 호출은 Nginx를 거치지 않으므로(`http://backend:8080`, 3장) 브라우저가 직접 부르는 요청(관리자 화면 API, Umami 수집 `/stats/api/send`, M6 조회수)만 받는다. 관리자 화면 한 번에 몇 건, 수집은 페이지 이동 한 번에 1건(12-8)이라 같은 IP 카운터를 나눠 써도 여유가 크다. 조회수 zone은 M6에서 추가한다.
+    - `api`: 서버 컴포넌트의 API 호출은 Nginx를 거치지 않으므로(`http://backend:8080`, 3장) 브라우저가 직접 부르는 요청(관리자 화면 API, Umami 수집 `/stats/api/send`)만 받는다. 관리자 화면 한 번에 몇 건, 수집은 페이지 이동 한 번에 1건(12-8)이라 같은 IP 카운터를 나눠 써도 여유가 크다.
+    - `views`: 글 상세 한 번에 1건이다. 연속 11회(1 + burst)까지 바로 처리하고 그 뒤는 6초에 1회라, 글을 빠르게 넘겨 읽는 방문자는 막히지 않고 쿠키를 버리며 부르는 반복 증가는 IP당 분당 10회로 묶인다. 인증 없이 상태를 바꾸는 요청이라 `api`보다 좁게 따로 둔다. 거절(`429`)은 프론트가 무시한다 (11장 '글 상세 페이지').
     - `limit_req_status 429;` (기본값 `503`은 서버 장애와 구분되지 않는다)
 - `conf.d/blog.conf` (`server_name _`): 80 server는 ACME 경로와 HTTPS 리다이렉트만 두고(12-3), 아래 항목은 모두 443 server에 둔다.
   - `server` 블록에 `set $backend backend:8080;`, `set $frontend frontend:3000;`을 두고 `proxy_pass http://$backend;`처럼 쓴다. URI 부분(끝의 `/`)을 붙이지 않으므로 변수를 써도 요청 URI가 그대로 전달된다 (`/api/...` 경로 유지, 3장).
   - `location /api/` → `proxy_pass http://$backend;` + `limit_req zone=api ...`
   - `location = /api/v1/auth/login` → 같은 `proxy_pass` + `limit_req zone=login ...` (이 location에는 `api` zone을 겹쳐 걸지 않는다)
+  - `location ~ ^/api/v1/posts/[^/]+/views$` → 같은 `proxy_pass` + `limit_req zone=views ...` (`api` zone을 겹쳐 걸지 않는다). 접두사 location `/api/`에 `^~`가 없어 정규식이 맞으면 정규식 location이 쓰인다. 메서드를 나누지 않는 이유: 이 경로에는 POST 말고 쓸 메서드가 없다.
   - `location = /stats/script.js`, `location = /stats/api/send` → Umami (`set $umami umami:3000;`, 12-8)
   - `location /` → `proxy_pass http://$frontend;` + `proxy_buffering off;`. Nginx가 응답을 버퍼링하면 Next의 `Suspense` 스트리밍(11장 '렌더링 전략')이 끝날 때까지 묶여 나간다. Next 문서는 `next.config`에서 `X-Accel-Buffering: no` 헤더를 붙이는 방법도 들지만, 프록시 동작이라 Nginx 설정에 둔다.
   - `/actuator`, `/swagger-ui`, `/v3/api-docs`는 따로 막지 않는다. `/api/`로 시작하지 않아 `location /`(frontend)로 가고 Next의 404가 나간다 (3장).
@@ -135,6 +138,7 @@ nginx 이미지는 `nginx:1-alpine`(12-7과 같은 메이저 태그 원칙). `in
 - 600KB 본문: 관리자 화면 콘솔에서 `content`를 `"가" + "\u0001".repeat(99999)`(JSON에서 약 600KB, 8-4)로 `POST /api/v1/admin/posts`를 `X-XSRF-TOKEN`과 함께 보내 `201`. 확인한 글은 삭제한다.
 - 비노출: `curl -i http://localhost/actuator/health`·`/swagger-ui/index.html`·`/v3/api-docs`가 Spring 응답(JSON)이 아니라 Next 404. `nc -z localhost 5432`·`8080`·`3000`이 실패한다 (로컬 개발용 PostgreSQL·`bootRun`·`npm run dev`를 끈 상태에서).
 - rate limit: `for i in $(seq 10); do curl -s -o /dev/null -w '%{http_code}\n' -X POST http://localhost/api/v1/auth/login; done`에서 앞 6회는 `403`(CSRF 없음), 이후 `429`.
+  - 조회수: `for i in $(seq 15); do curl -s -o /dev/null -w '%{http_code}\n' -X POST http://localhost/api/v1/posts/nope/views; done`에서 앞 11회는 `404`(없는 글, CSRF 없이 통과), 이후 `429`. 그동안 `GET /api/v1/posts`는 `429`가 아니다 (zone이 따로다).
 - 헤더: `curl -sI http://localhost/`에 `X-Content-Type-Options`·`X-Frame-Options`가 있고 `Server: nginx`(버전 없음), `X-Powered-By`가 없다.
 - 요청 ID: `curl -si -H 'X-Request-Id: client-abc' -X POST http://localhost/api/v1/auth/login`(제한이 풀린 뒤)의 응답 `X-Request-Id`가 `client-abc`가 아닌 32자 16진수이고, `docker compose -p blog-prod logs nginx`의 `rid=`와 같다. backend 로그 대조는 브라우저 로그인 한 번으로 한다: 로그인 성공 `INFO`의 `requestId`가 같은 요청의 Nginx `rid=`와 같다.
 - 로그 옵션: 각 컨테이너의 `docker inspect -f '{{.HostConfig.LogConfig}}'`가 `json-file`, `max-size:10m`, `max-file:3`.

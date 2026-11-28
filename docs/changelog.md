@@ -241,3 +241,9 @@
   - 12-3 갱신 crontab 끝에 443 응답 인증서 `openssl x509 -checkend 1209600`(14일)과 ping, 12-5 백업 crontab에 ping을 붙이고 "M5 전까지" 주간 점검을 알림 메일 대응으로 바꿈. ping URL은 crontab에만 둠
   - 1장 부가 기능, 13장 M5 표기 변경
   - 12-2 '서버 준비' 순서 끝에 OCI 설정(12-5)을 두고 백업 crontab은 Healthchecks.io 설정 뒤로 정함, 계정이 Pay As You Go임을 12-2에 적음. 12-6 실패 알림 메일의 받는 사람(push한 관리자) 명시
+- **v2.46**
+  - 조회수(8-2): `POST /api/v1/posts/{slug}/views`는 쿠키 `post_viewed`(글마다 `Path=/api/v1/posts/{slug}/views`, 24시간, 10-1)가 있으면 세지 않고 `204`, 없으면 PUBLISHED 글만 직접 UPDATE로 1 올리고 쿠키를 줘 `204`, 없거나 DRAFT면 `404` `POST_NOT_FOUND`. Redis·서버 메모리·id 목록 쿠키를 택하지 않은 이유와 받아들이는 오차(동시 첫 요청, slug 변경, 봇). `view_count` 컬럼은 V1에 있어 마이그레이션 없음(6장)
+  - 공개 상세 응답에 `viewCount`(8-1), 목록·관리자 API에는 없음. 상세 화면은 발행일 뒤 `조회 N`(`PostMeta` 선택 prop), 값은 `getPost` 캐시라 늦을 수 있음(11장)
+  - 프론트(11장 '글 상세 페이지'): `PostViewTracker`(클라이언트)가 `useEffect`에서 `fetch`로 한 번 호출, `apiFetch`를 쓰지 않고 실패는 모두 무시, StrictMode 가드 없음
+  - CSRF 제외를 `POST /api/v1/posts/*/views`로 한정하고 인증 없이 허용(10-2, 10-5). 방문자 브라우저에 `XSRF-TOKEN`이 생기는 것을 받아들임
+  - Nginx `views` zone(`10r/m`, `burst=10 nodelay`)과 정규식 location, 확인 방법(12-4)

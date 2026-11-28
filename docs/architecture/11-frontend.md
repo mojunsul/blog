@@ -32,7 +32,7 @@ frontend/src/
 ├ components/
 │  ├ ui/            # Button, Input 등 공통
 │  ├ layout/        # PublicShell (블로그 헤더·검색 입력·main·푸터), UmamiScript
-│  ├ post/          # PostCard, PostList, Pagination, TagBadge, Comments(Giscus, 클라이언트 컴포넌트)
+│  ├ post/          # PostCard, PostList, Pagination, TagBadge, Comments(Giscus, 클라이언트 컴포넌트), PostViewTracker(조회수 증가 호출, 클라이언트 컴포넌트)
 │  ├ markdown/      # MarkdownRenderer (서버 컴포넌트)
 │  └ admin/         # LoginForm, AdminAuthGuard, LogoutButton, AdminPostList, PostForm, MarkdownPreview, AdminCategoryManager, CategoryForm
 ├ lib/
@@ -431,6 +431,8 @@ CI에서 프론트 이미지를 빌드할 때는 백엔드가 없다. `next buil
 - `getPost`는 404(없는 글, DRAFT)면 `null`을 돌려주고('에러 처리'), 페이지는 `null`이면 `notFound()`. 그 외 오류는 그대로 던진다.
   - 목록 페이지와 같은 이유로 상태 코드는 `200`으로 남고 `noindex`가 붙는다.
 - 표시 항목: 제목(`h1`), 카테고리 이름(있을 때, 카테고리 페이지 링크)·발행일과 그 아래 태그(`TagBadge`)를 `PostCard`와 같은 형식으로, 본문(`MarkdownRenderer`).
+  - 조회수: 발행일 뒤에 ` · 조회 1,234`(`viewCount.toLocaleString("ko-KR")`, `0`이어도 보인다). `PostMeta`에 선택 prop `viewCount`를 두고 상세만 넘긴다 (목록 응답에는 조회수가 없다, 8-2).
+  - 표시 값은 `getPost` 캐시('렌더링 전략') 값이라 이번 방문과 최근 방문이 빠질 수 있다. 공개 지표라 받아들인다.
   - 요약·썸네일·수정일은 표시하지 않는다. 요약은 목록과 `description`·OG 설명용이고('Metadata'), 썸네일은 목록 페이지와 같은 이유다.
   - 태그를 목록과 같은 형식으로 둔다: 글에서 같은 태그의 다른 글로 가는 길이 상세에도 있어야 하고, 형식이 같아야 `PostCard`와 컴포넌트를 나눠 쓴다.
   - 글별 `<title>`·OG 태그는 'Metadata'.
@@ -451,6 +453,16 @@ CI에서 프론트 이미지를 빌드할 때는 백엔드가 없다. `next buil
     3. 관리자 화면에서 그 글의 slug를 바꾼 뒤 새 주소의 상세에 같은 댓글이 보인다. 확인 후 slug를 되돌리고 Discussion을 지운다.
     4. 상세에서 다른 글로 이동하면(목록으로 갔다가 다른 글) `section[aria-label="댓글"]` 안 스크립트 요소(하나)의 `data-term`이 새 글 id로 바뀐다.
     5. 없는 글(`/posts/nope`)의 not-found 화면에는 댓글 영역이 없다.
+- 조회수 증가(8-2): `<article>` 안 본문 앞에 `components/post/PostViewTracker.tsx`(클라이언트 컴포넌트, `slug` prop, 아무것도 그리지 않음)를 둔다. 글을 찾았을 때만 그리므로 not-found 화면에서는 부르지 않는다.
+  - `useEffect`(의존성 `[slug]`)에서 `fetch`로 `POST /api/v1/posts/{slug}/views`(본문 없음, 상대 경로, 'API 주소 처리')를 보내고 `.catch(() => {})`로 끝낸다. `slug`는 `post.slug`(API 값, slug 규칙에 맞다)다. 다른 글로 클라이언트 이동하면 `slug`가 바뀌어 다시 부른다. 같은 글로 돌아오면 다시 부르지만 서버가 쿠키로 거른다.
+  - `apiFetch`(`client.ts`)를 쓰지 않는다: CSRF 검사에서 빠진 경로라 토큰 발급 호출이 필요 없고, `401` 재발급·로그인 이동과 오류 던지기가 공개 페이지에 맞지 않는다.
+  - 실패(네트워크 오류, `404`, `429`, `5xx`)는 모두 무시한다. 재시도·문구·콘솔 출력이 없고 글 화면은 그대로다 (조회수는 부가 기능).
+  - 두 번 실행을 막는 가드(`useRef`)를 두지 않는다 (React 문서가 분석 호출에 권하는 방식). 그래서 `npm run dev`(StrictMode)에서는 요청이 두 번 나가 첫 방문이 2로 셀 수 있다 (8-2 '받아들이는 오차'). 운영 빌드는 한 번이다.
+  - 관리자도 방문자로 센다 (거르려면 인증 확인 호출이 더 필요하다).
+  - 화면 확인 (로컬 `npm run dev` + 백엔드, 이슈 완료 조건. DOM·`curl`로 본다):
+    1. 시드 글 상세를 연다. `performance.getEntriesByType("resource")`에 `/api/v1/posts/{slug}/views` 항목이 있고(`initiatorType` `fetch`), 발행일 뒤에 `조회 ` 숫자가 보인다.
+    2. 1번 뒤 `curl -s localhost:8080/api/v1/posts/{slug}`의 `viewCount`를 적어 두고, 같은 상세를 새로고침 두 번·목록 갔다가 다시 들어오기를 한 뒤 다시 보면 같은 값이다 (브라우저가 `post_viewed` 쿠키를 받아 보낸다).
+    3. `/posts/nope`(not-found)에서는 `/views` 요청이 없다.
 - 캐시: 기준은 '렌더링 전략'. 같은 글을 다시 요청하면 `getPost`와 `MarkdownRenderer`의 캐시로 백엔드 호출과 Shiki 하이라이팅이 다시 일어나지 않는다.
 - not-found 화면: 루트 `app/not-found.tsx` 하나만 둔다 (`app/(public)/not-found.tsx`는 두지 않는다). 공개 페이지에서 부른 `notFound()`(상세의 없는 글, 목록의 잘못된 `page`)와 어느 경로에도 맞지 않는 URL(`/foo`, `/admin/foo`)이 모두 이 화면이다. 블로그 헤더 안에서 "페이지를 찾을 수 없습니다." 문구와 `/` 링크("홈으로")로 표시된다.
   - 헤더: 루트 not-found는 루트 레이아웃만 거치고 `(public)/layout.tsx`를 거치지 않는다. 그래서 헤더·검색 입력·`main`·푸터를 `components/layout/PublicShell.tsx`(서버 컴포넌트, `children`을 `main` 안에 그림)로 옮기고, `(public)/layout.tsx`와 루트 not-found가 함께 쓴다. `(public)/not-found.tsx`를 남기면 같은 화면이 두 파일이 되고, 지워도 `notFound()`는 가장 가까운 경계인 루트 not-found로 올라가 같은 헤더로 보인다. 그래서 하나로 합친다.
