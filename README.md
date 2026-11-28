@@ -38,7 +38,7 @@ main에 머지하면(`backend/`·`frontend/`·`infra/`·`deploy.yml`이 바뀐 �
 
 ## 최초 배포 (서버, 1회)
 
-순서: 서버 준비 → DNS → `.env` → 인증서 발급 → 첫 배포 → 갱신 cron. 인증서가 없으면 nginx가 뜨지 않으므로 발급이 배포보다 먼저다.
+순서: 서버 준비 → DNS → `.env` → 인증서 발급 → 첫 배포 → Healthchecks.io 설정 → 갱신 cron → OCI 설정. 인증서가 없으면 nginx가 뜨지 않으므로 발급이 배포보다 먼저고, 두 crontab 줄에 ping URL이 들어가므로 Healthchecks.io 설정이 cron보다 먼저다.
 
 1. **서버 준비** (OCI 콘솔)
    - `VM.Standard.A1.Flex`(arm64) 4 OCPU·24GB, Ubuntu 24.04, 예약 공인 IP를 붙인다.
@@ -72,10 +72,12 @@ main에 머지하면(`backend/`·`frontend/`·`infra/`·`deploy.yml`이 바뀐 �
    docker compose -f infra/docker-compose.prod.yml up -d --build
    ```
 7. **자동 배포 준비**: 위 '배포'의 Secrets와 GHCR 패키지 Public 전환. `.env` 값은 같은 값을 Secrets에도 등록한다. 첫 자동 배포부터 deploy가 `.env`를 다시 쓰고 `IMAGE_TAG`를 커밋 SHA로 바꾼다.
-8. **갱신 cron**: `crontab -e`에 한 줄을 추가한다.
+8. **Healthchecks.io 설정**: 아래 'Healthchecks.io 설정'대로 체크 두 개를 만든다.
+9. **갱신 cron**: `crontab -e`에 한 줄을 추가한다. `<ping URL>`은 `blog-cert-renew` 체크의 URL이다. 끝의 `openssl`·`curl`은 Nginx가 내보내는 인증서가 14일 넘게 남았을 때만 성공 신호를 보낸다.
    ```
-   17 3 * * * cd $HOME/blog && { docker compose -f infra/docker-compose.prod.yml run --rm -T certbot renew -q && docker compose -f infra/docker-compose.prod.yml exec -T nginx nginx -s reload; } >> $HOME/certbot-renew.log 2>&1
+   17 3 * * * cd $HOME/blog && { docker compose -f infra/docker-compose.prod.yml run --rm -T certbot renew -q && docker compose -f infra/docker-compose.prod.yml exec -T nginx nginx -s reload && echo | openssl s_client -connect 127.0.0.1:443 2>/dev/null | openssl x509 -noout -checkend 1209600 && curl -fsS -m 10 --retry 5 -o /dev/null <ping URL>; } >> $HOME/certbot-renew.log 2>&1
    ```
+10. **OCI 설정**: 아래 'DB 백업과 복구'의 'OCI 설정'을 한다.
 
 ### #109 머지 전 검증 뒤 main으로 복귀
 
@@ -101,13 +103,13 @@ docker compose -f infra/docker-compose.prod.yml up -d --force-recreate
 
 ## 인증서 갱신
 
-`certbot renew`는 수명의 약 1/3이 남은 인증서만 갱신하므로 매일 도는 cron이 대부분 아무것도 하지 않는다. 실패하면 reload를 건너뛰고 `~/certbot-renew.log`에 오류가 남는다. Let's Encrypt는 만료 안내 메일을 보내지 않으므로 매주 월요일 남은 기간을 확인한다.
+`certbot renew`는 수명의 약 1/3이 남은 인증서만 갱신하므로 매일 도는 cron이 대부분 아무것도 하지 않는다. 실패하면 reload를 건너뛰고 `~/certbot-renew.log`에 오류가 남는다. Let's Encrypt는 만료 안내 메일을 보내지 않지만, 줄의 어느 단계든 실패하면 성공 신호가 가지 않아 그날 Healthchecks.io 알림 메일이 온다. 메일을 받으면 `~/certbot-renew.log`를 보고 고친 뒤 crontab 줄의 명령을 셸에서 한 번 실행한다. 남은 기간은 아래 명령으로 본다.
 
 ```bash
 docker compose -f infra/docker-compose.prod.yml run --rm certbot certificates
 ```
 
-`VALID: N days`가 수명의 1/3 미만이면 `~/certbot-renew.log`를 보고 고친다. 수명은 아래 두 날짜의 차이다 (90일 인증서는 30일, 64일 인증서는 21일 미만이 기준. Let's Encrypt는 2027-02-10부터 기본 64일로 발급한다).
+`VALID: N days`가 수명의 1/3 미만이면 갱신이 막힌 것이다. 수명은 아래 두 날짜의 차이다 (90일 인증서는 30일, 64일 인증서는 21일 미만이 기준. Let's Encrypt는 2027-02-10부터 기본 64일로 발급한다).
 
 ```bash
 sudo openssl x509 -noout -startdate -enddate -in infra/certbot/conf/live/blog/cert.pem
@@ -118,6 +120,20 @@ sudo openssl x509 -noout -startdate -enddate -in infra/certbot/conf/live/blog/ce
 ```bash
 docker compose -f infra/docker-compose.prod.yml run --rm certbot renew --dry-run
 ```
+
+## Healthchecks.io 설정
+
+호스트 cron 두 개(인증서 갱신, DB 백업)가 성공할 때마다 [Healthchecks.io](https://healthchecks.io)(무료)에 신호를 보내고, 예약 시각과 유예 시간이 지나도 신호가 없으면 가입 이메일로 알림이 온다. 최초 1회만 한다.
+
+1. 관리자 본인 이메일로 가입한다. 기본 Email 통합이 켜져 있으면 된다.
+2. 체크 두 개를 만든다. 스케줄 종류 Cron, 시간대 `UTC`, 유예(Grace Time) 1시간.
+
+   | 이름 | Cron 식 |
+   |---|---|
+   | `blog-cert-renew` | `17 3 * * *` |
+   | `blog-backup` | `30 18 * * *` |
+3. 각 체크의 ping URL(`https://hc-ping.com/...`)을 복사해 위 crontab 줄의 `<ping URL>`에 넣는다. URL은 아는 사람이 성공 신호를 보내 실패를 가릴 수 있으므로 저장소·이슈에 적지 않고 crontab에만 둔다.
+4. 알림 확인: 각 체크에 `curl -fsS -m 10 <ping URL>/fail`을 보내면 down 메일이, 이어서 `curl -fsS -m 10 <ping URL>`을 보내면 up 메일이 온다.
 
 ## DB 백업과 복구
 
@@ -135,9 +151,9 @@ docker compose -f infra/docker-compose.prod.yml run --rm certbot renew --dry-run
    Allow service objectstorage-<리전> to manage object-family in tenancy
    ```
 4. **버킷 수명 주기 정책 규칙**: 대상 객체, 동작 삭제, 14일, 접두사 없음, 활성.
-5. **crontab**: `crontab -e`에 한 줄을 추가한다 (서버 시간대 UTC, 18:30 = 03:30 KST).
+5. **crontab**: Healthchecks.io 설정 뒤에 `crontab -e`로 한 줄을 추가한다 (서버 시간대 UTC, 18:30 = 03:30 KST). `<ping URL>`은 `blog-backup` 체크의 URL이다.
    ```
-   30 18 * * * cd $HOME/blog && bash infra/backup/backup.sh >> $HOME/backup.log 2>&1
+   30 18 * * * cd $HOME/blog && { bash infra/backup/backup.sh && curl -fsS -m 10 --retry 5 -o /dev/null <ping URL>; } >> $HOME/backup.log 2>&1
    ```
 
 인증 확인 (저장소 폴더에서). 네임스페이스가 출력되면 인스턴스 주체 인증이 된다. 이 명령은 권한이 필요 없어 정책 반영은 보여 주지 않으므로, 정책은 아래 수동 백업이 성공하는지로 확인한다 (IAM 변경 반영에 몇 분 걸릴 수 있다).
@@ -146,21 +162,21 @@ docker compose -f infra/docker-compose.prod.yml run --rm certbot renew --dry-run
 docker compose -f infra/docker-compose.prod.yml run --rm -T backup os ns get
 ```
 
-### 수동 백업과 주간 점검
+### 수동 백업과 실패 알림
 
 ```bash
 bash infra/backup/backup.sh
 ```
 
-종료 코드 0과 `백업 완료` 줄이 나오면 성공이다. 실패하면 `백업 실패` 줄과 0이 아닌 코드로 끝나고, 재시도 없이 다음 날 실행을 기다린다. 실패는 `~/backup.log`에만 남고 알림은 없다 (M5에 Uptime Kuma Push 모니터를 붙이고 crontab 줄 끝에 `&& curl -fsS <Push URL>`을 더한다. URL은 저장소에 넣지 않는다).
+종료 코드 0과 `백업 완료` 줄이 나오면 성공이다. 실패하면 `백업 실패` 줄과 0이 아닌 코드로 끝나고, 재시도 없이 다음 날 실행을 기다린다. 실패는 `~/backup.log`에 남고, 스크립트가 0으로 끝날 때만 crontab 줄의 `curl`이 성공 신호를 보내므로 신호가 없으면 그날 Healthchecks.io 알림 메일이 온다.
 
-M5 전까지는 인증서 점검과 같은 매주 월요일에 객체 목록을 본다.
+메일을 받으면 `~/backup.log`를 보고 고친 뒤 스크립트를 직접 한 번 실행한다. 객체 목록은 아래 명령으로 본다.
 
 ```bash
 docker compose -f infra/docker-compose.prod.yml run --rm -T backup os object list --bucket-name blog-backup --fields name,size,timeCreated
 ```
 
-가장 최근 `time-created`가 24시간 안이고 지난 7일에 하루 하나씩 있으면 정상이다. 아니면 `~/backup.log`를 보고 고친 뒤 스크립트를 직접 한 번 실행한다.
+가장 최근 `time-created`가 24시간 안이고 지난 7일에 하루 하나씩 있으면 정상이다.
 
 ### 복구
 
@@ -174,7 +190,7 @@ docker compose -f infra/docker-compose.prod.yml run --rm -T backup os object lis
 
 **운영 DB 복구** (데이터 손실·새 서버)
 
-0. 새 서버만: 위 'OCI 설정' 2로 동적 그룹 규칙의 OCID를 새 인스턴스로 바꾸고, 위 주간 점검의 목록 명령이 객체 목록을 출력할 때까지 기다린 뒤 그 목록에서 이름을 골라 '받기'를 한다. 목록 조회는 버킷 권한이 있어야 성공하므로 IAM 반영을 보여 준다 (인증 확인의 `os ns get`은 권한 없이도 성공해 이 확인에 쓰지 않는다). 바꾸기 전에는 `BucketNotFound`(404) 등 권한 오류로 실패한다. 10분이 지나도 실패하면 규칙의 OCID와 정책을 콘솔에서 다시 확인한다. 새 서버는 '최초 배포'의 1부터 5까지를 마친 뒤 6(첫 배포) 대신 이 절차를 하고, `infra/.env`의 `IMAGE_TAG`는 비워 둔다 (4단계가 `latest`를 GHCR에서 받는다. `local`이면 로컬 이미지가 없어 실패한다).
+0. 새 서버만: 위 'OCI 설정' 2로 동적 그룹 규칙의 OCID를 새 인스턴스로 바꾸고, 위 수동 백업 절의 목록 명령이 객체 목록을 출력할 때까지 기다린 뒤 그 목록에서 이름을 골라 '받기'를 한다. 목록 조회는 버킷 권한이 있어야 성공하므로 IAM 반영을 보여 준다 (인증 확인의 `os ns get`은 권한 없이도 성공해 이 확인에 쓰지 않는다). 바꾸기 전에는 `BucketNotFound`(404) 등 권한 오류로 실패한다. 10분이 지나도 실패하면 규칙의 OCID와 정책을 콘솔에서 다시 확인한다. 새 서버는 '최초 배포'의 1부터 5까지를 마친 뒤 6(첫 배포) 대신 이 절차를 하고, `infra/.env`의 `IMAGE_TAG`는 비워 둔다 (4단계가 `latest`를 GHCR에서 받는다. `local`이면 로컬 이미지가 없어 실패한다).
 1. postgres만 띄우고 backend를 멈춘다.
    ```bash
    docker compose -f infra/docker-compose.prod.yml up -d postgres && docker compose -f infra/docker-compose.prod.yml stop backend
@@ -191,7 +207,7 @@ docker compose -f infra/docker-compose.prod.yml run --rm -T backup os object lis
    ```bash
    docker compose -f infra/docker-compose.prod.yml up -d --no-build --wait && rm ~/restore.dump
    ```
-5. 새 서버만: 'OCI 설정' 5의 crontab 줄을 등록하고 `crontab -l`로 확인한다. 빠뜨리면 백업이 알림 없이 멈춘다. 등록 다음 날 주간 점검 명령으로 그날 객체가 생겼는지 본다.
+5. 새 서버만: 'OCI 설정' 5의 crontab 줄을 등록하고(`<ping URL>`은 Healthchecks.io 콘솔의 `blog-backup` 체크에서 복사한다) `crontab -l`로 확인한다. 빠뜨리면 백업이 멈추고 성공 신호도 끊겨 다음 날 알림 메일이 온다.
 
 `admin` 행도 복구되므로 로그인 비밀번호는 백업 시점의 것이다. `.env`의 값과 다르면 '관리자 비밀번호 변경'을 한다.
 

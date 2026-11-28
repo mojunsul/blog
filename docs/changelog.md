@@ -235,3 +235,9 @@
   - 환경변수 `UMAMI_DB_PASSWORD`·`UMAMI_APP_SECRET`(필수)·`UMAMI_WEBSITE_ID`(비우면 스크립트 없음)를 `.env`·GitHub Secrets에 추가(12-2, 12-6 표). 12-2 포트 예외, 12-4 location·`api` zone 대상, 3장 다이어그램 반영
   - 배포 스크립트(12-6 3·6단계): `up -d`를 블로그 서비스(`nginx frontend backend postgres`)와 Umami(`umami umami-db`, 실패 무시)로 나눠 Umami 실패로 배포가 롤백되지 않게 함. 12-8 '실패 처리'에 배포 중 Umami 실패, 12-4 `api` zone 설명에 수집 요청 반영
   - 프론트(11장 '방문자 분석 스크립트'): `(public)/layout.tsx`에 `Suspense` 안의 `UmamiScript`(`connection()` 뒤 `UMAMI_WEBSITE_ID`를 읽어 `next/script` `afterInteractive`). 관리자 페이지와 주소로 바로 연 not-found 화면에는 없음
+- **v2.45**
+  - 실패 알림(12-9): M5 Uptime Kuma 대신 Healthchecks.io 무료 플랜으로 인증서 갱신·DB 백업 cron의 성공 신호를 받고, 예약 시각 + 유예 1시간 안에 신호가 없으면 메일 알림. 같은 서버 셀프 호스팅은 서버 다운을 못 잡고 감시용 서버를 늘리게 되어, UptimeRobot은 무료 플랜에 heartbeat가 없어 택하지 않음
+  - 사이트 업타임(HTTP) 감시는 두지 않음(방문이 적고, 배포 실패는 deploy 롤백·GitHub 메일, PAYG라 유휴 회수 없음). Umami도 감시하지 않음(12-8)
+  - 12-3 갱신 crontab 끝에 443 응답 인증서 `openssl x509 -checkend 1209600`(14일)과 ping, 12-5 백업 crontab에 ping을 붙이고 "M5 전까지" 주간 점검을 알림 메일 대응으로 바꿈. ping URL은 crontab에만 둠
+  - 1장 부가 기능, 13장 M5 표기 변경
+  - 12-2 '서버 준비' 순서 끝에 OCI 설정(12-5)을 두고 백업 crontab은 Healthchecks.io 설정 뒤로 정함, 계정이 Pay As You Go임을 12-2에 적음. 12-6 실패 알림 메일의 받는 사람(push한 관리자) 명시
