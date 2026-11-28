@@ -6,11 +6,13 @@
 | `access_token` | JWT (15분) | HttpOnly, Secure, SameSite=Lax, Path=/api |
 | `refresh_token` | 랜덤 문자열 (14일), DB에는 SHA-256 해시 저장 | HttpOnly, Secure, SameSite=Lax, Path=/api/v1/auth |
 | `XSRF-TOKEN` | CSRF 토큰 | **HttpOnly 아님** (JS가 읽어서 헤더로 보냄), SameSite=Lax, Path=/, Secure는 HTTPS 요청일 때만 (10-5) |
+| `post_viewed` | `1` (조회수 중복 방지, 24시간, 8-2) | HttpOnly, Secure, SameSite=Lax, Path=/api/v1/posts/{slug}/views |
 
 - 토큰을 localStorage·sessionStorage에 저장하지 않는다.
 - JWT 서명 키는 환경변수로만 주입한다 (`JWT_SECRET`, 256bit 이상). 형식과 검사는 10-6.
 - `access_token`·`refresh_token`의 `Secure`는 설정 `blog.auth.secure-cookie`로 정한다. `application.yaml`에 `true`, `application-local.yaml`에만 `false`를 둔다 (test·prod는 `true`).
   - `XSRF-TOKEN`처럼 `request.isSecure()`를 따르지 않는 이유: 운영에서 Nginx의 `X-Forwarded-Proto`가 빠지면 인증 토큰이 `Secure` 없이 조용히 나간다. 인증 토큰은 설정이 빠져도 안전한 쪽(`Secure`)으로 둔다. `XSRF-TOKEN`은 값이 노출돼도 헤더를 직접 붙일 수 없는 다른 출처에는 쓸모가 없어 요청을 따른다 (10-5).
+- `post_viewed`의 `Secure`도 같은 설정을 따른다 (`CookieUtil`의 같은 생성 코드를 쓴다). 인증 정보는 아니지만 따로 두면 설정이 둘이 된다.
 - 쿠키 이름·속성·`Max-Age`는 `CookieUtil`(`global/security`) 한 곳에서 만든다 (`ResponseCookie`, `Set-Cookie` 헤더). `CookieUtil`은 `@Component`이고 `AuthProperties`를 생성자로 받아 `Secure`를 정한다 (정적 메서드로 두면 컨트롤러가 설정을 따로 받아 넘겨야 한다). `Max-Age`는 토큰 수명과 같다 (Access 900초, Refresh 1209600초). 수명은 코드 상수로 두고 설정으로 빼지 않는다. 로그아웃용 만료 쿠키(`Max-Age=0`, 값 빈 문자열)도 여기서 만든다: 브라우저는 이름·`Path`가 같아야 지우므로 발급과 같은 코드를 거치게 한다.
 
 ### 10-2. CSRF 보호
@@ -21,7 +23,8 @@
   1. 프론트가 상태 변경 요청을 보내기 직전에 `XSRF-TOKEN` 쿠키가 없으면 `GET /api/v1/auth/csrf` 호출 → `XSRF-TOKEN` 쿠키 발급 (`client.ts`, 11장)
   2. 상태 변경 요청(POST/PUT/DELETE) 시 쿠키 값을 읽어 `X-XSRF-TOKEN` 헤더로 전송
   3. 서버가 쿠키와 헤더 값을 비교
-- CSRF 검사 제외: GET·HEAD·OPTIONS·TRACE 요청(Spring 기본값, 10-5), `POST /api/v1/posts/{slug}/views`(M6)
+- CSRF 검사 제외: GET·HEAD·OPTIONS·TRACE 요청(Spring 기본값, 10-5), `POST /api/v1/posts/{slug}/views`(조회수, 8-2)
+  - 조회수를 빼는 이유: 로그인하지 않은 방문자가 부르고 결과가 조회수 1 증가뿐이라, 다른 사이트가 위조해 보내도 직접 호출(`curl`)과 다르지 않다. 검사하면 방문자마다 처음에 `GET /api/v1/auth/csrf`가 한 번 더 나간다. 증가 속도는 rate limit(12-4)이 묶는다.
 - `SameSite=Lax`는 추가 방어선으로 함께 유지한다.
 
 ### 10-3. 인증 흐름
@@ -51,7 +54,7 @@
   |---|---|
   | `/actuator/health/**`, Swagger(`/v3/api-docs/**`, `/swagger-ui/**`, `/swagger-ui.html`) | 모두 허용 (Swagger는 `local`에서만 켜짐, 5장. `/swagger-ui.html`은 springdoc의 진입 주소로 `/swagger-ui/index.html`로 이동시킨다) |
   | `/error` | 모두 허용 (아래 '`/error`') |
-  | `GET /api/v1/posts/**`, `GET /api/v1/categories`, `GET /api/v1/tags`, `GET /api/v1/auth/csrf`, `POST /api/v1/auth/login`, `POST /api/v1/auth/refresh`, `POST /api/v1/auth/logout` | 모두 허용 (POST는 CSRF 검사를 받는다. 재발급은 Access 토큰이 만료된 상태로 부르고, 로그아웃은 만료 후에도 쿠키를 지울 수 있어야 해서 인증을 요구하지 않는다) |
+  | `GET /api/v1/posts/**`, `GET /api/v1/categories`, `GET /api/v1/tags`, `GET /api/v1/auth/csrf`, `POST /api/v1/auth/login`, `POST /api/v1/auth/refresh`, `POST /api/v1/auth/logout`, `POST /api/v1/posts/*/views` | 모두 허용 (POST는 조회수를 빼고 CSRF 검사를 받는다. 재발급은 Access 토큰이 만료된 상태로 부르고, 로그아웃은 만료 후에도 쿠키를 지울 수 있어야 해서 인증을 요구하지 않는다) |
   | `/api/v1/admin/**` | `ROLE_ADMIN` |
   | 그 외 | 인증 필요 |
   - `GET /api/v1/auth/me`는 '그 외'(인증 필요)에 걸리므로 따로 적지 않는다.
@@ -59,9 +62,9 @@
 - CSRF: `csrf.spa()`에 SameSite를 붙인 `CookieCsrfTokenRepository`를 넣는다 (`spa()`는 쿠키 속성을 바꿀 수 없어 저장소만 교체).
   - `XSRF-TOKEN` 쿠키: HttpOnly 아님, `Path=/`, `SameSite=Lax`, `Secure`는 요청이 HTTPS인지(`request.isSecure()`)를 따른다. 운영은 Nginx 뒤에서 `forward-headers-strategy: framework`로 HTTPS가 되어 `Secure`가 붙고, local(http)은 붙지 않아 프로필 설정이 필요 없다.
   - 토큰 로딩: `csrf.spa()`의 요청 처리기는 모든 요청에서 토큰을 미리 불러온다(Spring Security 7.1.1 `SpaCsrfTokenRequestHandler`, SPA가 언제든 쿠키를 읽을 수 있게 하려는 설계). 그래서 쿠키가 없는 요청이면 CSRF 필터를 지나는 모든 응답(공개 GET, health, 401·403 포함)에 `Set-Cookie: XSRF-TOKEN`이 붙는다. 방화벽·Tomcat에서 거절된 요청은 CSRF 필터 전이라 붙지 않는다.
-    - 이를 받아들인다. 세션을 쓰지 않아 서버 상태가 생기지 않고, 공개 API는 Next 서버 컴포넌트가 서버 간 호출로 부르므로 브라우저에 쿠키가 쌓이지 않는다(서버 측 `fetch`는 `Set-Cookie`를 저장하지 않는다). 막으려면 `spa()` 대신 요청 처리기를 직접 조립해야 해 코드가 늘고 Spring 권장 설정에서 벗어난다.
+    - 이를 받아들인다. 세션을 쓰지 않아 서버 상태가 생기지 않고, 공개 API는 Next 서버 컴포넌트가 서버 간 호출로 부르므로 브라우저에 쿠키가 쌓이지 않는다(서버 측 `fetch`는 `Set-Cookie`를 저장하지 않는다). 예외는 브라우저가 부르는 조회수 API(8-2)다: CSRF 검사에서 빼도 요청 처리기는 그대로 돌아 방문자 브라우저에 `XSRF-TOKEN`이 생긴다. 서버 상태가 없고 값이 쓰일 곳도 없어 받아들인다. 막으려면 `spa()` 대신 요청 처리기를 직접 조립해야 해 코드가 늘고 Spring 권장 설정에서 벗어난다.
   - `GET /api/v1/auth/csrf`(`AuthController`)는 `CsrfToken`을 인자로 받아 `getToken()`을 호출해 토큰을 확정하고 `204`로 응답한다. 인자로 받은 `CsrfToken`은 지연 객체라 받기만 해서는 토큰이 만들어지지 않고, 값을 읽을 때 만들어져 쿠키로 저장된다. 위 미리 불러오기로 쿠키는 이미 정해지지만, `getToken()`을 직접 불러 이 진입점이 `spa()` 동작에 기대지 않게 한다. 진입점을 두는 이유는 8-3.
-  - 검사 대상: GET·HEAD·OPTIONS·TRACE를 뺀 모든 요청 (Spring 기본값). 조회수 API 제외(10-2)는 M6에서 추가한다.
+  - 검사 대상: GET·HEAD·OPTIONS·TRACE를 뺀 모든 요청 (Spring 기본값)에서 조회수 API(10-2)를 뺀다. `csrf.ignoringRequestMatchers(PathPatternRequestMatcher.withDefaults().matcher(HttpMethod.POST, "/api/v1/posts/*/views"))`로 메서드까지 한정한다 (문자열 인자는 모든 메서드에 걸린다). `*`는 경로 한 마디라 `/api/v1/posts/a/b/views`는 제외되지 않는다.
 - 오류 응답 (Tomcat 거절 행을 빼고 모두 `application/problem+json`, 9장 형식, `instance`는 요청 경로)
   | 상황 | 응답 |
   |---|---|

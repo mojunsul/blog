@@ -585,4 +585,25 @@ class PostServiceTest {
 		// when & then
 		assertThatCode(() -> postService.delete(1L)).doesNotThrowAnyException();
 	}
+
+	@Test
+	void 조회수를_올릴_PUBLISHED_글이_없으면_POST_NOT_FOUND다() {
+		// given
+		given(postRepository.increaseViewCount("missing", PostStatus.PUBLISHED)).willReturn(0);
+
+		// when & then
+		assertThatThrownBy(() -> postService.increaseViewCount("missing"))
+			.isInstanceOf(BusinessException.class)
+			.extracting(e -> ((BusinessException)e).errorCode())
+			.isEqualTo(ErrorCode.POST_NOT_FOUND);
+	}
+
+	@Test
+	void 조회수를_올릴_PUBLISHED_글이_있으면_예외가_없다() {
+		// given
+		given(postRepository.increaseViewCount("post", PostStatus.PUBLISHED)).willReturn(1);
+
+		// when & then
+		assertThatCode(() -> postService.increaseViewCount("post")).doesNotThrowAnyException();
+	}
 }

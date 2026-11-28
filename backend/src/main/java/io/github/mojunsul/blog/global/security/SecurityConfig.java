@@ -9,6 +9,7 @@ import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 import org.springframework.security.web.csrf.CookieCsrfTokenRepository;
+import org.springframework.security.web.servlet.util.matcher.PathPatternRequestMatcher;
 
 import lombok.RequiredArgsConstructor;
 
@@ -28,7 +29,12 @@ public class SecurityConfig {
 			.formLogin(AbstractHttpConfigurer::disable)
 			.httpBasic(AbstractHttpConfigurer::disable)
 			.logout(AbstractHttpConfigurer::disable)
-			.csrf(csrf -> csrf.spa().csrfTokenRepository(csrfTokenRepository()))
+			.csrf(csrf -> {
+				csrf.spa().csrfTokenRepository(csrfTokenRepository());
+				// 방문자가 부르고 결과가 조회수 1 증가뿐이라 위조해도 직접 호출과 다르지 않다
+				csrf.ignoringRequestMatchers(
+					PathPatternRequestMatcher.withDefaults().matcher(HttpMethod.POST, "/api/v1/posts/*/views"));
+			})
 			.addFilterBefore(new JwtAuthenticationFilter(jwtProvider), UsernamePasswordAuthenticationFilter.class)
 			.exceptionHandling(e -> e
 				.authenticationEntryPoint(authenticationEntryPoint)
@@ -40,7 +46,8 @@ public class SecurityConfig {
 				.requestMatchers(HttpMethod.GET, "/api/v1/posts/**", "/api/v1/categories", "/api/v1/tags",
 					"/api/v1/auth/csrf")
 				.permitAll()
-				.requestMatchers(HttpMethod.POST, "/api/v1/auth/login", "/api/v1/auth/refresh", "/api/v1/auth/logout")
+				.requestMatchers(HttpMethod.POST, "/api/v1/auth/login", "/api/v1/auth/refresh", "/api/v1/auth/logout",
+					"/api/v1/posts/*/views")
 				.permitAll()
 				.requestMatchers("/api/v1/admin/**").hasRole("ADMIN")
 				.anyRequest().authenticated());

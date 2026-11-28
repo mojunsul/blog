@@ -16,11 +16,12 @@ public record PostDetailResponse(
 	@Schema(nullable = true) PostCategoryResponse category,
 	List<String> tags,
 	Instant publishedAt,
-	Instant updatedAt) {
+	Instant updatedAt,
+	long viewCount) {
 
 	public static PostDetailResponse from(Post post, List<String> tags) {
 		return new PostDetailResponse(post.getId(), post.getTitle(), post.getSlug(), post.getSummary(),
 			post.getContent(), post.getThumbnailUrl(), PostCategoryResponse.from(post.getCategory()), tags,
-			post.getPublishedAt(), post.getUpdatedAt());
+			post.getPublishedAt(), post.getUpdatedAt(), post.getViewCount());
 	}
 }

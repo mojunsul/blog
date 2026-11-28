@@ -15,6 +15,8 @@ public class CookieUtil {
 	static final String ACCESS_TOKEN = "access_token";
 	public static final String REFRESH_TOKEN = "refresh_token";
 
+	public static final String POST_VIEWED = "post_viewed";
+
 	private final AuthProperties properties;
 
 	public ResponseCookie accessToken(String value) {
@@ -23,6 +25,11 @@ public class CookieUtil {
 
 	public ResponseCookie refreshToken(String value) {
 		return refreshToken(value, Duration.ofDays(14));
+	}
+
+	// 글마다 Path가 달라 쿠키가 따로 생기므로 글별로 24시간을 센다
+	public ResponseCookie postViewed(String slug) {
+		return cookie(POST_VIEWED, "1", "/api/v1/posts/" + slug + "/views", Duration.ofHours(24));
 	}
 
 	// 브라우저는 이름·Path가 같아야 지우므로 발급과 같은 코드를 거친다

@@ -80,10 +80,12 @@ GET /api/v1/posts?page=0&size=10&tag=spring
   "category": { "name": "Backend", "slug": "backend" },
   "tags": ["spring", "jwt"],
   "publishedAt": "2026-10-11T01:00:00Z",
-  "updatedAt": "2026-10-11T03:30:00Z"
+  "updatedAt": "2026-10-11T03:30:00Z",
+  "viewCount": 128
 }
 ```
 - 없거나 DRAFT인 글: `404` (`POST_NOT_FOUND`)
+- `viewCount`는 `view_count` 값이다(M6, 8-2). 상세 Controller 테스트의 응답 형식 검사에 이 필드를 더하고, `api.d.ts`를 다시 생성한다.
 - `tags`는 목록과 같은 쿼리에 `List.of(id)`를 넘겨 채운다 (5장).
 - 조회수는 이 API에서 증가시키지 않는다 (프론트 캐시 때문에 실제 방문 수와 맞지 않고, GET이 상태를 바꾸면 안 되기 때문).
 - 경로의 `slug`는 형식을 검사하지 않고 그대로 조회한다. 규칙에 맞지 않거나 대소문자가 다른 값(`Spring-Jwt`)도 `404`다 (식별자라서 "그런 글이 없다"가 맞는 응답이다).
@@ -118,10 +120,31 @@ GET /api/v1/posts?page=0&size=10&tag=spring
 |---|---|---|
 | POST | `/api/v1/posts/{slug}/views` | 조회수 1 증가, `204` |
 
-- 브라우저(클라이언트 컴포넌트)에서 상세 페이지 진입 시 호출한다.
-- 같은 방문자의 반복 증가 방지는 M6에서 설계한다 (예: 쿠키·Redis 기반 중복 제거).
-- 인증이 필요 없는 상태 변경 요청이므로 CSRF 검사 대상에서 제외하고 rate limit을 적용한다.
-- 증가는 직접 UPDATE 쿼리(`view_count = view_count + 1`, `@Modifying`)로 한다. 엔티티 변경 감지를 쓰면 `@LastModifiedDate`가 `updatedAt`을 조회 시각으로 바꾸고, 동시 요청에서 증가분이 유실된다.
+- 브라우저가 글 상세 페이지를 그린 뒤 한 번 부른다 (11장 '글 상세 페이지'). 요청 본문은 없다.
+- 처리 순서: Nginx rate limit(`views` zone, 12-4) → Spring Security 방화벽(10-5, `;` 등은 `400` `INVALID_INPUT`) → 아래 표. CSRF 검사는 받지 않는다(10-2).
+  | 요청 | 결과 |
+  |---|---|
+  | `post_viewed` 쿠키가 실려 옴 (값은 보지 않는다. 빈 값·여러 개도 같다) | `204`. 글을 조회·증가하지 않고 `Set-Cookie`도 없다 |
+  | 쿠키 없음, `slug`가 PUBLISHED 글 | `204`. `view_count` 1 증가, `Set-Cookie: post_viewed` |
+  | 쿠키 없음, 없거나 DRAFT인 글 | `404` `POST_NOT_FOUND`. 쿠키를 주지 않는다 |
+  - 경로의 `slug`는 상세(8-1)와 같이 형식을 검사하지 않고 그대로 찾는다 (맞지 않으면 `404`).
+  - 쿠키가 있으면 글을 찾지 않으므로, 쿠키를 받은 뒤 삭제되거나 DRAFT가 된 글도 `204`다. 결과가 조회수를 바꾸지 않는 것은 같아 받아들인다.
+- **중복 방지**: 같은 브라우저가 같은 글을 24시간 안에 다시 열면 세지 않는다. 쿠키 `post_viewed`(값 `1`, `Path=/api/v1/posts/{slug}/views`, `Max-Age=86400`, 10-1)로 판단한다.
+  - 글마다 Path가 달라 쿠키가 글마다 따로 생기고, 그 글의 이 API 요청에만 실린다. 국내 예제에 흔한 "글 id 목록을 쿠키 하나에 이어 붙이는" 방식을 쓰지 않는 이유: 쿠키 하나의 `Max-Age`를 다시 쓰므로 글마다 24시간을 따로 셀 수 없고, 목록 파싱과 크기(4KB) 처리가 필요하다.
+  - 쿠키를 택한 이유: 서버 상태가 생기지 않고(10-5 STATELESS) 의존성이 늘지 않는다. Redis는 아직 없고(M6 별도 이슈), 서버 메모리에 IP·글을 두면 재시작 때 사라지고 IP를 보관하며 NAT 뒤 방문자를 한 명으로 센다. 쿠키를 지우거나 API를 직접 부르면 다시 셀 수 있지만, 조회수는 정확해야 하는 값이 아니고 Nginx rate limit이 IP당 증가 속도를 묶는다(12-4).
+  - 받아들이는 오차: 쿠키를 받기 전에 같은 브라우저의 요청 두 개가 동시에 오면 둘 다 센다(개발 모드 StrictMode, 11장). slug를 바꾸면 Path가 달라져 같은 방문자를 다시 센다. 봇은 거르지 않는다(JS를 실행하는 크롤러만 부르고, User-Agent 판별은 우회가 쉽다).
+- 계층
+  - `PostController`: `@PostMapping("/{slug}/views")`, `@CookieValue(name = "post_viewed", required = false)`로 쿠키를 받는다. 있으면 Service를 부르지 않고 `204`. 없으면 `PostService.increaseViewCount(slug)`를 부른 뒤 `CookieUtil`의 쿠키를 `Set-Cookie`로 붙여 `204`. 쿠키는 HTTP 요청·응답의 일이라 인증 쿠키(`AuthController`)처럼 컨트롤러가 다룬다.
+  - `PostService.increaseViewCount(String slug)`(`@Transactional`): Repository가 바꾼 행 수가 `0`이면 `BusinessException(ErrorCode.POST_NOT_FOUND)`.
+  - `PostRepository.increaseViewCount(String slug, PostStatus status)`: `@Modifying` + `@Query("update Post p set p.viewCount = p.viewCount + 1 where p.slug = :slug and p.status = :status")`, `int`(바뀐 행 수) 반환. Service가 `PUBLISHED`를 넘긴다.
+- 증가는 직접 UPDATE 쿼리로 한다. 엔티티 변경 감지를 쓰면 `@LastModifiedDate`가 `updatedAt`을 조회 시각으로 바꾸고, 동시 요청에서 증가분이 유실된다.
+- 조회수 노출은 공개 상세 응답의 `viewCount`뿐이다 (8-1). 목록·관리자 API에는 넣지 않는다.
+- 테스트
+  - Repository: PUBLISHED 글은 `1`을 돌려주고 `view_count`가 1 늘며 `updated_at`이 그대로다(영속성 컨텍스트를 비운 뒤 다시 읽는다). DRAFT 글과 없는 slug는 `0`이고 값이 그대로다.
+  - Service: 바뀐 행이 `0`이면 `POST_NOT_FOUND` 예외, `1`이면 예외 없음.
+  - Controller(`@WebMvcTest`): 쿠키 없음 → `204`, Service 1회 호출, `Set-Cookie`에 `post_viewed`와 `Path=/api/v1/posts/{slug}/views`. 쿠키 있음 → `204`, Service 호출 없음, `Set-Cookie` 없음. Service가 `POST_NOT_FOUND`를 던짐 → `404` ProblemDetail, `Set-Cookie` 없음.
+  - `CookieUtilTest`: `post_viewed` 쿠키의 이름·값·Path·`Max-Age=86400`·HttpOnly·SameSite=Lax·Secure(설정값).
+  - `SecurityConfigTest`: 인증·CSRF 토큰 없이 `POST /api/v1/posts/nope/views` → `404` `POST_NOT_FOUND`(CSRF·인가를 지난다). 같은 조건의 `POST /api/v1/posts/nope`(다른 경로), `PUT /api/v1/posts/nope/views`(다른 메서드), `POST /api/v1/posts/a/b/views`(두 마디) → 모두 `403` `INVALID_CSRF_TOKEN`(제외 범위가 POST와 한 마디 경로뿐, 10-5).
 
 ### 8-3. 인증 API
 
@@ -334,7 +357,7 @@ GET /api/v1/admin/posts?page=0&size=10&status=DRAFT
 }
 ```
 - `categoryId`는 폼의 카테고리 선택값이다 (작성 요청이 `categoryId`로 받는다). 카테고리가 없는 글은 `categoryId`와 `category`가 모두 `null`이다. `category`는 공개 상세와 같은 이름·slug 형태로, 폼이 선택된 항목을 표시하는 데 쓴다.
-- `publishedAt`은 한 번도 발행하지 않은 DRAFT면 `null`이다 (발행했다가 DRAFT로 돌린 글은 최초 발행 시각이 남는다, `PUT`). `tags`는 태그 이름 배열이고 순서는 8-1 `tags` 순서, 태그가 없으면 `[]`다. 조회수(`viewCount`)는 M6에서 구현하므로 넣지 않는다.
+- `publishedAt`은 한 번도 발행하지 않은 DRAFT면 `null`이다 (발행했다가 DRAFT로 돌린 글은 최초 발행 시각이 남는다, `PUT`). `tags`는 태그 이름 배열이고 순서는 8-1 `tags` 순서, 태그가 없으면 `[]`다. 조회수(`viewCount`)는 넣지 않는다 (공개 상세에만 둔다, 8-2).
 - 조회는 `PostRepository.findWithCategoryById(Long id)`(`@EntityGraph(attributePaths = "category")`)로 한다. 상태 조건이 없어 DRAFT·PUBLISHED 모두 조회되고(공개 상세의 `findBySlugAndStatus`와 다르다), 카테고리를 함께 읽어 `category`·`categoryId` 때문에 쿼리가 더 나가지 않는다. Repository 테스트로 검증한다. `tags`는 그 뒤 `PostTagRepository.findAllWithTagByPostIdIn(List.of(id))`로 채운다 (5장 글 응답 `tags`). `AdminPostDetailResponse.from`은 `Post`와 태그 이름 목록을 받는다.
 - 없는 `id`: `404` `POST_NOT_FOUND`.
 - 경로의 `id`가 Long으로 읽히지 않으면(`abc`, 범위 초과) `400` `INVALID_INPUT` (`errors` `[]`). Long으로 읽히면 그 값으로 조회하고, 없으면(`0`, 음수 포함) `404`다 (카테고리와 같다, 아래 '공통').
