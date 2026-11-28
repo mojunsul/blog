@@ -183,4 +183,41 @@ class PostRepositoryTest extends RepositoryTestSupport {
 		assertThat(postTagRepository.findAll()).isEmpty();
 		assertThat(tagRepository.findAll()).hasSize(1);
 	}
+
+	@Test
+	void 조회수를_올리면_view_count만_1_늘고_updated_at은_그대로다() {
+		// given
+		Post post = postRepository
+			.saveAndFlush(PostFixture.published("published", Instant.parse("2026-10-13T01:00:00Z")));
+		em.clear();
+		Instant updatedAt = postRepository.findById(post.getId()).orElseThrow().getUpdatedAt();
+		em.clear();
+
+		// when
+		int updated = postRepository.increaseViewCount("published", PostStatus.PUBLISHED);
+		em.clear();
+
+		// then
+		Post found = postRepository.findById(post.getId()).orElseThrow();
+		assertThat(updated).isEqualTo(1);
+		assertThat(found.getViewCount()).isEqualTo(1);
+		assertThat(found.getUpdatedAt()).isEqualTo(updatedAt);
+	}
+
+	@Test
+	void DRAFT_글과_없는_slug는_조회수를_올리지_않는다() {
+		// given
+		Post draft = postRepository.saveAndFlush(PostFixture.draft("draft"));
+		em.clear();
+
+		// when
+		int draftUpdated = postRepository.increaseViewCount("draft", PostStatus.PUBLISHED);
+		int missingUpdated = postRepository.increaseViewCount("missing", PostStatus.PUBLISHED);
+		em.clear();
+
+		// then
+		assertThat(draftUpdated).isZero();
+		assertThat(missingUpdated).isZero();
+		assertThat(postRepository.findById(draft.getId()).orElseThrow().getViewCount()).isZero();
+	}
 }
