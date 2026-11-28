@@ -4,7 +4,11 @@ import static org.hamcrest.Matchers.nullValue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.BDDMockito.then;
+import static org.mockito.BDDMockito.willThrow;
+import static org.mockito.Mockito.never;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -17,6 +21,7 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
 import org.springframework.context.annotation.Import;
@@ -29,13 +34,17 @@ import io.github.mojunsul.blog.domain.post.dto.PostSearchRequest;
 import io.github.mojunsul.blog.domain.post.dto.PostSummaryResponse;
 import io.github.mojunsul.blog.domain.post.service.PostService;
 import io.github.mojunsul.blog.global.common.PageResponse;
+import io.github.mojunsul.blog.global.config.AuthProperties;
 import io.github.mojunsul.blog.global.exception.BusinessException;
 import io.github.mojunsul.blog.global.exception.ErrorCode;
 import io.github.mojunsul.blog.global.exception.GlobalExceptionHandler;
+import io.github.mojunsul.blog.global.security.CookieUtil;
+import jakarta.servlet.http.Cookie;
 
 @WebMvcTest(PostController.class)
 @AutoConfigureMockMvc(addFilters = false)
-@Import(GlobalExceptionHandler.class)
+@Import({GlobalExceptionHandler.class, CookieUtil.class})
+@EnableConfigurationProperties(AuthProperties.class)
 class PostControllerTest {
 
 	@Autowired
@@ -168,7 +177,7 @@ class PostControllerTest {
 	void 글_상세를_본문과_수정_시각을_포함해_응답한다() throws Exception {
 		// given
 		PostDetailResponse post = new PostDetailResponse(1L, "제목", "my-post", null, "# 본문", null, null, List.of(),
-			Instant.parse("2026-10-11T01:00:00Z"), Instant.parse("2026-10-11T03:30:00Z"));
+			Instant.parse("2026-10-11T01:00:00Z"), Instant.parse("2026-10-11T03:30:00Z"), 128L);
 		given(postService.getPublishedPost("my-post")).willReturn(post);
 
 		// when & then
@@ -179,7 +188,8 @@ class PostControllerTest {
 			.andExpect(jsonPath("$.category").value(nullValue()))
 			.andExpect(jsonPath("$.tags").isEmpty())
 			.andExpect(jsonPath("$.publishedAt").value("2026-10-11T01:00:00Z"))
-			.andExpect(jsonPath("$.updatedAt").value("2026-10-11T03:30:00Z"));
+			.andExpect(jsonPath("$.updatedAt").value("2026-10-11T03:30:00Z"))
+			.andExpect(jsonPath("$.viewCount").value(128));
 	}
 
 	@Test
@@ -191,5 +201,37 @@ class PostControllerTest {
 		mockMvc.perform(get("/api/v1/posts/missing"))
 			.andExpect(status().isNotFound())
 			.andExpect(jsonPath("$.code").value("POST_NOT_FOUND"));
+	}
+
+	@Test
+	void 쿠키가_없으면_조회수를_올리고_post_viewed_쿠키를_내려준다() throws Exception {
+		// when & then
+		mockMvc.perform(post("/api/v1/posts/my-post/views"))
+			.andExpect(status().isNoContent())
+			.andExpect(header().string("Set-Cookie", org.hamcrest.Matchers.allOf(
+				org.hamcrest.Matchers.containsString("post_viewed=1"),
+				org.hamcrest.Matchers.containsString("Path=/api/v1/posts/my-post/views"))));
+		then(postService).should().increaseViewCount("my-post");
+	}
+
+	@Test
+	void 쿠키가_있으면_조회수를_올리지_않고_쿠키도_내리지_않는다() throws Exception {
+		// when & then
+		mockMvc.perform(post("/api/v1/posts/my-post/views").cookie(new Cookie("post_viewed", "1")))
+			.andExpect(status().isNoContent())
+			.andExpect(header().doesNotExist("Set-Cookie"));
+		then(postService).should(never()).increaseViewCount(any());
+	}
+
+	@Test
+	void 조회수를_올릴_글이_없으면_404이고_쿠키를_내리지_않는다() throws Exception {
+		// given
+		willThrow(new BusinessException(ErrorCode.POST_NOT_FOUND)).given(postService).increaseViewCount("missing");
+
+		// when & then
+		mockMvc.perform(post("/api/v1/posts/missing/views"))
+			.andExpect(status().isNotFound())
+			.andExpect(jsonPath("$.code").value("POST_NOT_FOUND"))
+			.andExpect(header().doesNotExist("Set-Cookie"));
 	}
 }
